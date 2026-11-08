@@ -1,0 +1,4 @@
+{
+  "reflection": [{"type":"net.minecraft.fabricaot_fixture.Target","fields":[{"name":"widened"}]}],
+  "resources": [{"glob":"fabricaot-b0-nested.txt"}]
+}

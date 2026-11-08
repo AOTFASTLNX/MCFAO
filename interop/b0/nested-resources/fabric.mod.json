@@ -1,0 +1,1 @@
+{"schemaVersion":1,"id":"fabricaot_b0_nested","version":"1.0.0","name":"FabricAOT nested first-party fixture","environment":"client","entrypoints":{"main":["fabricaot.b0.nested.NestedEntrypoint"]},"depends":{"java":">=25"}}

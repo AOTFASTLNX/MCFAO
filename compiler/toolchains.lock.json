@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "javaMajor": 25,
+  "graalvm": {
+    "version": "25.0.2",
+    "file": "graalvm-community-jdk-25.0.2_macos-aarch64_bin.tar.gz",
+    "url": "https://github.com/graalvm/graalvm-ce-builds/releases/download/jdk-25.0.2/graalvm-community-jdk-25.0.2_macos-aarch64_bin.tar.gz",
+    "sha256": "50201fb8e8e653e7a253d955877a6b6ad634b42e60c84f45df7e1bb51361635f",
+    "size": 325426892,
+    "license": "GPL-2.0 with Classpath Exception; inspect bundled legal notices",
+    "source": "https://github.com/graalvm/graalvm-ce-builds/releases/tag/jdk-25.0.2"
+  },
+  "iosCandidate": {
+    "repository": "https://github.com/utopia-rise/ios-graal-native-image",
+    "sourceCommit": "7baee857eba8a24e20f62ea954212c0ed55c604a",
+    "releaseCommit": "0cf4068e3bc7d3de24d4e0d3c7831226c2671afe",
+    "file": "ios-graal-jdk25.zip",
+    "url": "https://github.com/utopia-rise/ios-graal-native-image/releases/download/jdk25/ios-graal-jdk25.zip",
+    "sha256": "32a324351412194cba932d86e39d2f30653194e7ee121d8c0075420dee5fedaa",
+    "size": 358468,
+    "requiredGraalVM": "25.0.2",
+    "jdkSourceCommit": "3bdcc4536ac3ee02420bcfbfa6fdd3f4bc7d6831",
+    "graalSourceCommit": "6589574a0c5561605d619d2a5aa0d9ad11c61efa",
+    "licenseStatus": "UNKNOWN: no top-level license in inspected source tree",
+    "executionAllowed": false,
+    "purpose": "Static archive inspection only; not a verified iOS runtime"
+  }
+}

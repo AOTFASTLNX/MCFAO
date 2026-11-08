@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "jdk": {
+    "repository": "graalvm/labs-openjdk",
+    "commit": "3bdcc4536ac3ee02420bcfbfa6fdd3f4bc7d6831",
+    "archiveSHA256": "bc50a0ec79c2a6a57c8c8547d1e99661713dac043c405722612b5a78f3e93a54",
+    "url": "https://codeload.github.com/graalvm/labs-openjdk/tar.gz/3bdcc4536ac3ee02420bcfbfa6fdd3f4bc7d6831",
+    "licenseFiles": ["LICENSE", "ADDITIONAL_LICENSE_INFO", "ASSEMBLY_EXCEPTION"]
+  },
+  "graal": {
+    "repository": "oracle/graal",
+    "commit": "6589574a0c5561605d619d2a5aa0d9ad11c61efa",
+    "archiveSHA256": "d88726885469868457898ee204673a4c849bc03f897d53120c46e6c4ffa27e0b",
+    "url": "https://codeload.github.com/oracle/graal/tar.gz/6589574a0c5561605d619d2a5aa0d9ad11c61efa",
+    "licenseFiles": ["substratevm/LICENSE", "substratevm/LICENSE_NATIVEIMAGE.txt"]
+  }
+}

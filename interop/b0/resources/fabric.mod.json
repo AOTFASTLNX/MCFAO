@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "fabricaot_b0_parent",
+  "version": "1.0.0",
+  "name": "FabricAOT first-party B0 fixture",
+  "environment": "client",
+  "depends": {"fabricloader": "=0.19.3", "minecraft": "=26.1.2", "java": ">=25", "fabricaot_b0_nested": "=1.0.0"},
+  "entrypoints": {"main": ["fabricaot.b0.ParentEntrypoint"]},
+  "mixins": ["fabricaot-b0.mixins.json"],
+  "accessWidener": "fabricaot-b0.classtweaker",
+  "jars": [{"file": "META-INF/jars/fabricaot-b0-nested.jar"}]
+}

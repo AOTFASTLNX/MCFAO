@@ -1,0 +1,9 @@
+/.cache/
+/artifacts/
+__pycache__/
+*.pyc
+.DS_Store
+*.p12
+*.mobileprovision
+*.ipa
+xcuserdata/

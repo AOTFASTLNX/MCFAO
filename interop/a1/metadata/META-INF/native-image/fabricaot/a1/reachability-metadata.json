@@ -1,0 +1,10 @@
+{
+  "resources": [{"glob": "fabricaot/probe/probe.txt"}],
+  "jni": [{
+    "type": "fabricaot.probe.A1Probe",
+    "methods": [
+      {"name": "add", "parameterTypes": ["int", "int"]},
+      {"name": "echo", "parameterTypes": ["java.lang.String"]}
+    ]
+  }]
+}
