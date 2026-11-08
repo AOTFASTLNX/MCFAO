@@ -17,7 +17,11 @@ Last reviewed: 2026-11-08
 - 不执行既有整合包 Mod，不改账户/存档/原始客户端。已按TECHNICAL_GATES建立本地Git提交；不包含游戏资产/缓存/产物，不设置远程或推送。证据另外通过指纹记录。
 - 所有持久生成物使用中央 AAR；可靠可重取缓存与历史证据分开标记，无自动清理。
 - Xcode ArchiveIntermediates 的 BuildProductsPath 包含 App 符号链接；AAR 拒绝跟随，构建树只登记专用根，实际归档/解包文件另登记。不要删除链接迁就登记。
-- 用户最新明确分工：助手运行Mac脚本测试，用户负责真机。不要因早期“测试暂时交给我”停止已授权Mac验证，也不要自动安装/启动iPhone App。69项回归PASS，含关闭输出流后仍强制超时的进程控制回归。
+- 用户最新明确分工：助手运行Mac脚本测试，用户负责真机。不要因早期“测试暂时交给我”停止已授权Mac验证，也不要自动安装/启动iPhone App。79项回归PASS，含关闭输出流后仍强制超时的进程控制回归。
 - B0 run-04是B1输入，19个源码输入保留source-snapshot-04；运行器后续增加资源记录与关闭流超时修复，需重新prepare。run-05复验PASS，不以其不同Target指纹替换既有B1链。
 - B1 build 4两份原始日志匹配B0_BEHAVIOR与B1_SEMANTICS_PASS，用户称一次连接Xcode、一次没连。设备结论存b1-user-device-run-01；包创建时的deviceRun NOT RUN保持历史，不回写。
 - C0 client-graph-07先过拒绝控制，再分析真实Main。6 GiB Java堆OOM退出3，CPU约566秒，无游戏对象/执行；不是不兼容证明。319个LWJGL静态引用候选不是动态覆盖或iOS适配完成。
+- C0后续09/10的6/8 GiB Parallel与11的8 GiB G1均OOM退出3，没有完整analysis_stats/build-output JSON；可达规模UNKNOWN。GC后堆约4.50/5.78/7.99 GiB，大量Full GC，无保留对象直方图/链，不能宣称已找到具体持有者。8 GiB是当前18 GiB主机受控上限，不盲增预算。
+- 08中构建JFR自动开启目标JFR，触发LibMDependencies.cap缺失；固定Graal JfrFeature源码确认了测量影响，原记录与源快照保留。后续使用GC日志/time/诊断模式，无构建JFR。
+- client_graph_diagnostics审计显式classpath的25个内置元数据文件：542反射、26 JNI、4资源声明；非唯一可达类数，SDK/Feature/推导未穷尽，未发现Preserve=all不等于已排除元数据膨胀。
+- compare_client_graph_runs核对09/10除堆/输出目录外相同；10/11仅GC参数变化，但构建器增加GC参数分支，源码SHA不相同并如实记录。analysisCompleted与目标生成/执行分开，完整Fabric客户端转换仍NOT RUN，不推进C1/C2。

@@ -51,6 +51,6 @@ xcrun devicectl device copy from --device 00008160-001A78620A600036 --domain-typ
 
 ## 后续处理
 
-本轮所有真机安装/运行由用户执行，Agent只读采集报告并检查日志。早期46项自动化测试及模拟器结果保留为历史证据；后续Mac脚本由助手负责，当前69项回归通过，见STATUS。A1独立运行的通过结论来自build 2原始断言与用户确认；build 3截图/日志另行保留。签名权限只有 application identifier、team identifier 和标准开发签名的 get-task-allow；没有 JIT 权限。小屏/横屏、最大文字、VoiceOver与暗色模式等UI扩展验证仍交由用户，未宣称全部完成。
+本轮所有真机安装/运行由用户执行，Agent只读采集报告并检查日志。早期46项自动化测试及模拟器结果保留为历史证据；后续Mac脚本由助手负责，当前回归结果见STATUS。A1独立运行的通过结论来自build 2原始断言与用户确认；build 3截图/日志另行保留。签名权限只有 application identifier、team identifier 和标准开发签名的 get-task-allow；没有 JIT 权限。小屏/横屏、最大文字、VoiceOver与暗色模式等UI扩展验证仍交由用户，未宣称全部完成。
 
 到期后用相同 Team/Bundle ID 重新签名并覆盖安装；保留现有 App 和 Documents。安装更新与数据保留尚待验证。生成的新设备记录需要后续核验并登记中央 AAR。

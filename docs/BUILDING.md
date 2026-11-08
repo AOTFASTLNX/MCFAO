@@ -97,10 +97,12 @@ python3 -B -m unittest discover -s tests -v
 python3 -B tools/verify_evidence.py --output artifacts/evidence/verification-new.json
 ```
 
-本轮69项单元/安全回归测试通过，原始输出在artifacts/evidence/unit-tests-b1-c0-final/。Mac脚本由助手执行，真机由用户负责。verify_evidence 检查命令输出、二进制、运行库和 Framework 指纹；当前源清单含 docs/.codex。它不认证游戏或设备行为。
+本轮79项单元/安全回归测试通过，原始输出在artifacts/evidence/unit-tests-c0-diagnostics-verified/。Mac脚本由助手执行，真机由用户负责。verify_evidence 检查命令输出、二进制、运行库和 Framework 指纹；当前源清单含 docs/.codex。它不认证游戏或设备行为。
 
 AAR 只使用 /Users/kexin/Documents/Codex/monitor/registry.sqlite。可靠可再取得的固定缓存带 regenerable；历史运行记录、耦合的源构建状态和设备状态保留。安全删除标志均 false，不执行清理。新产物需重新核验登记。外部专用测试目录可显式提供 --external-build-root，不能用主目录或系统目录作项目。
 
 tools/register_artifacts.py 用于不含符号链接的实验树，发现链接会明确拒绝递归登记。Xcode 归档构建目录含有指向实际 App 的符号链接，按独立 BUILD 目录登记且不跟随该链接，方式与含内部链接的 JDK 缓存相同。device-handoff 的归档/解包文件和 evidence 可分别 include-files 登记；导出目录以 DISTRIBUTION 再登记，记录 xcodebuild 导出命令。不得为登记改动或删除 Xcode 的链接。
 
 本地Git提交保存第一方源码与文档，`git log -1`查看；原始游戏/玩家数据和生成物未纳入。建立Git后中央AAR项目身份须重新登记同步，不能继续沿用旧身份。
+
+真实客户端分析支持有界6/8 GiB与Mac构建GC对照，命令及测量限制见[CLIENT_GRAPH_DIAGNOSTICS](CLIENT_GRAPH_DIAGNOSTICS.md)。构建JFR会改变目标JFR配置，本轮08保留提前失败记录，09/10/11均OOM，C0继续BLOCKED。

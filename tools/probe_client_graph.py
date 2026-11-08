@@ -12,11 +12,14 @@ from pathlib import Path
 from bootstrap_toolchain import sha256
 from capture import ROOT
 from run_b0_reference import execute, require_run, sandbox_policy
+from client_graph_diagnostics import audit_metadata, parse_time_rss, read_analysis_statistics, summarize_gc_logs
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--heap-gib", type=int, choices=(6, 8), default=6)
+    parser.add_argument("--builder-gc", choices=("parallel", "g1"), default="parallel")
     args = parser.parse_args(argv)
     if json.loads((ROOT / "artifacts/evidence/b1-user-device-run-01/result.json").read_text())["gateB1"] != "PASS":
         parser.error("Confirmed B1 device behavior required")
@@ -36,6 +39,10 @@ def main(argv=None):
         libraries.append(path)
     output = args.output.absolute()
     output.mkdir(parents=True, exist_ok=False)
+    sources=output/"source"
+    for name in ["probe_client_graph.py","client_graph_diagnostics.py","run_b0_reference.py"]:
+        sources.mkdir(exist_ok=True)
+        shutil.copy2(ROOT/"tools"/name,sources/name)
     work = output / "work"
     for name in ["tmp", "home", "caps"]:
         (work / name).mkdir(parents=True, exist_ok=True)
@@ -66,8 +73,28 @@ def main(argv=None):
     outside_write = output / "outside-write.txt"
     result = {"status":"BLOCKED", "gateC0":"BLOCKED", "mode":"client-graph-diagnostic",
               "scope":"real net.minecraft.client.main.Main reachability only; no game execution, auth arguments or rendering",
-              "classpathSHA256":{str(p):sha256(p) for p in libraries}}
+              "classpathSHA256":{str(p):sha256(p) for p in libraries},
+              "gateC1":"NOT RUN", "gateC2":"NOT RUN", "heapGiB":args.heap_gib,
+              "targetCodeGeneration":"NOT RUN", "targetExecution":"NOT RUN",
+              "fullClientFabricTransformation":"NOT RUN",
+              "analysisCompleted":False, "builderJfrEnabled":False,
+              "builderGC":args.builder_gc,
+              "builderSHA256":sha256(Path(__file__)),
+              "diagnosticsHelperSHA256":sha256(ROOT/"tools/client_graph_diagnostics.py")}
     try:
+        host = subprocess.run(["/usr/bin/memory_pressure", "-Q"], capture_output=True, text=True, timeout=10)
+        (output/"host-memory-before.log").write_text(host.stdout+host.stderr)
+        import re
+        physical = re.search(r"system has (\d+)", host.stdout)
+        free = re.search(r"memory free percentage:\s*(\d+)%", host.stdout)
+        if host.returncode or not physical or not free:
+            raise RuntimeError("Cannot establish host memory budget")
+        result["hostMemory"]={"physicalBytes":int(physical.group(1)), "availablePercent":int(free.group(1)),
+                              "heapLimitGiB":args.heap_gib, "check":"preflight only; not an RSS limit"}
+        if args.heap_gib*1024**3 > int(physical.group(1))*0.45 or int(free.group(1)) < (45 if args.heap_gib==8 else 35):
+            raise RuntimeError("Host memory headroom below bounded experiment threshold")
+        if shutil.disk_usage(output).free < 8*1024**3:
+            raise RuntimeError("Less than 8 GiB free disk headroom")
         with socket.socket() as listener:
             listener.bind(("127.0.0.1",0));listener.listen(1);listener.settimeout(0.05)
             step=output/"sandbox-probe"
@@ -80,20 +107,38 @@ def main(argv=None):
                 connection,_=listener.accept();connection.close();raise RuntimeError("Network allowed")
             except socket.timeout:pass
         result["sandboxProbe"]="PASS"
-        cmd=[*base,str(executable),"--no-fallback","-O1","--parallelism=4","-J-Xmx6g","-J-XX:-UsePerfData",
+        cmd=[*base,str(executable),"--no-fallback","-O1","--parallelism=4",f"-J-Xmx{args.heap_gib}g","-J-XX:-UsePerfData",
              "-J-Duser.home="+str(work/"home"),"-J-Djava.io.tmpdir="+str(work/"tmp"),"-H:+UnlockExperimentalVMOptions",
-             "--shared","-H:-CheckToolchain","-H:CCompilerPath="+str(compiler),"-H:CLibraryPath="+str(runtime_dir),"-H:PageSize=16384","-Dsvm.targetName=iOS","-Dsvm.targetArch=arm64",
+             "--shared","--verbose","--diagnostics-mode","-H:+PrintAnalysisStatistics",
+             "-H:BuildOutputJSONFile="+str(work/"build-output.json"),
+             "-J-Xlog:gc*,safepoint:file="+str(work/"gc.log")+":time,uptime,level,tags:filecount=2,filesize=8M",
+             "-H:-CheckToolchain","-H:CCompilerPath="+str(compiler),"-H:CLibraryPath="+str(runtime_dir),"-H:PageSize=16384","-Dsvm.targetName=iOS","-Dsvm.targetArch=arm64",
              "-Dsvm.platform=org.graalvm.nativeimage.Platform$IOS_AARCH64","-H:+ExitAfterAnalysis","-H:+UseCAPCache",
              "-H:CAPCacheDir="+str(work/"caps"),"-H:TempDirectory="+str(work/"native-tmp"),
              "--initialize-at-run-time=net.minecraft,com.mojang,org.lwjgl,com.microsoft,io.netty",
              "--enable-native-access=ALL-UNNAMED","-cp",":".join(map(str,libraries)),"-o",str(work/"client-graph"),
              "net.minecraft.client.main.Main"]
-        built=execute(cmd,output/"analysis",work,timeout=600,cpu_seconds=1800)
+        if args.builder_gc=="g1":
+            # These flags affect the Mac build JVM, not the target iOS collector.
+            cmd[cmd.index("-J-XX:-UsePerfData"):cmd.index("-J-XX:-UsePerfData")]=[
+                "-J-XX:-UseParallelGC","-J-XX:+UseG1GC"]
+        audit=audit_metadata(libraries,cmd)
+        (output/"metadata-audit.json").write_text(json.dumps(audit,indent=2)+"\n")
+        if audit["preserveAllOccurrences"]:raise RuntimeError("Broad preservation requires review before analysis")
+        built=execute(["/usr/bin/time","-l",*cmd],output/"analysis",work,timeout=600,cpu_seconds=1800)
         result["analysisExitCode"]=built["exitCode"]
         result["timedOut"]=built["timedOut"]
         result["childCPUSeconds"]=built["childCPUSeconds"]
         result["outputLimitExceeded"]=built["outputLimitExceeded"]
-        result["status"]="ANALYZED" if built["exitCode"]==0 and not built["timedOut"] else "BLOCKED"
+        result["wallSeconds"]=built["finishedUnix"]-built["startedUnix"]
+        result["maximumResidentSetBytes"]=parse_time_rss((output/"analysis/stderr.log").read_text())
+        result["analysisStatistics"]=read_analysis_statistics(work)
+        result["buildOutputJSONPresent"]=(work/"build-output.json").exists()
+        logs=sorted(work.glob("gc.log*"),key=lambda p:p.stat().st_mtime_ns)
+        result["gcSummary"]=summarize_gc_logs("\n".join(p.read_text(errors="replace") for p in logs))
+        result["analysisCompleted"]=bool(built["exitCode"]==0 and not built["timedOut"]
+            and result["analysisStatistics"] and not built["outputLimitExceeded"])
+        result["status"]="ANALYZED" if result["analysisCompleted"] else "BLOCKED"
     except Exception as error:result["error"]=str(error)
     result["filesSHA256"]={str(p.relative_to(output)):sha256(p) for p in output.rglob("*") if p.is_file() and not p.is_symlink() and p.name!="result.json"}
     (output/"result.json").write_text(json.dumps(result,indent=2)+"\n")

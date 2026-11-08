@@ -17,13 +17,13 @@
 | A1 build 3 运行状态显示 | PASS（用户截图/运行） | 显示本次开始时间、0.022秒耗时和新日志名；原始记录 artifacts/evidence/a1-user-device-run-04/。build 3这一次的独立启动条件未单独询证，A1独立运行结论来自build 2 |
 | B0真实构建期转换 | PASS（助手Mac隔离执行） | artifacts/b0/run-04/；真实Knot/Mixin、ClassTweaker访问修改、嵌套JAR和Entrypoint，导出重放一致，未转换负例准确失败 |
 | B1 iOS AOT行为 | PASS（用户真机执行） | artifacts/evidence/b1-user-device-run-01/；build 4两次原生返回全0，行为与B0一致；用户确认一次连接Xcode、一次未连接 |
-| C0 | BLOCKED | 真实客户端入口可达性分析与原生API清单见ADR-003；没有iOS客户端引导执行结果 |
+| C0 | BLOCKED | 09/10轮6/8 GiB堆和11轮8 GiB G1对照均Java heap OOM；无完整分析统计。见CLIENT_GRAPH_DIAGNOSTICS.md；没有iOS客户端引导执行结果 |
 | C1 / C2 | NOT RUN | 无真实Minecraft iOS渲染、菜单或世界行为 |
 | D0 | PARTIAL | 离线元数据/研究工具负例已测试；默认拒绝沙盒读/写/本地连接控制通过；恶意Mod/Gradle、IPC、完整下载/依赖服务未验收 |
 | D1 / D2 | NOT RUN | 无已验证整合包、签名游戏 IPA、安装更新/存档保留结果 |
 | E | NOT RUN | 无真机游戏性能、温度或持续游玩数据 |
 
-当前69项自动化回归全部PASS，结果见 artifacts/evidence/unit-tests-b1-c0-final/。新增转换输入完整性、JAR解析和进程超时回归。根据用户最新分工，Mac脚本测试由助手执行，真机安装/运行由用户负责。
+当前79项自动化回归全部PASS，结果见 artifacts/evidence/unit-tests-c0-diagnostics-verified/。新增元数据审计、GC日志指标和受控变量比较回归。根据用户最新分工，Mac脚本测试由助手执行，真机安装/运行由用户负责。
 
 主机：macOS 27.2 arm64，Xcode/iPhoneOS SDK 27.2，GraalVM CE 25.0.2。用户 iPhone/iOS27.2 的 build 2 原生日志确认 Java25语义运行通过，退出Xcode/拔线/重新打开条件由用户确认。专用调试模拟器与用户原有设备分开。
 

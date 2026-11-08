@@ -33,9 +33,13 @@
 | B1 build 4诊断IPA | artifacts/b1/device-handoff/result.json；包创建时为设备NOT RUN，历史不回写 |
 | B1用户两次真机PASS与独立启动确认 | artifacts/evidence/b1-user-device-run-01/、b1-user-device-copy-01/ |
 | 真实客户端原生方法引用清单 | artifacts/evidence/client-native-call-inventory.json；静态候选，不是iOS支持矩阵 |
-| 真实客户端入口分析阻断 | artifacts/c0/client-graph-07/；沙盒PASS，6 GiB Java堆耗尽，退出3 |
-| 当前自动化测试 | artifacts/evidence/unit-tests-b1-c0-final/；69项PASS |
-| 日志/二进制/源文件核验 | artifacts/evidence/verification-b1-c0-final.json |
+| 真实客户端入口原始分析阻断 | artifacts/c0/client-graph-07/；保留不变 |
+| 构建JFR导致的目标配置影响 | artifacts/c0/client-graph-08/；缺LibMDependencies.cap，未作为内存对照 |
+| 堆/GC有界诊断与源码快照 | artifacts/c0/client-graph-09/、10/、11/；6/8 GiB Parallel与8 GiB G1均OOM，无完整分析统计 |
+| 受控变量验证 | artifacts/c0/heap-comparison-verified.json、gc-comparison-verified.json |
+| 元数据审计 | 各轮metadata-audit.json；声明来源与范围，不是反射/JNI闭包完成证明 |
+| 当前自动化测试 | artifacts/evidence/unit-tests-c0-diagnostics-verified/；79项PASS |
+| 日志/二进制/源文件核验 | artifacts/evidence/verification-c0-diagnostics-final.json |
 
 JVM、桌面 AOT、负例和早期编译失败亦保留在 artifacts/a1 与 evidence。旧实验无源码快照时不能精确恢复旧源码；指纹描述当时输入和产物。
 

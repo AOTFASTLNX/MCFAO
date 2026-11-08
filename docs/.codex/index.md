@@ -6,4 +6,4 @@ Last reviewed: 2026-11-08
 - [现有架构与能力](architecture.md)
 - [持久决策](memory.md)
 
-验收事实以 [STATUS](../STATUS.md) 和 [ADR-001](../evidence/ADR-001.md) 为准。
+验收事实以 [STATUS](../STATUS.md) 、[ADR-001](../evidence/ADR-001.md)及[客户端分析诊断](../CLIENT_GRAPH_DIAGNOSTICS.md) 为准。
