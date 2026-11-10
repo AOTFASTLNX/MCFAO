@@ -12,6 +12,7 @@ import org.objectweb.asm.tree.MethodInsnNode;
 
 final class RuntimeLowering implements Opcodes {
     private static final String LOADER = "net/fabricmc/loader/api/FabricLoader";
+    private static final String HOOKS = "mcfao/aot/Entrypoints";
     private static final String EVENTS = "net/fabricmc/fabric/impl/base/event/EventFactoryImpl";
     private static final String EVENTS_SHA256 = "065be26b910ddcf78f27e48d2808eb7ecbacfbcdc38292459ca2c8f496ae7d79";
     private static final Set<String> ACCESSOR_ANNOTATIONS = Set.of(
@@ -59,6 +60,21 @@ final class RuntimeLowering implements Opcodes {
                     method.instructions.remove(next);
                     adaptations.add(location + "isModLoaded(" + id + ")=" + loaded);
                 }
+            }
+            // A query whose id is not a literal cannot be folded. Route it to the generated
+            // membership test so the image never reaches the build-time Loader instance.
+            for (var instruction : method.instructions.toArray()) {
+                if (!(instruction instanceof MethodInsnNode call) || !call.owner.equals(LOADER)
+                        || !call.name.equals("isModLoaded") || !call.desc.equals("(Ljava/lang/String;)Z")
+                        || call.getOpcode() != INVOKEINTERFACE) continue;
+                var argument = call.getPrevious();
+                var receiver = argument == null ? null : argument.getPrevious();
+                if (!(receiver instanceof MethodInsnNode source) || !source.owner.equals(LOADER)
+                        || !source.name.equals("getInstance") || source.getOpcode() != INVOKESTATIC) continue;
+                method.instructions.set(call, new MethodInsnNode(INVOKESTATIC, HOOKS,
+                        "isModLoaded", "(Ljava/lang/String;)Z", false));
+                method.instructions.remove(source);
+                adaptations.add(node.name + "#" + method.name + " isModLoaded(query)=generated membership test");
             }
             for (var instruction : method.instructions) {
                 if (instruction instanceof MethodInsnNode call && call.owner.startsWith("net/fabricmc/loader/")) {

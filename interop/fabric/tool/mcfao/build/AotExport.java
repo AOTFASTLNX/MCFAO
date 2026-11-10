@@ -207,7 +207,7 @@ public final class AotExport implements Opcodes {
                     put(jar, names, name, resource.readAllBytes());
                 }
             }
-            put(jar, names, STATIC_HOOKS + ".class", staticHooks(entries));
+            put(jar, names, STATIC_HOOKS + ".class", staticHooks(entries, loadedIds));
             modClasses.add(STATIC_HOOKS.replace('/', '.'));
             put(jar, names, METADATA + "native-image.properties",
                     utf8("Args = --initialize-at-run-time=" + String.join(",", modClasses) + "\n"));
@@ -345,7 +345,7 @@ public final class AotExport implements Opcodes {
         }
     }
 
-    private static byte[] staticHooks(List<Entry> entries) {
+    private static byte[] staticHooks(List<Entry> entries, Set<String> loadedIds) {
         var writer = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
         writer.visit(V25, ACC_PUBLIC | ACC_FINAL, STATIC_HOOKS, null, "java/lang/Object", null);
         var start = writer.visitMethod(ACC_PUBLIC | ACC_STATIC, "startClient", "(Ljava/io/File;Ljava/lang/Object;)V", null, null);
@@ -372,6 +372,25 @@ public final class AotExport implements Opcodes {
         start.visitInsn(RETURN);
         start.visitMaxs(0, 0);
         start.visitEnd();
+        // RuntimeLowering routes non-literal isModLoaded queries here. A membership test keeps
+        // the answer identical to the build-time Loader without touching it at runtime.
+        var query = writer.visitMethod(ACC_PUBLIC | ACC_STATIC, "isModLoaded",
+                "(Ljava/lang/String;)Z", null, null);
+        query.visitCode();
+        for (String id : loadedIds) {
+            query.visitLdcInsn(id);
+            query.visitVarInsn(ALOAD, 0);
+            query.visitMethodInsn(INVOKEVIRTUAL, "java/lang/String", "equals", "(Ljava/lang/Object;)Z", false);
+            var next = new Label();
+            query.visitJumpInsn(IFEQ, next);
+            query.visitInsn(ICONST_1);
+            query.visitInsn(IRETURN);
+            query.visitLabel(next);
+        }
+        query.visitInsn(ICONST_0);
+        query.visitInsn(IRETURN);
+        query.visitMaxs(0, 0);
+        query.visitEnd();
         var brand = writer.visitMethod(ACC_PUBLIC | ACC_STATIC, "insertBranding", "(Ljava/lang/String;)Ljava/lang/String;", null, null);
         brand.visitCode();
         var fabric = new Label();

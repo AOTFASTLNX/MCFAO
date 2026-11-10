@@ -192,11 +192,15 @@ def transformation_checks(inventory, metadata, *, client_ids=None):
         with zipfile.ZipFile(path) as archive:
             for name in parsed["mixins"]:
                 config = read_entry(archive, name)
-                if (any(config.get(key) for key in ("plugin", "parent", "injectionPoints", "dynamicSelectors"))
+                # A MixinConfigPlugin is a build-time hook: the real Knot applies it while the
+                # image is assembled, so it never has to exist at runtime. Parent configs,
+                # declared injection points and dynamic selectors still change which classes
+                # Mixin emits and remain unsupported.
+                if (any(config.get(key) for key in ("parent", "injectionPoints", "dynamicSelectors"))
                         or (config.get("refmap") and needs_reference_remapping(archive, config["refmap"]))
                         or config.get("required") is not True
                         or not re.fullmatch(r"[\w$]+(?:\.[\w$]+)*", config.get("package", ""), re.ASCII)):
-                    unsupported(f"Mixin config must be required, plugin-free and use official names: {name}")
+                    unsupported(f"Mixin config must be required and use official names: {name}")
             if parsed.get("classTweaker"):
                 name = parsed["classTweaker"]
                 if name not in names:

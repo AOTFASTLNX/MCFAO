@@ -23,16 +23,18 @@
 
 ## 整合包增量（第 48 轮）
 
-- Recollection3 本地实例的元数据预检现在是 65 条诊断、39 组阻塞根 JAR；本轮开始前同一实例是 178 条、49 组。减少来自三处：`net/fabricmc/` 目录条目不再被误判为 Loader 类，`modmenu` 与提供者缺失的 `jei_mod_plugin` 入口记录跳过（10 条），以及 `Class::method` 入口形式改为受支持。 [预检报告](../artifacts/mcfao/recollection3-import-06/)
-- `fabric-networking-api-v1-6.3.0` 与 `fabric-api-base` 已通过隔离转换。三个 `Class::method` 入口在生成的 `mcfao/aot/Entrypoints` 里落为三条 `invokestatic`，`javap` 核验启动路径无反射。该模块此前被方法引用形式拦住。
-- 仍未生成整合包 IPA。剩余 65 条诊断按类：`META-INF/versions`/`services`/`native-image` 36 条、Mixin 配置 12 条、保留依赖 id 4 条、由已打包 Mod 消费的自定义阶段（`sodium:config_api_user` 3、`jade`/`glitchcore`/`ebe_v1`/`rei_client`/`voicechat`/`preLaunch` 各 1）、`fabric-language-kotlin` 的 Schema 1 与 Kotlin 语言适配器 1 条。`fabric-api` 聚合包内的 `fabric-renderer-indigo`（Mixin 配置）继续阻塞；Sodium/Iris 直接调用桌面 OpenGL，需在测试配置中排除。
+- Recollection3 本地实例的元数据预检现在是 54 条诊断、31 组阻塞根 JAR；本轮开始前同一实例是 178 条、49 组。减少来自四处：`net/fabricmc/` 目录条目不再被误判为 Loader 类，`modmenu` 与提供者缺失的 `jei_mod_plugin` 入口记录跳过（17 条），`Class::method` 入口形式改为受支持，以及 `MixinConfigPlugin` 从拒绝项改为构建期钩子。 [预检报告](../artifacts/mcfao/recollection3-import-07/)
+- `fabric-networking-api-v1-6.3.0` 与 `fabric-api-base` 已通过隔离转换。三个 `Class::method` 入口在生成的 `mcfao/aot/Entrypoints` 里落为三条 `invokestatic`，`javap` 核验启动路径无反射。 [转换报告](../artifacts/mcfao/networking-transform-01/result.json)
+- `chat_heads-1.2.2` 已通过隔离转换：它的 `MixinPlugin` 在 Knot 里实际执行，18 个客户端类被 Mixin 改写（`ChatComponent`、`ClientPacketListener`、`GuiRenderer`、`PlayerGlyphProvider` 等），`CompatImpl#isModLoaded(String)` 的非字面量查询被改写成生成的成员测试。 [转换报告](../artifacts/mcfao/chat-heads-transform-01/result.json)
+- 仍未生成整合包 IPA。剩余 54 条诊断：`META-INF/versions`/`services`/`native-image` 36 条、保留依赖 id 4 条、由已打包 Mod 消费的自定义阶段（`sodium:config_api_user` 3，`jade`/`glitchcore`/`ebe_v1`/`rei_client`/`voicechat`/`preLaunch` 各 1）、`fabric-language-kotlin` 的 Schema 1 与 Kotlin 语言适配器，以及 `CustomSkinLoader` 的 refmap。
 - Kotlin 生态是当前最大的单一障碍：`fabric-language-kotlin` 要求 Schema 1 之外的 Kotlin 语言适配器，包内 20 余个 Kotlin Mod 的 `adapter: kotlin` 入口都依赖它。
 
 ## 兼容边界
 
 - `--prepare-only` 仅读取归档与元数据，最多检查 512 个根及嵌套归档；转换预算为 256 个归档，覆盖 Recollection3 本地实例解出的 53 个根与 168 个嵌套归档。两侧都保留原有展开大小限制。元数据读取容许顶层描述内的字面换行，其他字段继续接受严格检查。报告汇总现有 AOT 限制。构建须显式指定 `--audited-mods`，先通过项目沙盒的外部文件读写和环回连接负例，再执行 Knot。D0 仍缺少面向任意第三方 Mod 的完整隔离验证。
 - 支持官方命名空间下的公开 Java 类形式 `main`、`client` 入口，以及 `Class::method` 形式的无参 `void` 方法引用。方法引用在构建期解析为静态或实例调用，运行时不经过 `MethodHandle`；签名不匹配或目标不存在会直接报错。自定义语言适配器、`preLaunch`、旧式入口会被拒绝。`modmenu` 阶段和提供者缺失的 `jei_mod_plugin` 阶段记录到 `optionalEntrypointsSkipped` 并跳过——封闭世界客户端里没有查询它们的代码。`jade`、`glitchcore`、`ebe_v1`、`sodium:config_api_user` 等由已打包 Mod 查询的阶段仍需单独支持。当前静态入口在第一个异常时退出，异常聚合与上游仍有差异。
-- 支持必需、无插件、无 refmap 的官方命名空间 Mixin 配置。Mixin 插件、父配置和自定义选择器超出范围。Class Tweaker 由真实 Loader 装载，本轮的游戏夹具覆盖 Mixin，既有 B0/B1 证据覆盖访问修改与嵌套依赖。
+- 支持必需、无 refmap 重映射的官方命名空间 Mixin 配置，包括 `plugin` 声明的 `MixinConfigPlugin`。插件是构建期钩子：真实 Knot 在镜像组装时执行它，运行时不需要该类存在。父配置、显式 injection points 和动态选择器仍超出范围，因为它们会改变 Mixin 生成哪些类。Class Tweaker 由真实 Loader 装载，本轮的游戏夹具覆盖 Mixin，既有 B0/B1 证据覆盖访问修改与嵌套依赖。
+- `FabricLoader.getInstance().isModLoaded(String)` 的字面量查询在构建期折叠为常量；参数不是字面量时改写成生成的 `mcfao.aot.Entrypoints.isModLoaded` 成员测试，答案与构建期 Loader 一致。`isDevelopmentEnvironment`、`getEnvironmentType` 同样静态化，其它 Loader 运行时调用仍直接报错。
 - 字节码检查对直接调用 `defineClass`、`defineHiddenClass`、`URLClassLoader`、运行时 Loader API、动态代理和原生加载，以及声明的 native 方法给出 Mod、类和方法位置。任意反射、方法句柄间接生成类、动态 JNI 和服务发现仍需单独验证。含 `META-INF/services`、自带 Native Image 配置或本地库的 Mod 当前会被拒绝。
 - 当前资源仅覆盖无冲突的 `assets/`、`data/`，没有独立的 Mod 资源包优先级和 Mod JAR 文件系统语义。重名的类与资源会导致构建失败。
 

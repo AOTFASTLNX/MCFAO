@@ -213,13 +213,19 @@ class FabricInputTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Entrypoint must be a public Java class"):
             transformation_checks(inventory, [metadata])
 
-    def test_plugin_mixin_config_is_rejected_before_knot(self):
+    def test_mixin_plugin_is_a_build_time_hook_only(self):
+        # The real Knot applies the plugin while the image is assembled, so the config is
+        # accepted; a parent config still overrides which Mixins Mixin emits.
+        metadata = {"client": True, "id": "test_mod", "entrypoints": {}, "mixins": ["test.mixins.json"]}
         root = self.jar([("fabric.mod.json", '{"schemaVersion":1}'),
-                         ("test.mixins.json", '{"required":true,"plugin":"mod.Plugin"}')])
-        inventory = inspect_archives([root], self.root)
-        with self.assertRaisesRegex(ValueError, "plugin-free"):
-            transformation_checks(inventory, [{"client": True, "id": "test_mod",
-                                                "entrypoints": {}, "mixins": ["test.mixins.json"]}])
+                         ("test.mixins.json",
+                          '{"required":true,"package":"test.mixin","plugin":"test.Plugin"}')])
+        transformation_checks(inspect_archives([root], self.root), [metadata])
+        root = self.jar([("fabric.mod.json", '{"schemaVersion":1}'),
+                         ("test.mixins.json",
+                          '{"required":true,"package":"test.mixin","parent":"test.Parent"}')])
+        with self.assertRaisesRegex(ValueError, "must be required and use official names"):
+            transformation_checks(inspect_archives([root], self.root), [metadata])
 
     def test_declared_refmap_can_be_absent_or_empty_but_cannot_remap(self):
         metadata = {"client": True, "id": "test_mod", "entrypoints": {}, "mixins": ["test.mixins.json"]}
