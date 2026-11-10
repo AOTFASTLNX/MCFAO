@@ -19,5 +19,6 @@ xcuserdata/
 *.class
 *.jar
 /build/
+/ios/C0Harness/build/
 .venv/
 *.env
