@@ -34,6 +34,7 @@ import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.MethodInsnNode;
+import org.objectweb.asm.tree.MethodNode;
 import org.objectweb.asm.tree.analysis.Analyzer;
 import org.objectweb.asm.tree.analysis.BasicVerifier;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -51,7 +52,8 @@ public final class AotExport implements Opcodes {
     private record Metadata(String path, String id, String version, boolean client,
             Map<String, ?> entrypoints, List<?> dependencies, List<String> jars,
             List<String> mixins, String classTweaker) {}
-    private record Entry(String mod, String stage, String definition, String type, String method) {}
+    private record Entry(String mod, String stage, String definition, String type, String method,
+            String refOwner, String refName, boolean refStatic) {}
 
     private static Metadata metadata(Path path) throws Exception {
         try (var zip = new ZipFile(path.toFile())) {
@@ -110,8 +112,9 @@ public final class AotExport implements Opcodes {
             loadedIds.addAll(mod.getMetadata().getProvides());
         }
         var entries = new ArrayList<Entry>();
-        collect(entries, requested, loader, target, "main", ModInitializer.class, "onInitialize");
-        collect(entries, requested, loader, target, "client", ClientModInitializer.class, "onInitializeClient");
+        collect(entries, requested, loader, target, transform, delegate, "main", ModInitializer.class, "onInitialize");
+        collect(entries, requested, loader, target, transform, delegate, "client", ClientModInitializer.class,
+                "onInitializeClient");
 
         var resources = new TreeSet<String>();
         var modClasses = new TreeSet<String>();
@@ -220,21 +223,54 @@ public final class AotExport implements Opcodes {
     }
 
     private static <T> void collect(List<Entry> entries, Set<String> requested, FabricLoaderImpl loader,
-            ClassLoader target, String stage, Class<T> type, String method) throws Exception {
+            ClassLoader target, Method transformMethod, Object delegate, String stage, Class<T> type,
+            String method) throws Exception {
         for (var container : loader.getEntrypointContainers(stage, type)) {
             String id = container.getProvider().getMetadata().getId();
             if (!requested.contains(id)) {
                 throw new IllegalArgumentException("Unaccounted Fabric entrypoint: " + id + "/" + stage);
             }
             String definition = container.getDefinition();
-            // Non-initializing verification. Fabric's class-form default adapter uses a no-arg constructor.
-            Class<?> entry = Class.forName(definition, false, target);
-            if (!type.isAssignableFrom(entry) || java.lang.reflect.Modifier.isAbstract(entry.getModifiers())
-                    || !java.lang.reflect.Modifier.isPublic(entry.getModifiers())) {
-                throw new IllegalArgumentException("Unsupported " + id + " entrypoint " + definition);
+            int separator = definition.indexOf("::");
+            if (separator < 0) {
+                // Non-initializing verification. Fabric's class-form default adapter uses a no-arg constructor.
+                Class<?> entry = Class.forName(definition, false, target);
+                if (!type.isAssignableFrom(entry) || java.lang.reflect.Modifier.isAbstract(entry.getModifiers())
+                        || !java.lang.reflect.Modifier.isPublic(entry.getModifiers())) {
+                    throw new IllegalArgumentException("Unsupported " + id + " entrypoint " + definition);
+                }
+                entry.getConstructor();
+                entries.add(new Entry(id, stage, definition, type.getName().replace('.', '/'), method,
+                        null, null, false));
+                continue;
             }
-            entry.getConstructor();
-            entries.add(new Entry(id, stage, definition, type.getName().replace('.', '/'), method));
+            // Method-reference form: resolve the target at build time so the closed-world client
+            // needs no MethodHandle. Fabric accepts any no-argument void method as the creator.
+            String owner = definition.substring(0, separator);
+            String refName = definition.substring(separator + 2);
+            ClassNode node = parse(transform(transformMethod, delegate, owner.replace('.', '/') + ".class"));
+            MethodNode found = null;
+            for (MethodNode candidate : node.methods) {
+                if (candidate.name.equals(refName) && candidate.desc.equals("()V")) {
+                    found = candidate;
+                    break;
+                }
+            }
+            if (found == null) {
+                throw new IllegalArgumentException(
+                        "Entrypoint method reference needs a no-argument void method: " + definition);
+            }
+            boolean isStatic = (found.access & ACC_STATIC) != 0;
+            Class<?> entry = Class.forName(owner, false, target);
+            if (!isStatic) {
+                if (!java.lang.reflect.Modifier.isPublic(entry.getModifiers())
+                        || java.lang.reflect.Modifier.isAbstract(entry.getModifiers())) {
+                    throw new IllegalArgumentException("Unsupported " + id + " entrypoint " + definition);
+                }
+                entry.getConstructor();
+            }
+            entries.add(new Entry(id, stage, definition, type.getName().replace('.', '/'), method,
+                    owner, refName, isStatic));
         }
     }
 
@@ -315,6 +351,18 @@ public final class AotExport implements Opcodes {
         var start = writer.visitMethod(ACC_PUBLIC | ACC_STATIC, "startClient", "(Ljava/io/File;Ljava/lang/Object;)V", null, null);
         start.visitCode();
         for (Entry entry : entries) {
+            if (entry.refOwner() != null) {
+                String refOwner = entry.refOwner().replace('.', '/');
+                if (entry.refStatic()) {
+                    start.visitMethodInsn(INVOKESTATIC, refOwner, entry.refName(), "()V", false);
+                } else {
+                    start.visitTypeInsn(NEW, refOwner);
+                    start.visitInsn(DUP);
+                    start.visitMethodInsn(INVOKESPECIAL, refOwner, "<init>", "()V", false);
+                    start.visitMethodInsn(INVOKEVIRTUAL, refOwner, entry.refName(), "()V", false);
+                }
+                continue;
+            }
             String owner = entry.definition().replace('.', '/');
             start.visitTypeInsn(NEW, owner);
             start.visitInsn(DUP);

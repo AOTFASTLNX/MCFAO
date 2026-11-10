@@ -23,8 +23,15 @@ FIXTURE = ROOT / "interop/fabric/fixture"
 MAIN = "mcfao.build.AotExport"
 MAX_ARCHIVE = 128 * 1024**2
 MAX_UNPACKED = 512 * 1024**2
-MAX_TRANSFORM_ARCHIVES = 128
+# Recollection3 resolves to 221 root and nested archives (53 roots, 168 nested).
+# The transform budget must be able to reach that inventory, otherwise a real pack is
+# rejected as "budget exceeded" before any metadata is reported.
+MAX_TRANSFORM_ARCHIVES = 256
 MAX_INSPECTION_ARCHIVES = 512
+# Entrypoint stages the Loader does not define are queried by a provider mod. When the
+# provider cannot exist in the closed-world client, no code can query the stage, so the
+# entry is unreachable and recorded instead of failing the archive.
+OPTIONAL_PROVIDER_STAGES = {"modmenu": "modmenu", "jei_mod_plugin": "jei"}
 
 
 def unique_keys(pairs):
@@ -141,6 +148,7 @@ def transformation_checks(inventory, metadata, *, client_ids=None):
     if client_ids is None:
         client_ids = {mod["id"] for mod in metadata if mod["client"]}
     reserved = {"java", "minecraft", "fabricloader", "mixinextras"}
+    skipped = []
     for (path, origin, raw, names), parsed in zip(inventory, metadata, strict=True):
         def unsupported(message):
             raise ValueError(f"{origin} [{parsed['id']}]: {message}")
@@ -152,13 +160,23 @@ def transformation_checks(inventory, metadata, *, client_ids=None):
         if raw.get("schemaVersion") != 1 or raw.get("languageAdapters") or raw.get("initializers"):
             unsupported("Schema 1 and the built-in default language adapter are required")
         for stage, entries in parsed["entrypoints"].items():
-            if stage in {"server", "fabric-datagen"} or (stage == "modmenu" and "modmenu" not in client_ids):
+            if stage in {"server", "fabric-datagen"}:
+                continue
+            provider = OPTIONAL_PROVIDER_STAGES.get(stage)
+            # ModMenu is a configuration-screen container: it is never part of the closed-world
+            # client, so this stage has no querying code until ModMenu itself is supported.
+            # Other optional stages are dropped only when their provider mod is absent here.
+            if provider is not None and (provider == "modmenu" or provider not in client_ids):
+                skipped.extend({"mod": parsed["id"], "stage": stage, "provider": provider,
+                                "entrypoint": entry.get("value")} for entry in entries)
                 continue
             if stage not in {"main", "client"}:
                 unsupported(f"Unsupported lifecycle stage {stage}")
             for entry in entries:
-                if entry["adapter"] != "default" or not re.fullmatch(r"[\w$]+(?:\.[\w$]+)+", entry["value"], re.ASCII):
-                    unsupported(f"Entrypoint must be a public Java class: {entry['value']}")
+                if entry["adapter"] != "default" or not re.fullmatch(
+                        r"[\w$]+(?:\.[\w$]+)+(?:::\w+)?", entry["value"], re.ASCII):
+                    unsupported("Entrypoint must be a public Java class or an official method "
+                                f"reference: {entry['value']}")
         for name in sorted(names):
             if name == "META-INF/services/":
                 continue
@@ -186,11 +204,13 @@ def transformation_checks(inventory, metadata, *, client_ids=None):
                 header = archive.read(name).splitlines()[0].decode("utf-8").split()
                 if not header or header[-1] != "official":
                     unsupported(f"Class Tweaker must use the official namespace: {name}")
+    return skipped
 
 
 def inspect_compatibility(inventory, metadata, root_paths):
     findings = []
     blocked_roots = set()
+    skipped = []
     root_ids = defaultdict(list)
     client_ids = {mod["id"] for mod in metadata if mod["client"]}
     for item, mod in zip(inventory, metadata, strict=True):
@@ -199,18 +219,20 @@ def inspect_compatibility(inventory, metadata, root_paths):
             root = origin
             root_ids[mod["id"]].append(origin)
         try:
-            transformation_checks([item], [mod], client_ids=client_ids)
+            skipped.extend(transformation_checks([item], [mod], client_ids=client_ids))
         except (ValueError, KeyError, IndexError, TypeError, OSError, zipfile.BadZipFile) as error:
             findings.append({"path": origin, "id": mod["id"], "reason": str(error)})
             blocked_roots.add(root)
     return {
         "status": "BLOCKED" if findings else "NO_METADATA_BLOCKERS",
-        "scope": "First applicable metadata restriction per archive. No Mod execution or dependency resolution.",
+        "scope": "First applicable metadata restriction per archive, plus unreachable optional "
+                 "entrypoints. No Mod execution or dependency resolution.",
         "rootJarCount": len(root_paths),
         "nestedJarCount": len(inventory) - len(root_paths),
         "rootJarsWithBlockers": sorted(blocked_roots),
         "duplicateRootModIds": {key: paths for key, paths in root_ids.items() if len(paths) > 1},
         "findings": findings,
+        "optionalEntrypointsSkipped": skipped,
     }
 
 
@@ -341,7 +363,9 @@ def prepare(prepared, client, mods, output, audited):
     (output / "result.json").write_text(json.dumps(record, indent=2) + "\n")
     if not audited:
         return
-    transformation_checks(inventory, metadata)
+    skipped = transformation_checks(inventory, metadata)
+    if skipped:
+        record["optionalEntrypointsSkipped"] = skipped
     request = work / "ids.txt"
     request.write_text("\n".join(sorted({row["id"] for row in metadata if row["client"]})) + "\n")
     log = output / "knot"

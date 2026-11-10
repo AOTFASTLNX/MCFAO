@@ -12,6 +12,7 @@ import zipfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 
 from mcfao import Build, export_ipa, load_config, tree_files, write_json
+from prepare_fabric_aot import MAX_TRANSFORM_ARCHIVES
 from prepare_fabric_aot import inspect_archives, inspect_compatibility, main as prepare_fabric
 from prepare_fabric_aot import merge_client, transformation_checks
 
@@ -163,13 +164,32 @@ class FabricInputTests(unittest.TestCase):
         self.assertEqual(report["duplicateRootModIds"], {"test_mod": ["first!.jar", "second.jar"]})
         self.assertEqual([item["path"] for item in report["findings"]], ["first!.jar", "second.jar"])
 
-    def test_optional_modmenu_entrypoint_requires_the_provider_to_be_absent(self):
+    def test_optional_modmenu_entrypoint_is_recorded_not_rejected(self):
         root = self.jar([("fabric.mod.json", '{"id":"test_mod","schemaVersion":1}')])
         inventory = inspect_archives([root], self.root)
-        parsed = [{"id": "test_mod", "client": True, "entrypoints": {"modmenu": []}, "mixins": []}]
-        transformation_checks(inventory, parsed)
-        with self.assertRaisesRegex(ValueError, "Unsupported lifecycle stage modmenu"):
-            transformation_checks(inventory, parsed, client_ids={"test_mod", "modmenu"})
+        parsed = [{"id": "test_mod", "client": True, "mixins": [],
+                   "entrypoints": {"modmenu": [{"adapter": "default", "value": "mod.Config"}]}}]
+        expected = [{"mod": "test_mod", "stage": "modmenu", "provider": "modmenu",
+                     "entrypoint": "mod.Config"}]
+        self.assertEqual(transformation_checks(inventory, parsed), expected)
+        # The container is unsupported either way, so the stage stays unreachable.
+        self.assertEqual(transformation_checks(inventory, parsed, client_ids={"test_mod", "modmenu"}),
+                         expected)
+
+    def test_optional_provider_stage_is_skipped_only_when_the_provider_is_absent(self):
+        root = self.jar([("fabric.mod.json", '{"id":"test_mod","schemaVersion":1}')])
+        inventory = inspect_archives([root], self.root)
+        parsed = [{"id": "test_mod", "client": True, "mixins": [],
+                   "entrypoints": {"jei_mod_plugin": [{"adapter": "default", "value": "mod.Jei"}]}}]
+        self.assertEqual(transformation_checks(inventory, parsed, client_ids={"test_mod"}),
+                         [{"mod": "test_mod", "stage": "jei_mod_plugin", "provider": "jei",
+                           "entrypoint": "mod.Jei"}])
+        with self.assertRaisesRegex(ValueError, "Unsupported lifecycle stage jei_mod_plugin"):
+            transformation_checks(inventory, parsed, client_ids={"test_mod", "jei"})
+
+    def test_transform_budget_covers_the_recollection3_inventory(self):
+        # The audited local instance resolves 53 root and 168 nested archives (221 total).
+        self.assertGreaterEqual(MAX_TRANSFORM_ARCHIVES, 221)
 
     def test_fabric_api_namespace_is_distinct_from_the_loader(self):
         metadata = '{"id":"test_mod","schemaVersion":1}'
