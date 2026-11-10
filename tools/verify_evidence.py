@@ -40,9 +40,9 @@ def verify(root: Path) -> dict:
             if not path.is_file() or sha256(path) != data["sha256"]:
                 failures.append(str(path))
         for name, expected in data.get("binaries", {}).items():
-            path = manifest.parent / name
+            path = Path(expected["path"]) if "path" in expected else manifest.parent / name
             binary_count += 1
-            if not path.is_file() or path.stat().st_size != expected["bytes"] or sha256(path) != expected["sha256"]:
+            if not path.is_file() or ("bytes" in expected and path.stat().st_size != expected["bytes"]) or sha256(path) != expected["sha256"]:
                 failures.append(str(path))
         if data.get("mode") in ("jvm", "desktop-aot") and data["status"] == "PASS":
             stage = "run-jvm" if data["mode"] == "jvm" else "run-desktop-aot"

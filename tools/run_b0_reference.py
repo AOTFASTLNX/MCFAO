@@ -43,19 +43,28 @@ def sandbox_policy(work: Path, java_home: Path, readable_files: list[Path]) -> s
     ]) + "\n"
 
 
-def limits(cpu_seconds=90):
-    for kind, requested in [(resource.RLIMIT_CPU, cpu_seconds), (resource.RLIMIT_FSIZE, 64 * 1024**2),
+def limits(cpu_seconds=90, file_size_bytes=64 * 1024**2):
+    """Apply the sandbox resource caps.
+
+    The file-size cap is deliberately small for analysis runs: nothing they do needs a large file, so
+    a runaway writer is stopped early. A full image build does have to write a multi-hundred-megabyte
+    object file, so its caller raises this cap explicitly and records the value it used.
+    """
+    for kind, requested in [(resource.RLIMIT_CPU, cpu_seconds), (resource.RLIMIT_FSIZE, file_size_bytes),
                             (resource.RLIMIT_NOFILE, 512)]:
         _, hard = resource.getrlimit(kind)
         cap = requested if hard == resource.RLIM_INFINITY else min(requested, hard)
         resource.setrlimit(kind, (cap, cap))
 
 
-def execute(argv: list[str], folder: Path, cwd: Path, *, timeout=120, cpu_seconds=90) -> dict:
+def execute(argv: list[str], folder: Path, cwd: Path, *, timeout=120, cpu_seconds=90,
+            file_size_bytes=64 * 1024**2, extra_env: dict | None = None) -> dict:
     if timeout < 1 or cpu_seconds < 1:
         raise ValueError("Positive wall/CPU budgets required")
     folder.mkdir(exist_ok=False)
     env = {"PATH": "/usr/bin:/bin", "TMPDIR": str(cwd / "tmp"), "LANG": "en_US.UTF-8"}
+    if extra_env:
+        env.update(extra_env)
     started = time.time()
     timed_out = False
     output_limit = False
@@ -65,7 +74,8 @@ def execute(argv: list[str], folder: Path, cwd: Path, *, timeout=120, cpu_second
         # neither needs write access to evidence nor can overwrite an earlier log.
         process = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                   start_new_session=True, preexec_fn=lambda: limits(cpu_seconds))
+                                   start_new_session=True,
+                                   preexec_fn=lambda: limits(cpu_seconds, file_size_bytes))
         deadline = time.monotonic() + timeout
         remaining = 16 * 1024**2
         killed = False

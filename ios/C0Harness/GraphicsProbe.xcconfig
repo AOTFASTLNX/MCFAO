@@ -1,0 +1,8 @@
+// Device integration probe: real Window/RenderSystem, GPU resource readback and a four-color texture.
+// Native inputs are generated locally. See docs/GRAPHICS_BOOTSTRAP.md.
+FAOT_CLIENT_LIBRARY = $(SRCROOT)/../../artifacts/graphics/resources-link-ios-04/client-graph.dylib
+FAOT_GRAPHICS_NATIVE_DIR = $(SRCROOT)/../../artifacts/graphics/xcode-device-input-02
+GCC_OPTIMIZATION_LEVEL = 0
+DEBUG_INFORMATION_FORMAT = dwarf
+ENABLE_TESTABILITY = YES
+ONLY_ACTIVE_ARCH = YES

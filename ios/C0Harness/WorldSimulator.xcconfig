@@ -1,0 +1,9 @@
+// Local files staged by tools/stage_simulator_xcode.py.
+FAOT_GRAPHICS_NATIVE_DIR = $(SRCROOT)/../../artifacts/graphics/world-simulator-input-02
+FAOT_CLIENT_LIBRARY = $(FAOT_GRAPHICS_NATIVE_DIR)/client-graph.dylib
+SDKROOT = iphonesimulator
+SUPPORTED_PLATFORMS = iphonesimulator
+INFOPLIST_FILE = Info.WorldSimulator.plist
+CODE_SIGNING_ALLOWED = NO
+CODE_SIGNING_REQUIRED = NO
+DEBUG_INFORMATION_FORMAT = dwarf

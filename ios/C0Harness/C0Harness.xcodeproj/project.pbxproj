@@ -1,0 +1,509 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A20000000000000000000001 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* main.m */; };
+		A200000000000000000000A7 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* main.m */; };
+		A20000000000000000000004 /* client-graph.dylib in Embed Native Runtime */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013 /* client-graph.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		A200000000000000000000A8 /* client-graph.dylib in Embed Native Runtime */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013 /* client-graph.dylib */; };
+		A20000000000000000000081 /* WorldUITests.m in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000082 /* WorldUITests.m */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		A20000000000000000000088 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A20000000000000000000051 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A200000000000000000000A0;
+			remoteInfo = FabricAOTWorld;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		A20000000000000000000024 /* Embed Native Runtime */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				A20000000000000000000004 /* client-graph.dylib in Embed Native Runtime */,
+			);
+			name = "Embed Native Runtime";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A200000000000000000000A4 /* Embed Native Runtime */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				A200000000000000000000A8 /* client-graph.dylib in Embed Native Runtime */,
+			);
+			name = "Embed Native Runtime";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		A20000000000000000000011 /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
+		A20000000000000000000013 /* client-graph.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = "client-graph.dylib"; path = "$(FAOT_CLIENT_LIBRARY)"; sourceTree = "<absolute>"; };
+		A20000000000000000000014 /* C0Harness.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = C0Harness.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A200000000000000000000A6 /* FabricAOTWorld.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = FabricAOTWorld.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A20000000000000000000015 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A20000000000000000000016 /* GraphicsProbe.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = GraphicsProbe.xcconfig; sourceTree = "<group>"; };
+		A200000000000000000000B3 /* WorldDevice.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = WorldDevice.xcconfig; sourceTree = "<group>"; };
+		A20000000000000000000082 /* WorldUITests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = WorldUITests.m; sourceTree = "<group>"; };
+		A20000000000000000000083 /* WorldUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = WorldUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A20000000000000000000090 /* WorldSimulator.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = WorldSimulator.xcconfig; sourceTree = "<group>"; };
+		A20000000000000000000093 /* Info.WorldSimulator.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.WorldSimulator.plist; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A20000000000000000000022 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A20000000000000000000031 = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000011 /* main.m */,
+				A20000000000000000000082 /* WorldUITests.m */,
+				A20000000000000000000090 /* WorldSimulator.xcconfig */,
+				A20000000000000000000093 /* Info.WorldSimulator.plist */,
+				A20000000000000000000015 /* Info.plist */,
+				A20000000000000000000016 /* GraphicsProbe.xcconfig */,
+				A200000000000000000000B3 /* WorldDevice.xcconfig */,
+				A20000000000000000000013 /* client-graph.dylib */,
+				A20000000000000000000032 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A20000000000000000000032 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000014 /* C0Harness.app */,
+				A200000000000000000000A6 /* FabricAOTWorld.app */,
+				A20000000000000000000083 /* WorldUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A20000000000000000000041 /* C0Harness */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A20000000000000000000062 /* Build configuration list for PBXNativeTarget "C0Harness" */;
+			buildPhases = (
+				A20000000000000000000021 /* Sources */,
+				A20000000000000000000022 /* Frameworks */,
+				A20000000000000000000023 /* Resources */,
+				A20000000000000000000024 /* Embed Native Runtime */,
+				A20000000000000000000025 /* Embed Graphics Libraries */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = C0Harness;
+			productName = C0Harness;
+			productReference = A20000000000000000000014 /* C0Harness.app */;
+			productType = "com.apple.product-type.application";
+		};
+		A200000000000000000000A0 /* FabricAOTWorld */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A200000000000000000000A2 /* Build configuration list for PBXNativeTarget "FabricAOTWorld" */;
+			buildPhases = (
+				A200000000000000000000A1 /* Sources */,
+				A200000000000000000000A4 /* Embed Native Runtime */,
+				A200000000000000000000A5 /* Embed Graphics Libraries */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = FabricAOTWorld;
+			productName = FabricAOTWorld;
+			productReference = A200000000000000000000A6 /* FabricAOTWorld.app */;
+			productType = "com.apple.product-type.application";
+		};
+		A20000000000000000000084 /* WorldUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A20000000000000000000085 /* Build configuration list for PBXNativeTarget "WorldUITests" */;
+			buildPhases = (
+				A20000000000000000000086 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A20000000000000000000087 /* PBXTargetDependency */,
+			);
+			name = WorldUITests;
+			productName = WorldUITests;
+			productReference = A20000000000000000000083 /* WorldUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A20000000000000000000051 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 2700;
+				TargetAttributes = {
+					A20000000000000000000041 = {
+						CreatedOnToolsVersion = 27.2;
+						ProvisioningStyle = Automatic;
+					};
+					A20000000000000000000084 = {
+						TestTargetID = A200000000000000000000A0;
+					};
+				};
+			};
+			buildConfigurationList = A20000000000000000000061 /* Build configuration list for PBXProject "C0Harness" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = A20000000000000000000031;
+			productRefGroup = A20000000000000000000032 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A20000000000000000000041 /* C0Harness */,
+				A200000000000000000000A0 /* FabricAOTWorld */,
+				A20000000000000000000084 /* WorldUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A20000000000000000000023 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		A20000000000000000000025 /* Embed Graphics Libraries */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Embed Graphics Libraries";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "/bin/sh \"$SRCROOT/embed_graphics_libraries.sh\"\n";
+		};
+		A200000000000000000000A5 /* Embed Graphics Libraries */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Embed Graphics Libraries";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "if [ \"${PLATFORM_NAME:-}\" != iphonesimulator ] || [ \"${TARGET_DEVICE_PLATFORM_NAME:-iphonesimulator}\" != iphonesimulator ]; then\n  echo \"error: FabricAOTWorld requires an iOS Simulator destination.\" >&2\n  exit 1\nfi\n/bin/sh \"$SRCROOT/embed_graphics_libraries.sh\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A20000000000000000000021 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A20000000000000000000001 /* main.m in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A200000000000000000000A1 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A200000000000000000000A7 /* main.m in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A20000000000000000000086 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A20000000000000000000081 /* WorldUITests.m in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A20000000000000000000087 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A200000000000000000000A0 /* FabricAOTWorld */;
+			targetProxy = A20000000000000000000088 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		A20000000000000000000071 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				FAOT_CLIENT_LIBRARY = "$(SRCROOT)/../../artifacts/graphics/resources-link-ios-04/client-graph.dylib";
+				FAOT_GRAPHICS_NATIVE_DIR = "$(SRCROOT)/../../artifacts/graphics/xcode-device-input-02";
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+			};
+			name = Debug;
+		};
+		A20000000000000000000072 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				FAOT_CLIENT_LIBRARY = "$(SRCROOT)/../../artifacts/graphics/resources-link-ios-04/client-graph.dylib";
+				FAOT_GRAPHICS_NATIVE_DIR = "$(SRCROOT)/../../artifacts/graphics/xcode-device-input-02";
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+			};
+			name = Release;
+		};
+		A20000000000000000000073 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = P57SZ9Z7G2;
+				INFOPLIST_FILE = Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				OTHER_LDFLAGS = (
+					"-framework",
+					UIKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.fabricaot.research.c0.kexin;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A20000000000000000000074 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = P57SZ9Z7G2;
+				GCC_OPTIMIZATION_LEVEL = s;
+				INFOPLIST_FILE = Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				OTHER_LDFLAGS = (
+					"-framework",
+					UIKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.fabricaot.research.c0.kexin;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		A20000000000000000000075 /* Graphics Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+			};
+			name = "Graphics Debug";
+		};
+		A200000000000000000000B1 /* World Device */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+			};
+			name = "World Device";
+		};
+		A20000000000000000000076 /* Graphics Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = A20000000000000000000016 /* GraphicsProbe.xcconfig */;
+			buildSettings = {
+				ARCHS = arm64;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = P57SZ9Z7G2;
+				INFOPLIST_FILE = Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				OTHER_LDFLAGS = (
+					"-framework",
+					UIKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.fabricaot.research.c0.kexin;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = "Graphics Debug";
+		};
+		A200000000000000000000B2 /* World Device */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = A200000000000000000000B3 /* WorldDevice.xcconfig */;
+			buildSettings = {
+				ARCHS = arm64;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = P57SZ9Z7G2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				OTHER_LDFLAGS = (
+					"-framework",
+					UIKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.fabricaot.research.c0.kexin;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = "World Device";
+		};
+		A20000000000000000000089 /* World Simulator */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				SDKROOT = iphonesimulator;
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = org.fabricaot.research.c0.worlduitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = iphonesimulator;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = FabricAOTWorld;
+			};
+			name = "World Simulator";
+		};
+		A20000000000000000000091 /* World Simulator */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphonesimulator;
+			};
+			name = "World Simulator";
+		};
+		A20000000000000000000092 /* World Simulator */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = A20000000000000000000090 /* WorldSimulator.xcconfig */;
+			buildSettings = {
+				ARCHS = arm64;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				OTHER_LDFLAGS = (
+					"-framework",
+					UIKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.fabricaot.research.c0.kexin;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = "World Simulator";
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A20000000000000000000061 /* Build configuration list for PBXProject "C0Harness" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A20000000000000000000071 /* Debug */,
+				A20000000000000000000072 /* Release */,
+				A20000000000000000000075 /* Graphics Debug */,
+				A200000000000000000000B1 /* World Device */,
+				A20000000000000000000091 /* World Simulator */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A20000000000000000000062 /* Build configuration list for PBXNativeTarget "C0Harness" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A20000000000000000000073 /* Debug */,
+				A20000000000000000000074 /* Release */,
+				A20000000000000000000076 /* Graphics Debug */,
+				A200000000000000000000B2 /* World Device */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A200000000000000000000A2 /* Build configuration list for PBXNativeTarget "FabricAOTWorld" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A20000000000000000000092 /* World Simulator */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = "World Simulator";
+		};
+		A20000000000000000000085 /* Build configuration list for PBXNativeTarget "WorldUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A20000000000000000000089 /* World Simulator */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = "World Simulator";
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = A20000000000000000000051 /* Project object */;
+}

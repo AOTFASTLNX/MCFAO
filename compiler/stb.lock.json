@@ -1,0 +1,26 @@
+{
+  "origin": "https://github.com/LWJGL/lwjgl3",
+  "tag": "3.4.1",
+  "tagObject": "c46b837962bf573b57b38fbae0708f3dc352ecb3",
+  "license": "STB dual MIT/public-domain; complete notice retained in each unmodified header",
+  "files": {
+    "stb_image.h": {
+      "url": "https://raw.githubusercontent.com/LWJGL/lwjgl3/3.4.1/modules/lwjgl/stb/src/main/c/stb_image.h",
+      "gitBlob": "9eedabedc45b3e6fd88fae6f14a160b4d53272ec",
+      "sha256": "594c2fe35d49488b4382dbfaec8f98366defca819d916ac95becf3e75f4200b3",
+      "bytes": 283010
+    },
+    "stb_image_resize2.h": {
+      "url": "https://raw.githubusercontent.com/LWJGL/lwjgl3/3.4.1/modules/lwjgl/stb/src/main/c/stb_image_resize2.h",
+      "gitBlob": "0a8ffeb7df80ef8eb7f8435beca3ff33b3f31f21",
+      "sha256": "73dd721907eed16c3ac4168cc574f44d8792c6e8fb514d583d79894234a94462",
+      "bytes": 456637
+    },
+    "stb_image_write.h": {
+      "url": "https://raw.githubusercontent.com/LWJGL/lwjgl3/3.4.1/modules/lwjgl/stb/src/main/c/stb_image_write.h",
+      "gitBlob": "e4b32ed1bc32ef9c962acbf47a9d10af01939e08",
+      "sha256": "cbd5f0ad7a9cf4468affb36354a1d2338034f2c12473cf1a8e32053cb6914a05",
+      "bytes": 71221
+    }
+  }
+}

@@ -7,3 +7,5 @@ Last reviewed: 2026-11-08
 - [持久决策](memory.md)
 
 验收事实以 [STATUS](../STATUS.md) 、[ADR-001](../evidence/ADR-001.md)及[客户端分析诊断](../CLIENT_GRAPH_DIAGNOSTICS.md) 为准。
+
+- [最新工作交接与未提交代码](../WORK_HANDOFF.md)

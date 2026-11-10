@@ -11,6 +11,10 @@ from compare_client_graph_runs import compare
 
 class ClientGraphComparisonTests(unittest.TestCase):
     def fixture(self, root, name, heap):
+        # compare() resolves both sides; on macOS TMPDIR is /var/... behind a /private symlink,
+        # so the fixture must also write resolved paths or the sandbox-policy check compares two
+        # different string forms of the same directory.
+        root=Path(root).resolve()
         p=root/name;p.mkdir();(p/"analysis").mkdir()
         (p/"work").mkdir();(p/"work/gc.log").write_text('[time][info][gc] Using Parallel\n')
         (p/"policy.sb").write_text('(allow file-write* "'+str(p)+'/work")')

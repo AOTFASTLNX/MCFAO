@@ -17,12 +17,12 @@ from bootstrap_toolchain import ROOT, sha256
 from capture import capture
 
 
-def jdk_sources(jdk: Path, library: str) -> list[Path]:
+def jdk_sources(jdk: Path, library: str, module: str = 'java.base') -> list[Path]:
     # OpenJDK's platform directory overrides a shared implementation with the
     # same relative name. Windows/Linux/AIX sources are not part of this target.
     selected = {}
     for platform in ("share", "unix", "macosx"):
-        base = jdk / "src/java.base" / platform / "native" / library
+        base = jdk / 'src' / module / platform / "native" / library
         if base.is_dir():
             for path in sorted(base.rglob("*.c")):
                 if "zlib" in path.relative_to(base).parts:
@@ -57,6 +57,7 @@ def main(argv=None):
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--aot-object", type=Path)
     parser.add_argument("--sdk", choices=("iphoneos", "iphonesimulator"), default="iphoneos")
+    parser.add_argument('--with-extnet',action='store_true',help='Compile the pinned Darwin extended socket option JNI library')
     args = parser.parse_args(argv)
     output = args.output.absolute()
     output.mkdir(parents=True, exist_ok=False)
@@ -86,6 +87,7 @@ def main(argv=None):
     sources = {}
     for library in ("libjava", "libnet", "libnio", "libzip"):
         sources[library] = jdk_sources(jdk, library)
+    if args.with_extnet:sources['libextnet']=jdk_sources(jdk,'libextnet','jdk.net')
     graal_paths = ["com.oracle.svm.native.jvm.posix/src/JvmFuncs.c", "com.oracle.svm.native.darwin/src/foundation.c"]
     graal_paths += ["com.oracle.svm.native.libchelper/src/" + n for n in
                     ("cpuid.c", "locale.c", "timeZone.c", "getEnviron.c", "cSunMiscSignal.c",

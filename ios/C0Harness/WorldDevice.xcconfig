@@ -1,0 +1,8 @@
+// Local inputs prepared for the iPhone world test. See docs/BUILDING.md.
+FAOT_GRAPHICS_NATIVE_DIR = $(SRCROOT)/../../artifacts/graphics/world-device-input-02
+FAOT_CLIENT_LIBRARY = $(FAOT_GRAPHICS_NATIVE_DIR)/client-graph.dylib
+FAOT_GAME_ASSETS_DIR = $(SRCROOT)/../../artifacts/graphics/game-assets-01/assets
+GCC_PREPROCESSOR_DEFINITIONS = $(inherited) FAOT_DEVICE_WORLD=1
+SDKROOT = iphoneos
+SUPPORTED_PLATFORMS = iphoneos
+INFOPLIST_FILE = Info.WorldSimulator.plist

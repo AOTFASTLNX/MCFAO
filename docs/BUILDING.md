@@ -59,6 +59,69 @@ xcodebuild -exportArchive -archivePath artifacts/a1/handoff-new/A1Harness.xcarch
 
 ExportOptions.plist 使用本地 debugging 导出和当前 Team；其他用户须选择自己的 Team 并相应修改配置。最新 build 3 原始记录位于 a1-ios-archive-run-state-v3/ 与 a1-ios-export-run-state-v3/。IPA 解包后的 codesign --verify --deep --strict 已通过；签名检查需要访问系统信任服务。入口使用公开 version-1 isolate 参数，把预留地址空间限制为256 MiB。用户已验证build 2真机独立运行PASS；build 3补充当前进程状态、时间与runID，用户也已提供PASS截图。完整边界及证据见 [真机测试交接](A1_DEVICE_HANDOFF.md)。
 
+## C0 客户端宿主（C0Harness）
+
+`ios/C0Harness/C0Harness.xcodeproj` 把真实 Minecraft 26.1.2 的 AOT 镜像装进 iOS App。宿主用 `dlopen` 装载镜像，再调用 `run_main(argc, argv)`。Java 输出保存在 `Documents/c0-logs/`。设备诊断和原版单人模拟器分别使用各自的 Scheme。
+
+镜像在 `run_main` 里自行创建 isolate。宿主通过 `-XX:ReservedAddressSpaceSize=<字节>` 传入预留空间，设备诊断默认 1 GiB，模拟器默认 2 GiB。
+
+打开 Xcode 工程，选择 **WorldSimulator** 和 **FabricAOT World 26.1.2**，按 ⌘R 可进入原版横屏菜单。左右横屏均由应用支持。本地 AOT、Metal 着色器和原生库由下面的命令核验并准备。新模拟器安装应用后，需要将经过哈希验证的资源目录复制到该应用的 `Documents/assets`。本次测试模拟器已经准备好。
+
+`WorldSimulator` 使用独立的 `FabricAOTWorld.app` 目标，并沿用原有模拟器应用标识以保留存档。Xcode 27.2 仍可能列出物理 iPhone。误选时构建会报 `FabricAOTWorld requires an iOS Simulator destination.`，请选择模拟器后再运行。
+
+```bash
+python3 -B tools/stage_simulator_xcode.py --harness artifacts/graphics/main-harness-sim-19
+sim_id=$(cat artifacts/graphics/simulator-recovery-01/udid.txt)
+sim_data=$(xcrun simctl get_app_container "$sim_id" org.fabricaot.research.c0.kexin data)
+/usr/bin/ditto artifacts/graphics/game-assets-01/assets "$sim_data/Documents/assets"
+```
+
+模拟器首次启动使用 8 区块视距、5 区块模拟距离与 30 FPS 上限。游戏会保留已存在的设置。触控方向键移动，拖动空白区域转视角，Pick、Break 和 Place 分别取、破坏和放置方块。Items 打开物品栏，右上角返回游戏或打开暂停菜单。
+
+两条通道共用同一份无平台标记的镜像对象：
+
+```bash
+# 模拟器（默认迭代方式，不需要解锁设备）
+python3 -B tools/build_c0_harness.py --dylib artifacts/c0/client-link-sim-02/client-graph.dylib \
+  --simulator <UDID> --install --launch --pull-logs artifacts/c0/harness/sim-run
+# 真机（需要设备已连接并解锁，Xcode 才会把设备注册进 Team Profile）
+xcrun devicectl list devices
+python3 -B tools/build_c0_harness.py --dylib artifacts/c0/client-link-02/client-graph.dylib \
+  --device <UDID> --install --launch --pull-logs artifacts/c0/harness/logs
+```
+
+产物：`artifacts/c0/harness/{export,sim-run}/` 与 `result.json`（含 dylib 与 IPA 的 SHA-256、`provisionedDevices`）。**镜像本身怎么来（拆分 → `--full-build --relocatable` → `link_c0_ios.py`）见 [WORK_HANDOFF](WORK_HANDOFF.md) §8 的"C0 链路"命令块。**
+
+`result.json` 里 `provisionedDevices` 为空表示当前账号尚无已注册设备（新 App ID 的 Team Profile 就没有设备槽），此时 IPA 能导出但装不上——这不是签名失败。设备处于锁屏或未连接时，`xcodebuild -destination 'platform=iOS,id=<UDID>'` 会报 `needs to be unlocked to enable development services`。
+
+最省事的路径仍然是 Xcode：打开工程 → 顶部选择已连接且已解锁的设备 → ⌘R。Xcode 会自动注册设备、重签并把控制台接到 `stdout`。
+
+宿主支持选择 1G、2G、4G 或 6G 的地址空间。`TMPDIR` 与 `HOME` 指向应用沙盒，工作目录指向 `--gameDir`。调试宿主使用本地测试玩家 Dev，启动参数固定 Minecraft 26.1.2 和资源索引 30。日志目录可在“文件”App 中查看。
+
+反射配置在 `compiler/reflection-config.json`（参数转换和日志实际访问的精确构造器/方法），由 `tools/probe_client_graph.py` 的 `ReflectionConfigurationFiles` 引用。缺一条就会在 `Main.main` 的 joptsimple 参数解析处抛 `"<type> is not a value type"`。
+
+## iPhone 原版单人测试
+
+打开 [C0Harness.xcodeproj](../ios/C0Harness/C0Harness.xcodeproj/)，选择 **WorldDevice**，目的地选择自己的 iPhone，然后按 **⌘R**。该方案使用真机 arm64 游戏镜像、真机 Metal 库和用户本地已核验的资源索引 30，沿用现有开发签名和应用标识。首次进入时用左右横屏，建议从菜单新建测试世界，验证移动、跳跃、放置和破坏方块、声音、保存退出与重进。
+
+验证独立启动时，在 Xcode 停止运行，断开连接，从 iPhone 主屏幕重新打开 **FabricAOT World**。启动失败时可在「文件」→「我的 iPhone」→「FabricAOT World」→ `c0-logs` 找到最近一次 `run-*.log`。安装和运行由测试者在手机上完成。
+
+本地重建使用与横屏模拟器相同的 `main-aot-15` 可重定位对象。以下命令从本机已锁定的构建输入重新生成真机库。输出目录必须是新路径，生成后按实际路径更新 `WorldDevice.xcconfig`。
+
+```bash
+g=artifacts/graphics
+obj=$(jq -r '.imageObject.path' "$g/main-link-sim-15/result.json")
+python3 -B tools/build_ios_runtime.py --sdk iphoneos --with-extnet --aot-object "$obj" --output "$g/runtime-ios-world-02"
+python3 -B tools/link_c0_ios.py --sdk iphoneos --stub-unsupported-jni --image "$g/main-aot-15" --runtime "$g/runtime-ios-world-02" --output "$g/main-link-ios-world-01"
+python3 -B tools/build_glfw_lite.py --sdk iphoneos --output "$g/glfw-ios-world-01"
+python3 -B tools/build_lwjgl_lite.py --sdk iphoneos --glfw-library "$g/glfw-ios-world-01/libglfw.dylib" --output "$g/lwjgl-ios-world-01"
+python3 -B tools/build_metal_backend.py --sdk iphoneos --graphics-bridge "$g/lwjgl-ios-world-01" --glfw-library "$g/glfw-ios-world-01/libglfw.dylib" --output "$g/metal-ios-world-03"
+python3 -B tools/build_openal_soft.py --sdk iphoneos --output "$g/openal-ios-world-01"
+python3 -B tools/translate_shaders.py --sdk iphoneos --catalog "$g/shader-catalog-03" --toolchain "$g/shader-toolchain-03" --output "$g/shaders-ios-world-01"
+python3 -B tools/stage_device_xcode.py --client "$g/main-link-ios-world-01" --glfw "$g/glfw-ios-world-01" --lwjgl "$g/lwjgl-ios-world-01" --metal "$g/metal-ios-world-03" --openal "$g/openal-ios-world-01" --shaders "$g/shaders-ios-world-01" --output "$g/world-device-input-02"
+xcodebuild -project ios/C0Harness/C0Harness.xcodeproj -scheme WorldDevice -destination 'generic/platform=iOS' -derivedDataPath "$g/world-device-signed-02/DerivedData" build
+```
+
 ## 专用模拟器调试
 
 本轮用单独 iPhone18Pro / iOS27.2模拟器，ID BD25D247-F3BF-4883-A779-D2D46015616D。创建、安装、启动和原始结果见 evidence。模拟器结果不提升真机 Gate。
@@ -90,14 +153,14 @@ python3 -B tools/locate_local_client.py --profile "$HOME/Library/Application Sup
 
 ## 测试、证据与中央登记
 
-B0准备、真实转换/重放/负例和沙盒控制已PASS，见[B0复现](B0_TEST_HANDOFF.md)。B1的iOS AOT、运行库、签名包和用户独立运行已PASS，见[B1记录](B1_DEVICE_HANDOFF.md)。真实客户端诊断见[ADR-003](evidence/ADR-003.md)，C0仍BLOCKED。
+B0准备、真实转换/重放/负例和沙盒控制已PASS，见[B0复现](B0_TEST_HANDOFF.md)。B1的iOS AOT、运行库、签名包和用户独立运行已PASS，见[B1记录](B1_DEVICE_HANDOFF.md)。真实客户端诊断见[ADR-003](evidence/ADR-003.md)：分析墙已由方法拆分器解决，镜像已在真机/模拟器执行到 Datafixer 之后，**C0 只剩图形层阻断**，方案见[GRAPHICS_STACK_PLAN](GRAPHICS_STACK_PLAN.md)与[ADR-008](evidence/ADR-008.md)。
 
 ```bash
 python3 -B -m unittest discover -s tests -v
 python3 -B tools/verify_evidence.py --output artifacts/evidence/verification-new.json
 ```
 
-本轮79项单元/安全回归测试通过，原始输出在artifacts/evidence/unit-tests-c0-diagnostics-verified/。Mac脚本由助手执行，真机由用户负责。verify_evidence 检查命令输出、二进制、运行库和 Framework 指纹；当前源清单含 docs/.codex。它不认证游戏或设备行为。
+当前151项单元/安全回归通过，见artifacts/graphics/regression-06/stderr.log（79/123/133项为历史轮次）。Mac脚本由助手执行，真机由用户负责。verify_evidence 检查其支持的命令输出、报告及二进制字段；图形库另有构建指纹及Xcode嵌入核对，当前源清单含 docs/.codex。它不认证游戏或设备行为。
 
 AAR 只使用 /Users/kexin/Documents/Codex/monitor/registry.sqlite。可靠可再取得的固定缓存带 regenerable；历史运行记录、耦合的源构建状态和设备状态保留。安全删除标志均 false，不执行清理。新产物需重新核验登记。外部专用测试目录可显式提供 --external-build-root，不能用主目录或系统目录作项目。
 
@@ -105,4 +168,16 @@ tools/register_artifacts.py 用于不含符号链接的实验树，发现链接�
 
 本地Git提交保存第一方源码与文档，`git log -1`查看；原始游戏/玩家数据和生成物未纳入。建立Git后中央AAR项目身份须重新登记同步，不能继续沿用旧身份。
 
-真实客户端分析支持有界6/8 GiB与Mac构建GC对照，命令及测量限制见[CLIENT_GRAPH_DIAGNOSTICS](CLIENT_GRAPH_DIAGNOSTICS.md)。构建JFR会改变目标JFR配置，本轮08保留提前失败记录，09/10/11均OOM，C0继续BLOCKED。
+真实客户端分析支持有界6/8 GiB与Mac构建GC对照，命令及测量限制见[CLIENT_GRAPH_DIAGNOSTICS](CLIENT_GRAPH_DIAGNOSTICS.md)。构建JFR会改变目标JFR配置，08保留提前失败记录，09/10/11均OOM——这三轮是"加堆无解"的原始证据；分析墙最终由构建期方法拆分（`compiler/splitter`，18类/28方法→358段）解决，第28轮 6 GiB 下完整分析通过。C0 现只剩图形层阻断（见 WORK_HANDOFF §1.2）。
+
+## 图形启动探针与Xcode调试
+
+第46轮资源诊断命令与源码入口见 [GRAPHICS_BOOTSTRAP](GRAPHICS_BOOTSTRAP.md)。打开 `ios/C0Harness/C0Harness.xcodeproj`，选择共享Scheme **MetalProbe**（默认C0Harness也可）和自己的iPhone，⌘R；已引用资源探针AOT与iPhoneOS的3个图形库及预编译metallib。预期四分屏红/绿/蓝/黄约20秒后回日志，成功标记为METAL_RESOURCE_PROBE_PASS。模拟器需使用对应Simulator库，并通过构建器显式传入。
+
+`build_c0_harness.py --output <新目录>`保留既有归档/导出；`--native-library`逐个验证并嵌入libglfw/liblwjgl/libfaot_metal，资源探针另传`--metal-library`。宿主使用org.lwjgl.librarypath定位签名库，overlay明确识别iOS。当前Scheme运行真实Window/RenderSystem与GPU资源比对，四分屏保持20秒；该设备Scheme仍为历史资源诊断；原版着色器与实际绘制已另在模拟器验证，真实Main正在接入，C0/C0a保持BLOCKED。
+
+### 第47轮真实Main模拟器通路
+
+完整命令与逐步失败证据见[GRAPHICS_BOOTSTRAP](GRAPHICS_BOOTSTRAP.md)。以修正后的`client-split-04`为输入执行`tools/inject_metal_backend.py`；真实Main构建传`--include-game-resources`，自动启用HTTP/HTTPS协议。`tools/stage_game_assets.py`按26.1.2版本元数据固定索引30与对象SHA1复制资源；可用`--fetch-missing`只从固定官方源补齐不匹配对象，不覆盖启动器缓存。模拟器运行库通过`build_ios_runtime.py --with-extnet --sdk iphonesimulator`补充真实Darwin扩展套接字JNI。音频库由`build_openal_soft.py --sdk iphonesimulator`在隔离环境编译固定OpenAL Soft1.25.2，要求CoreAudio。音频PCM探针验证真实后端和播放推进，保持静音。
+
+设备诊断、原版单人模拟器与 iPhone 原版单人测试各用独立方案。手机安装和运行由测试者执行。
