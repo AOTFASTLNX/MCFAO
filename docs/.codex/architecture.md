@@ -1,7 +1,9 @@
 # 当前实现边界
 
-Last reviewed: 2026-11-09
+Last reviewed: 2026-11-10
 
+- `mcfao` 由 `tools/mcfao.py` 编排客户端构建。Loader 适配器返回 AOT 客户端 JAR，方法拆分、Metal 注入、Native Image、iOS Java/SVM 链接及签名共用。阶段重试保留原日志，只复用输入和输出指纹匹配的检查点。
+- `tools/prepare_fabric_aot.py` 与 `interop/fabric/tool` 复用固定 Fabric Loader 0.19.3 的真实元数据解析与 Knot 字节码转换。生成静态入口和资源/初始化元数据，完整运行时 Fabric API 和非 official 映射待实现。 [适配说明](../FABRIC_AOT.md)
 - compiler/ 固定 GraalVM25.0.2、OpenJDK/Graal 提交及归档指纹。fetch_upstream 仅读取官方源码；build_ios_runtime 用自行编写的 clang/libtool 编排生成119个原生翻译单元。
 - interop/a1/ 是第一方 Java25/JNI/C 入口夹具。AOT 对象链接自建 iOS 运行库；iPhoneOS 与 Simulator 编译目标分别记录并校验。
 - ios/A1Harness/ 提供真实调用 graal_create_isolate、Java 语义入口和 tear_down 的测试 App/Xcode 工程。结果写入其沙盒 Documents。
@@ -19,4 +21,4 @@ Last reviewed: 2026-11-09
 - .cache/ 保存可追溯输入及构建状态，artifacts/a1/ 保存编译/运行，artifacts/evidence/ 保存证据；用户游戏文件保留在工作区外。
 - AAR 唯一数据库 /Users/kexin/Documents/Codex/monitor/registry.sqlite。源代码保留，安全删除标志均 false。
 
-未完成：图形栈的完整窗口/IME/相对输入、STB其余API、完整Main菜单、资源探针真机独立启动验证、完整 Fabric 静态化全链、反射/资源/JNI 完整闭包、iOS 游戏渲染/世界、整合包闭包、完整构建隔离、游戏 IPA 与性能验收。
+未完成：图形栈完整窗口/IME/相对输入、STB 其余 API、真机 Main 菜单和世界复验、完整 Fabric 运行时 API、反射/资源/JNI 完整闭包、整合包闭包、完整构建隔离与真机性能验收。

@@ -17,13 +17,17 @@ from run_b0_reference import sandbox_policy
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--client',type=Path,required=True);parser.add_argument('--output',type=Path,required=True)
+    parser.add_argument('--graalvm-home', type=Path)
+    parser.add_argument('--asm-jars', type=Path, nargs=2, metavar=('ASM_CORE', 'ASM_TREE'))
     args=parser.parse_args(argv);client=args.client.resolve(strict=True);split=verify_split_runtime_input(client)
     if split is None:parser.error('A verified corrected split client is required')
     out=args.output.resolve();out.mkdir(parents=True,exist_ok=False)
-    source=ROOT/'compiler/metal-backend/tools/fabricaot/metal/InjectBackend.java';home=java_home()
-    asm=gradle_asm()
-    if len(asm)!=2:raise ValueError('Exactly ASM core and tree 9.9 are required')
-    classes=out/'classes';classes.mkdir();libraries=list(asm.values());classpath=os.pathsep.join(map(str,libraries))
+    source=ROOT/'compiler/metal-backend/tools/fabricaot/metal/InjectBackend.java'
+    home=args.graalvm_home.resolve(strict=True) if args.graalvm_home else java_home()
+    libraries=[path.resolve(strict=True) for path in (args.asm_jars or gradle_asm().values())]
+    if {path.name for path in libraries}!={'asm-9.9.jar','asm-tree-9.9.jar'}:
+        raise ValueError('Exactly ASM core and tree 9.9 are required')
+    classes=out/'classes';classes.mkdir();classpath=os.pathsep.join(map(str,libraries))
     result={'status':'BLOCKED','scope':'build-time Metal injection and equivalent short circuits for unsigned chat; no client execution',
             'client':str(client),'clientSHA256':sha256(client),'splitRuntimeValidation':split,
             'sourcesSHA256':{str(p.relative_to(ROOT)):sha256(p) for p in [source,Path(__file__)]},

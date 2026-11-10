@@ -4,7 +4,8 @@
 #include "glfw_lite.h"
 #include "input_mapping.h"
 
-enum { CONTROL_BREAK=-1, CONTROL_PLACE=-2, CONTROL_PREVIOUS=-3, CONTROL_NEXT=-4, CONTROL_PICK=-5, CONTROL_ESCAPE=256 };
+enum { CONTROL_BREAK=-1, CONTROL_PLACE=-2, CONTROL_PREVIOUS=-3, CONTROL_NEXT=-4, CONTROL_PICK=-5,
+       CONTROL_ESCAPE=256, CONTROL_DEBUG=292 /* GLFW_KEY_F3 */ };
 static void onMain(dispatch_block_t block) {
     if (NSThread.isMainThread) block(); else dispatch_sync(dispatch_get_main_queue(),block);
 }
@@ -29,6 +30,9 @@ static UIWindowScene *activeScene(void) {
 - (void)installControls;
 - (void)setGameCapture:(BOOL)captured;
 - (void)releaseGameControls;
+- (void)controlDown:(UIButton *)button;
+- (void)controlUp:(UIButton *)button;
+- (BOOL)sendControl:(int)code pressed:(BOOL)pressed;
 @end
 @implementation FAOTMetalView
 + (Class)layerClass { return CAMetalLayer.class; }
@@ -78,18 +82,26 @@ static UIWindowScene *activeScene(void) {
     CGRect safe=UIEdgeInsetsInsetRect(self.bounds,self.safeAreaInsets);
     const CGFloat size=44,step=48,left=CGRectGetMinX(safe)+8,right=CGRectGetMaxX(safe)-size-8;
     const CGFloat bottom=CGRectGetMaxY(safe)-size-32;
+    /* Debug toggle mirrors the pause button in the top-left corner: out of thumb reach and
+       deliberately smaller, so it neither competes with combat controls nor hides much HUD. */
+    const CGFloat debugSize=36,debugX=left,debugY=CGRectGetMinY(safe)+8+(size-debugSize)/2;
     CGPoint points[]={{left+step,bottom-2*step},{left,bottom-step},{left+step,bottom-step},{left+2*step,bottom-step},
                       {right,bottom-step},{right-step,bottom-step},{right,bottom-2*step},{right-step,bottom-2*step},
-                      {right-step,bottom},{right,bottom},{left,bottom},{right,CGRectGetMinY(safe)+8}};
-    for(NSUInteger i=0;i<self.controls.count;i++)
-        self.controls[i].frame=CGRectMake(points[i].x,points[i].y,size,size);
+                      {right-step,bottom},{right,bottom},{left,bottom},{right,CGRectGetMinY(safe)+8},
+                      {debugX,debugY}};
+    for(NSUInteger i=0;i<self.controls.count;i++){
+        UIButton *button=self.controls[i];
+        CGFloat side=button.tag==CONTROL_DEBUG?debugSize:size;
+        button.frame=CGRectMake(points[i].x,points[i].y,side,side);
+    }
 }
 - (void)installControls {
-    NSArray<NSString *> *titles=@[@"↑",@"←",@"↓",@"→",@"Jump",@"Items",@"Place",@"Break",@"◀",@"▶",@"Pick",@"Ⅱ"];
+    NSArray<NSString *> *titles=@[@"↑",@"←",@"↓",@"→",@"Jump",@"Items",@"Place",@"Break",@"◀",@"▶",@"Pick",@"Ⅱ",@"F3"];
     NSArray<NSString *> *labels=@[@"Move forward",@"Move left",@"Move backward",@"Move right",
                                    @"Jump",@"Inventory",@"Place or use",@"Break or attack",
-                                   @"Previous hotbar slot",@"Next hotbar slot",@"Pick block",@"Pause"];
-    const int codes[]={'W','A','S','D',' ','E',CONTROL_PLACE,CONTROL_BREAK,CONTROL_PREVIOUS,CONTROL_NEXT,CONTROL_PICK,CONTROL_ESCAPE};
+                                   @"Previous hotbar slot",@"Next hotbar slot",@"Pick block",@"Pause",
+                                   @"Toggle debug screen"];
+    const int codes[]={'W','A','S','D',' ','E',CONTROL_PLACE,CONTROL_BREAK,CONTROL_PREVIOUS,CONTROL_NEXT,CONTROL_PICK,CONTROL_ESCAPE,CONTROL_DEBUG};
     NSMutableArray<UIButton *> *controls=[NSMutableArray arrayWithCapacity:titles.count];
     self.heldControls=[NSMutableSet set];
     for(NSUInteger i=0;i<titles.count;i++){
@@ -101,6 +113,7 @@ static UIWindowScene *activeScene(void) {
         button.backgroundColor=[UIColor colorWithWhite:0 alpha:0.55];
         button.layer.cornerRadius=8;button.layer.borderWidth=1;
         button.layer.borderColor=[UIColor colorWithWhite:1 alpha:0.65].CGColor;
+        if(codes[i]==CONTROL_DEBUG)button.backgroundColor=[UIColor colorWithWhite:0 alpha:0.4];
         button.hidden=YES;
         [button addTarget:self action:@selector(controlDown:) forControlEvents:UIControlEventTouchDown];
         [button addTarget:self action:@selector(controlUp:) forControlEvents:UIControlEventTouchUpInside|UIControlEventTouchUpOutside|UIControlEventTouchCancel];
@@ -118,6 +131,19 @@ static UIWindowScene *activeScene(void) {
     return faot_glfw_enqueue(self.handle,FAOT_EVENT_KEY,code,0,pressed,0)!=0;
 }
 - (void)controlDown:(UIButton *)button {
+    if(button.tag==CONTROL_DEBUG){
+        NSNumber *debugKey=@(CONTROL_DEBUG);
+        if(!self.captured||[self.heldControls containsObject:debugKey])return;
+        if(![self sendControl:CONTROL_DEBUG pressed:YES])return;
+        [self.heldControls addObject:debugKey];
+        /* F3 is a toggle, not a held key: hold it across at least one game tick and let go
+           automatically, so a quick tap is never swallowed by a press+release in one poll. */
+        __weak FAOTMetalView *view=self;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW,90*NSEC_PER_MSEC),dispatch_get_main_queue(),^{
+            [view controlUp:button];
+        });
+        return;
+    }
     if(self.captured&&(button.tag==CONTROL_PREVIOUS||button.tag==CONTROL_NEXT)){
         if(self.handle)faot_glfw_enqueue(self.handle,FAOT_EVENT_SCROLL,0,button.tag==CONTROL_PREVIOUS?1:-1,0,0);
         return;

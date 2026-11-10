@@ -38,6 +38,10 @@ def verify_split_runtime_input(candidate: Path)->dict|None:
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--prepared", type=Path, default=ROOT / "artifacts/b0/prepared-04")
+    parser.add_argument("--runtime", type=Path, default=ROOT / "artifacts/b1/runtime-ios")
+    parser.add_argument("--caps", type=Path, default=ROOT / "artifacts/b1/ios-probe-03/work/caps")
+    parser.add_argument("--b1-evidence", type=Path, default=ROOT / "artifacts/evidence/b1-user-device-run-01/result.json")
     parser.add_argument("--heap-gib", type=int, choices=(6, 8), default=6)
     parser.add_argument("--builder-gc", choices=("parallel", "g1"), default="parallel")
     parser.add_argument("--oom-stack", action="store_true", help="Let the build JVM report the first OOM instead of immediately exiting")
@@ -108,9 +112,9 @@ def main(argv=None):
         import re as _re
         if not _re.fullmatch(r"[0-9]{1,4}(,[0-9]{1,4})*", args.census_at):
             parser.error("--census-at must be comma separated whole seconds")
-    if json.loads((ROOT / "artifacts/evidence/b1-user-device-run-01/result.json").read_text())["gateB1"] != "PASS":
+    if json.loads(args.b1_evidence.read_text())["gateB1"] != "PASS":
         parser.error("Confirmed B1 device behavior required")
-    prepared = ROOT / "artifacts/b0/prepared-04"
+    prepared = args.prepared.resolve(strict=True)
     manifest = json.loads((prepared / "result.json").read_text())
     home = Path(manifest["javaHome"])
     if sha256(home / "bin/java") != manifest["javaSHA256"]:
@@ -184,11 +188,11 @@ def main(argv=None):
             parser.error('Verified diagnostic agent for this Java required')
         if sha256(agent/'liboomcensus.dylib')!=verified['librarySHA256']:parser.error('Agent changed')
         agent_library=work/'liboomcensus.dylib';shutil.copy2(agent/'liboomcensus.dylib',agent_library)
-    shutil.copytree(ROOT / "artifacts/b1/ios-probe-03/work/caps", work / "caps", dirs_exist_ok=True)
+    shutil.copytree(args.caps, work / "caps", dirs_exist_ok=True)
     driver = prepared / "driver.jar"
     if sha256(driver) != manifest["binaries"]["driver.jar"]["sha256"]:
         parser.error("Control driver changed")
-    runtime_dir = ROOT / "artifacts/b1/runtime-ios"
+    runtime_dir = args.runtime.resolve(strict=True)
     runtime = json.loads((runtime_dir / "result.json").read_text())
     if runtime.get("target") != "arm64-apple-ios17.0" or runtime.get("status") != "COMPILED":
         parser.error("Actual iPhoneOS static runtime required")

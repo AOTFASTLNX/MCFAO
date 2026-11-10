@@ -56,13 +56,16 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--aot-object", type=Path)
+    parser.add_argument("--graalvm-home", type=Path)
+    parser.add_argument("--jdk-source", type=Path)
+    parser.add_argument("--graal-source", type=Path)
     parser.add_argument("--sdk", choices=("iphoneos", "iphonesimulator"), default="iphoneos")
     parser.add_argument('--with-extnet',action='store_true',help='Compile the pinned Darwin extended socket option JNI library')
     args = parser.parse_args(argv)
     output = args.output.absolute()
     output.mkdir(parents=True, exist_ok=False)
-    jdk = Path(json.loads((ROOT / ".cache/upstream/jdk.json").read_text())["path"])
-    graal = Path(json.loads((ROOT / ".cache/upstream/graal.json").read_text())["path"])
+    jdk = args.jdk_source or Path(json.loads((ROOT / ".cache/upstream/jdk.json").read_text())["path"])
+    graal = args.graal_source or Path(json.loads((ROOT / ".cache/upstream/graal.json").read_text())["path"])
     svm = graal / "substratevm"
     headers = jdk / "build/fabricaot-host/support/headers/java.base"
     if not (headers / "java_lang_System.h").is_file():
@@ -75,7 +78,7 @@ def main(argv=None):
     include_paths |= {headers, jdk / "build/fabricaot-host/jdk/include",
                       jdk / "src/hotspot/share/include", jdk / "src/hotspot/os/posix/include",
                       svm / "src/com.oracle.svm.native.libchelper/include"}
-    home = ROOT / ".cache/toolchains/graalvm-25.0.2/graalvm-community-openjdk-25.0.2+10.1/Contents/Home"
+    home = args.graalvm_home or ROOT / ".cache/toolchains/graalvm-25.0.2/graalvm-community-openjdk-25.0.2+10.1/Contents/Home"
     include_paths |= {home / "include", home / "include/darwin"}
     base_args = ["xcrun", "--sdk", args.sdk, "clang", "-target", target, "-isysroot", sdk,
                  "-O2", "-fPIC", "-fno-common", "-fvisibility=hidden", "-ffunction-sections", "-fdata-sections",

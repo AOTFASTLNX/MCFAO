@@ -86,3 +86,10 @@ Last reviewed: 2026-11-10
 - 用户要求做真机测试。WorldDevice 使用重新链接的 iPhoneOS arm64 游戏镜像及 Metal/OpenAL 库，在本地签名包内放入已核验的用户资源索引 30。首次启动预算沿用模拟器世界的 2 GiB 地址空间和 768 MiB 图形资源上限。手机安装与启动由用户操作，真机 Gate 以实际画面、输入和存档证据为准。入口和复现命令见 [BUILDING](../BUILDING.md)。
 - iPhone 的 Metal API Validation 会按着色器结构体含尾部填充的大小校验 uniform。原版 GUI 文字的 Fog 有效字段为 40 字节，Metal 结构体为 48 字节。原生缓冲区向上取整到 16 字节，Java 保留逻辑长度与切片边界。WorldDevice 使用 `world-device-input-02`，回归入口为 `MetalDrawProbe.guiTextFog`。
 - 世界加入时的停顿由 Authlib 聊天公钥 Future 导致。构建期只短路不要求签名的标志与空会话数据，原签名校验路径保留。图集顶点方向、光照行序、云层私有缓冲、物品图集 UV 和局部清除均有实测记录。仍仅限模拟器原版，设备与整合包 Gate 未验收。
+
+
+## 统一原版与 Fabric AOT 构建
+
+- 两个加载入口共用已验证的方法拆分、Metal 注入和 relocatable Native Image。设备 App 复用 WorldDevice 的既有签名设置。模拟器验证必须将相同 AOT 对象重新链接为 IOSSIMULATOR。源码与命令见 [BUILDING](../BUILDING.md)。
+- Fabric 0.19.3 的真实 Knot 导出包含启动和品牌补丁。所有被重定向的类均须重新序列化，品牌类没有启动入口计数。遗漏时真实 AOT 客户端可先成功运行 Mod 入口，随后因缺少 `net.fabricmc.loader.impl.game.minecraft.Hooks` 退出。用 javap 和真实世界烟测分别验证。
+- 外层工具沙盒禁止嵌套 `sandbox-exec`。使用支持原有默认拒绝沙盒的执行环境。当前 Xcode 签名可只包含 DER entitlements，`codesign -d --entitlements -` 可读出有效字典。

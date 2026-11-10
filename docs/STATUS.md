@@ -4,6 +4,33 @@
 
 当前实现和复现见 [BUILDING](BUILDING.md)，工具链决策见 [ADR-001](evidence/ADR-001.md)，原始记录见 [证据索引](evidence/README.md)。
 
+## 统一 AOT 构建与 Fabric 夹具
+
+原版基线取自 Git `1d9af2d`，当时无 tracked 改动。原编译参数、真机链接及签名分别保存在 [Native Image 命令](../artifacts/graphics/main-aot-15/analysis/command.json)、[链接报告](../artifacts/graphics/main-link-ios-world-01/result.json)、[WorldDevice 命令](../artifacts/graphics/world-device-signed-02/command.json)。本轮主机为 macOS 27.2，GraalVM CE 25.0.2+10.1，Xcode 27.2（27B52），Apple Clang 21.0.0，iPhoneOS SDK 27.2。 [Doctor 记录](../artifacts/mcfao/doctor-01/stdout.log)
+
+| 本轮验收 | 状态 | 证据 |
+|---|---|---|
+| P0 统一 CLI | PASS（构建与静态验证） | 从本地 26.1.2 JAR 重做拆分、Metal 注入、`--no-fallback` 对象、120 个 iOS Java/SVM 翻译单元、ARM64 链接和开发签名。新原版输入 JAR 的 29,433 个非目录条目逐项与既有 Metal 客户端相同。 [条目对照](../artifacts/mcfao/vanilla-bytecode-baseline.json) · [签名 App 清单](../artifacts/mcfao/vanilla-01/result.json) |
+| 原版运行回归 | PASS（模拟器世界烟测） | 新对象另行链接为 IOSSIMULATOR，游戏成功进入复制的单人存档，渲染地形和触摸控件。现有横屏 UI 回归用新镜像通过，覆盖方块操作、移动、物品栏和保存退出。 [UI 测试](../artifacts/mcfao/vanilla-ui-01/stdout.log) · [世界日志](../artifacts/mcfao/vanilla-simulator-02/game.log) · [截图](../artifacts/mcfao/vanilla-simulator-02/world.png) |
+| 原版 iPhone 包 | PASS（静态验签） | 嵌套签名、设备描述文件覆盖、无动态代码 entitlement。开发 IPA 已导出并完成解包复验。独立启动、交互、保存重进仍待上机。 [IPA 清单](../artifacts/mcfao/vanilla-ipa-01/result.json) · [设备覆盖报告](../artifacts/mcfao/vanilla-device-profile-01/stdout.log) |
+| P1 真实 Loader 输入 | PASS（构建期） | Fabric Loader 0.19.3 解析根和嵌套元数据，实际 Knot 解析测试 Mod、执行 Mixin、导出游戏类及静态入口。 [嵌套元数据](../artifacts/mcfao/nested-metadata-01/fabric/f106f2b6c2e6450ba43b6d93800e7abd/product/result.json) · [字节码核验](../artifacts/mcfao/fabric-bytecode-02/stdout.log) |
+| P1 F1 入口与资源 | PASS（模拟器） | 实际 Minecraft AOT 进程调用第一方 Mod 的 client 入口并读回内嵌资源。首轮随后因 Fabric 品牌调用残留退出，修复后重新编译并复测通过。 [首轮失败](../artifacts/mcfao/fabric-simulator-01/game.log) · [复测日志](../artifacts/mcfao/fabric-simulator-02/game.log) |
+| P1 F2 Mixin 与 F3 游戏回调 | PASS（模拟器） | `Minecraft#setLevel` 的注入在进入实际单人世界时触发 Mod 回调。集成服务器登录、回调标记和横屏地形均有证据。`getVersionType` 只做了静态字节码核对。 [字节码](../artifacts/mcfao/fabric-bytecode-02/stdout.log) · [运行结果](../artifacts/mcfao/fabric-simulator-02/result.json) · [截图](../artifacts/mcfao/fabric-simulator-02/world.png) |
+| Fabric iPhone 包 | PASS（构建与静态验签） | 修复版对象经 iPhoneOS 链接和开发签名，导出的 IPA 已解包核对原生镜像、资源、签名和指定 iPhone 描述文件覆盖。设备运行待验。 [IPA 清单](../artifacts/mcfao/fabric-ipa-02/result.json) |
+| P2 / P3 | 部分实现 | 已转换 JAR 是 Loader 与原生后端的边界。当前版本选择仅 26.1.2，命名空间为 official。Forge、NeoForge 和旧版混淆映射尚未实现。 [适配说明](FABRIC_AOT.md) |
+
+本轮 Python 回归为 182 项全通过。 [测试日志](../artifacts/mcfao/regression-03/stderr.log)
+
+## Recollection3 整合包试导入
+
+用户报告此前 IPA 已通过真机验证。此次记录未附该包的构建号和逐项验收日志。Recollection3 的结果单列如下。
+
+- CurseForge ZIP 声明 Minecraft 26.1.2 和 Fabric Loader 0.19.2。已校验 ZIP 目录并暂存 6 个随包 JAR，全部通过 MCFAO 的 Fabric 元数据预检。6 个 JAR 与同名本地实例中的文件逐一匹配 SHA-256。清单另列 53 条 CurseForge 文件引用，尚未按文件 ID 核验完整输入集。 [归档清单](../artifacts/mcfao/recollection3-import-01/import.json)
+- 初次整组预检被两个 Mod 描述字段中的未转义换行拦住。修复后，`--prepare-only` 以锁定的 Fabric Loader 0.19.3 一次解析本地实例的 53 个根 JAR 和 168 个嵌套 JAR。49 个根 JAR 或其子包触发现有 AOT 元数据限制，报告列出 178 条归档诊断，并标记两份 Fabric API。Fabric API 子模块、Sodium 的 `preLaunch` 和 Kotlin 语言适配器仍需单独支持。 [初次诊断](../artifacts/mcfao/recollection3-import-01/full-preflight-diagnostic/stderr.log) · [修复后报告](../artifacts/mcfao/recollection3-import-02/local-instance-preflight/fabric/67dce38cff064c7881fe4aef2ef2401a/product/result.json) · [187 项回归](../artifacts/mcfao/recollection3-import-02/regression/stderr.log)
+- Recollection3 整包 AOT 为 BLOCKED，真机测试为 NOT RUN。此次只处理清单与 Mod 元数据，未运行第三方 Mod 或应用 overrides。 已审计的第一方夹具通过构建期转换复测。 [夹具报告](../artifacts/mcfao/recollection3-import-02/first-party-transform/fabric/3ff3e2e6604741bda8412f22fd9c8dac/product/result.json)
+
+## 历史门槛与实测
+
 | 检查 | 状态 | 证据 / 阻断 |
 |---|---|---|
 | A0 客户端输入 | FOUND / HASH MATCH | Swift Craft Launcher 的 meta/versions/26.1.2/26.1.2.jar，38113927 字节，SHA-1 与版本元数据一致；主类存在 |
@@ -24,10 +51,10 @@
 | 原版单人真机测试包 | PASS（构建与签名检查） | WorldDevice 已更新 Metal 库，原版 GUI 文字使用的 Fog 缓冲区物理分配由 40 字节对齐至 48 字节。设备构建与嵌套签名校验通过，修复后真机待复测。见[构建日志](../artifacts/graphics/world-device-signed-02/stdout.log)、[签名校验](../artifacts/graphics/world-device-signature-02/command.json)和[测试步骤](BUILDING.md#iphone-原版单人测试)。 |
 | C1 / C2 | 真机 NOT RUN | 模拟器记录单独保留。 |
 | D0 | PARTIAL | 离线元数据/研究工具负例已测试；默认拒绝沙盒读/写/本地连接控制通过；恶意Mod/Gradle、IPC、完整下载/依赖服务未验收 |
-| D1 / D2 | NOT RUN | 无已验证整合包、签名游戏 IPA、安装更新/存档保留结果 |
+| D1 / D2 | NOT RUN | 已有原版与第一方夹具的开发签名 IPA。尚无通过验收的整合包、真机安装更新或存档保留证据 |
 | E | NOT RUN | 无真机游戏性能、温度或持续游玩数据 |
 
-当前 **170 项 Python 自动化回归全部 PASS**。GLFW 与像素转换 C 夹具通过 ASan/UBSan，真实 Metal 像素测试通过。原版单人运行证据来自模拟器，iPhone 游戏包等待用户安装运行。[回归日志](../artifacts/graphics/regression-18/stderr.log) · [GPU 记录](../artifacts/graphics/draw-simulator-evidence-05/result.json)
+此前图形栈阶段的 **170 项 Python 自动化回归全部 PASS**。GLFW 与像素转换 C 夹具通过 ASan/UBSan，真实 Metal 像素测试通过。原版单人运行证据来自模拟器，iPhone 游戏包等待用户安装运行。[回归日志](../artifacts/graphics/regression-18/stderr.log) · [GPU 记录](../artifacts/graphics/draw-simulator-evidence-05/result.json)
 
 主机：macOS 27.2 arm64，Xcode/iPhoneOS SDK 27.2，GraalVM CE 25.0.2。用户 iPhone/iOS27.2 的 build 2 原生日志确认 Java25语义运行通过，退出Xcode/拔线/重新打开条件由用户确认。专用调试模拟器与用户原有设备分开。
 
@@ -37,7 +64,7 @@ B1诊断包为 artifacts/b1/device-handoff/export/FabricAOT B1.ipa（build 4）�
 
 已按门槛文档建立本地Git源代码记录；提交可用git log -1查看。当前源文件和证据指纹由 verify_evidence.py 保存。生成物通过唯一中央 AAR 实际登记，保留历史实验和设备状态，安全删除标志均为 false。
 
-最新研发变更尚未提交；第13轮时的6个源文件及差异另存handoff-snapshot-20261108（不含第17–24轮新增工具）。接手状态、实验12–24及测量边界见[WORK_HANDOFF](WORK_HANDOFF.md)。
+第13轮时的6个源文件及差异另存handoff-snapshot-20261108（不含第17–24轮新增工具）。接手状态、实验12–24及测量边界见[WORK_HANDOFF](WORK_HANDOFF.md)。
 
 用户第46轮确认蓝屏后进入日志；设备日志为Metal诊断成功，未确认独立启动条件。Xcode工程已切到下一版四分屏资源探针，设备目标构建及输入核对通过，用户已在真机确认四色，GPU读回/呈现日志匹配；宿主返回记录受日志覆盖问题影响，已修复并另行验证。日志、输入与测试边界见 [GRAPHICS_BOOTSTRAP](GRAPHICS_BOOTSTRAP.md)。
 

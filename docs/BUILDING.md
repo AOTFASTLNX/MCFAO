@@ -1,6 +1,81 @@
 # FabricAOT 构建与复现
 
-最后复核：2026-11-08。状态见 [STATUS](STATUS.md)，实验结论见 [ADR-001](evidence/ADR-001.md)。以下均在项目根执行，日志输出目录要求新建。
+最后复核于 2026-11-10。状态见 [STATUS](STATUS.md)，实验结论见 [ADR-001](evidence/ADR-001.md)。以下均在项目根执行，日志输出目录要求新建。
+
+## 统一 CLI
+
+在 Apple Silicon Mac 上用 Python 3.11+ 执行 `./mcfao`。配置文件中的相对路径以该配置文件所在目录为准。下面是放在仓库根目录的本机配置示例。将版本 JSON 指向本地启动器提供的 26.1.2 元数据。
+
+```json
+{
+  "prepared": "artifacts/b0/prepared-04",
+  "caps": "artifacts/b1/ios-probe-03/work/caps",
+  "bootstrapRuntime": "artifacts/b1/runtime-ios",
+  "splitter": "artifacts/compiler/method-splitter-01",
+  "versionMetadata": "/绝对路径/26.1.2.json",
+  "assets": "artifacts/graphics/game-assets-01/assets",
+  "glfw": "artifacts/graphics/glfw-ios-world-01",
+  "lwjgl": "artifacts/graphics/lwjgl-ios-world-01",
+  "metal": "artifacts/graphics/metal-ios-world-03",
+  "openal": "artifacts/graphics/openal-ios-world-01",
+  "shaders": "artifacts/graphics/shaders-ios-world-01",
+  "b1Evidence": "artifacts/evidence/b1-user-device-run-01/result.json"
+}
+```
+
+本机验证使用 `artifacts/mcfao-local.json`。通过下方的工具链、B0 准备、方法拆分和 [iPhone 原版单人测试](#iphone-原版单人测试) 步骤取得这些前置产物。可用 `openjdkSource` 和 `graalSource` 指定已准备好的源码目录，默认从 `.cache/upstream/` 的源码记录读取。OpenJDK 源码目录内须具备下文的 JNI 头文件。CLI 每次从拥有的客户端重做方法拆分、Metal 注入、Native Image 和 iOS Java/SVM 库编译。图形、音频、着色器与已核验的游戏资源通过配置导入，使用原有构建工具单独更新。
+
+```bash
+./mcfao doctor --config ./mcfao.local.json
+./mcfao build --version 26.1.2 --loader vanilla --target ios-arm64 \
+  --config ./mcfao.local.json --output artifacts/mcfao/my-vanilla
+./mcfao verify --target ios-arm64 --output artifacts/mcfao/my-vanilla
+# 指定真机 UDID 时，额外要求该设备在描述文件内。
+./mcfao verify --target ios-arm64 --output artifacts/mcfao/my-vanilla --device <iPhone-UDID>
+```
+
+构建输出本地签名的 `.app`，位置见 `result.json` 的 `app` 字段。Xcode 沿用 WorldDevice 设置和本机已安装的签名资料，目标为 `generic/platform=iOS`。设备验证检查包内哈希、Mach-O 平台、签名、JIT 权限及描述文件。使用现有 Team 的开发导出配置可以从同一构建导出 IPA。
+
+```bash
+./mcfao export --target ios-arm64 --build artifacts/mcfao/my-vanilla \
+  --export-options ios/C0Harness/ExportOptions.plist \
+  --output artifacts/mcfao/my-vanilla-ipa
+```
+
+导出命令重新归档已校验的原生输入并解包验签，记录 IPA SHA-256。可传 `--device` 检查指定设备覆盖。安装前核对描述文件有效期。原版和 Fabric 测试包沿用同一个 bundle ID，安装后会替换该设备上的同 ID App。更新时的存档保留属于真机验收。
+
+`inputs.json` 记录工具链、依赖 SHA-256、映射命名空间和参数。每个阶段在独立尝试目录中保留 `command.json`、`stdout.log`、`stderr.log` 及其原生子步骤日志。失败后用相同参数重跑，配置、输入、阶段参数和产物 SHA-256 均匹配时才复用检查点。修改输入时用新输出目录。构建要求能调用项目自己的 `sandbox-exec`，且 Xcode 可访问现有签名和描述文件。
+
+### Fabric 夹具和诊断
+
+```bash
+python3 -B tools/prepare_fabric_aot.py --prepared artifacts/b0/prepared-04 \
+  --fixture --output artifacts/mcfao/my-fixture
+
+./mcfao build --version 26.1.2 --loader fabric --target ios-arm64 \
+  --config ./mcfao.local.json --mods artifacts/mcfao/my-fixture/mods \
+  --prepare-only --output artifacts/mcfao/my-fabric-metadata
+
+./mcfao build --version 26.1.2 --loader fabric --target ios-arm64 \
+  --config ./mcfao.local.json --mods artifacts/mcfao/my-fixture/mods \
+  --audited-mods --output artifacts/mcfao/my-fabric
+```
+
+`--prepare-only` 可读取第三方 Mod 元数据，并在 `result.json` 的 `compatibility` 字段汇总每个归档遇到的第一条限制和重复根 Mod ID。命令成功表示预检报告已生成，`compatibility.status` 单独记录 AOT 筛查状态。加上 `--audited-mods` 时运行构建期转换，再于 Native Image 之前退出。完整构建须使用已经审计过的输入。边界和变换链见 [Fabric AOT 适配器](FABRIC_AOT.md)。
+
+模拟器测试用 `tools/smoke_mcfao_simulator.py`。该工具从完整构建的 `result.json` 找到 AOT 对象，单独链接为 `IOSSIMULATOR`，以显式的测试模拟器和一份可丢弃的单人测试存档执行 Quick Play。复制源存档，原目录保留。对应的输出目录中保留截图和新进程日志。
+
+```bash
+python3 -B tools/smoke_mcfao_simulator.py \
+  --expect fabric --build artifacts/mcfao/my-fabric \
+  --runtime artifacts/graphics/runtime-sim-02 \
+  --graphics artifacts/graphics/world-simulator-input-02 \
+  --assets artifacts/graphics/game-assets-01/assets \
+  --seed-world "<测试存档目录>" --simulator <专用测试模拟器-UDID> \
+  --output artifacts/mcfao/my-fabric-simulator
+```
+
+用 `--expect vanilla` 和原版构建目录可回归原版进世界。Fabric 夹具要求同一份新日志中出现 `MCFAO_F1_CLIENT_ENTRYPOINT_RESOURCE_PASS`、`MCFAO_F3_CLIENT_WORLD_JOIN_PASS`，以及游戏集成服务器的 `Dev joined the game`。世界回调由 `Minecraft#setLevel` 的 Mixin 注入产生，同时验证 F2 注入生效和 F3 进世界行为。
 
 ## 工具链和官方源码
 
@@ -76,7 +151,7 @@ sim_data=$(xcrun simctl get_app_container "$sim_id" org.fabricaot.research.c0.ke
 /usr/bin/ditto artifacts/graphics/game-assets-01/assets "$sim_data/Documents/assets"
 ```
 
-模拟器首次启动使用 8 区块视距、5 区块模拟距离与 30 FPS 上限。游戏会保留已存在的设置。触控方向键移动，拖动空白区域转视角，Pick、Break 和 Place 分别取、破坏和放置方块。Items 打开物品栏，右上角返回游戏或打开暂停菜单。
+模拟器首次启动使用 8 区块视距、5 区块模拟距离与 30 FPS 上限。游戏会保留已存在的设置。触控方向键移动，拖动空白区域转视角，Pick、Break 和 Place 分别取、破坏和放置方块。Items 打开物品栏，右上角返回游戏或打开暂停菜单。左上角 36pt 的 **F3** 按钮（与右上的暂停键左右对称，避开拇指操作区）发送 GLFW `F3` 按键切换调试信息；它是开关式按键，按下后由宿主在 90ms 后自动抬起，避免按压与抬起落在同一次事件轮询里被丢弃。
 
 两条通道共用同一份无平台标记的镜像对象：
 

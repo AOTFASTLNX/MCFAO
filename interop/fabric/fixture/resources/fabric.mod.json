@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "mcfao_fixture",
+  "version": "1.0.0",
+  "environment": "client",
+  "depends": {"fabricloader": "=0.19.3", "minecraft": "=26.1.2", "java": ">=25"},
+  "entrypoints": {"client": ["mcfao.fixture.GameMod"]},
+  "mixins": ["mcfao_fixture.mixins.json"]
+}

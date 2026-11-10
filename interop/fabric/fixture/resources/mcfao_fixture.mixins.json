@@ -1,0 +1,8 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "mcfao.fixture.mixin",
+  "compatibilityLevel": "JAVA_25",
+  "client": ["WorldMixin"],
+  "injectors": {"defaultRequire": 1}
+}
