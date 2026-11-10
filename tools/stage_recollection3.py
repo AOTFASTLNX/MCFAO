@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import stat
 from pathlib import Path
@@ -25,6 +26,23 @@ PACK_FILES = {
     (60089, 7840791): MOUSE,
     (306612, 8032582): API,
 }
+CONFIG_PATH = "overrides/config/MouseTweaks.cfg"
+CONFIG_KEYS = {
+    "RMBTweak", "LMBTweakWithItem", "LMBTweakWithoutItem", "WheelTweak",
+    "WheelSearchOrder", "WheelScrollDirection", "ScrollItemScaling", "Debug",
+}
+
+
+def inventory_config(data: bytes) -> bytes:
+    options = {}
+    for line in data.decode("ascii").splitlines():
+        key, _, value = line.partition("=")
+        if key not in CONFIG_KEYS or key in options or value not in {"0", "1", "2", "3"}:
+            raise ValueError("Unexpected Mouse Tweaks config entry")
+        options[key] = value
+    if set(options) != CONFIG_KEYS:
+        raise ValueError("Mouse Tweaks config is incomplete")
+    return ("\n".join(f"{key}={value}" for key, value in options.items()) + "\n").encode("ascii")
 
 
 def stage(pack: Path, local_mods: Path, output: Path) -> dict:
@@ -33,19 +51,30 @@ def stage(pack: Path, local_mods: Path, output: Path) -> dict:
         if not validate_zip_members(archive, findings, pack.name):
             raise ValueError(f"Unsafe pack archive: {findings}")
         manifest = read_json_limited(archive, "manifest.json", 2 * 1024**2)
+        config = None
+        if CONFIG_PATH in archive.namelist():
+            if archive.getinfo(CONFIG_PATH).file_size > 4096:
+                raise ValueError("Mouse Tweaks config is too large")
+            config = inventory_config(archive.read(CONFIG_PATH))
     refs = {(entry["projectID"], entry["fileID"]) for entry in manifest["files"]}
     if (manifest["name"] != "Recollection3" or manifest["minecraft"]["version"] != "26.1.2"
             or not PACK_FILES.keys() <= refs):
         raise ValueError("Expected the Recollection3 manifest with the audited Mouse Tweaks and Fabric API file IDs")
+    jars = {}
     for name, expected in LOCAL_SHA256.items():
         path = local_mods / name
-        if not stat.S_ISREG(path.lstat().st_mode) or sha256(path) != expected:
+        info = path.lstat()
+        if not stat.S_ISREG(info.st_mode) or info.st_size > 4 * 1024**2:
+            raise ValueError(f"Expected a small regular audited JAR: {name}")
+        data = path.read_bytes()
+        if hashlib.sha256(data).hexdigest() != expected:
             raise ValueError(f"Audited JAR fingerprint mismatch: {name}")
+        jars[name] = data
 
     mods = output / "mods"
     output.mkdir(parents=True, exist_ok=False)
     mods.mkdir()
-    with ZipFile(local_mods / API) as archive:
+    with ZipFile(io.BytesIO(jars[API])) as archive:
         for name, expected in MODULE_SHA256.items():
             data = archive.read(f"META-INF/jars/{name}")
             if hashlib.sha256(data).hexdigest() != expected:
@@ -55,7 +84,7 @@ def stage(pack: Path, local_mods: Path, output: Path) -> dict:
     # This exact Mouse Tweaks JAR imports the Screen API and API Base only.
     # Declare those real modules, without representing the aggregate as installed.
     adapted = mods / MOUSE
-    with ZipFile(local_mods / MOUSE) as source, ZipFile(adapted, "x") as target:
+    with ZipFile(io.BytesIO(jars[MOUSE])) as source, ZipFile(adapted, "x") as target:
         for entry in source.infolist():
             data = source.read(entry)
             if entry.filename == "fabric.mod.json":
@@ -75,6 +104,11 @@ def stage(pack: Path, local_mods: Path, output: Path) -> dict:
         "filesSHA256": {path.name: sha256(path) for path in sorted(mods.iterdir())},
         "otherManifestReferencesNotSelected": len(refs - PACK_FILES.keys()),
     }
+    if config is not None:
+        staged_config = output / "config/MouseTweaks.cfg"
+        staged_config.parent.mkdir()
+        staged_config.write_bytes(config)
+        result["configSHA256"] = sha256(staged_config)
     (output / "result.json").write_text(json.dumps(result, indent=2) + "\n")
     return result
 

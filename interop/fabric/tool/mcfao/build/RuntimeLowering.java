@@ -5,7 +5,9 @@ import java.util.Set;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.AnnotationNode;
 import org.objectweb.asm.tree.ClassNode;
+import org.objectweb.asm.tree.FieldInsnNode;
 import org.objectweb.asm.tree.InsnNode;
+import org.objectweb.asm.tree.LdcInsnNode;
 import org.objectweb.asm.tree.MethodInsnNode;
 
 final class RuntimeLowering implements Opcodes {
@@ -32,18 +34,31 @@ final class RuntimeLowering implements Opcodes {
                 || (invisible != null && invisible.stream().anyMatch(a -> descriptors.contains(a.desc)));
     }
 
-    static void lowerQueries(ClassNode node, List<String> adaptations) {
+    static void lowerQueries(ClassNode node, Set<String> loadedIds, List<String> adaptations) {
         for (var method : node.methods) {
             for (var instruction : method.instructions.toArray()) {
                 if (!(instruction instanceof MethodInsnNode instance)
                         || !instance.owner.equals(LOADER) || !instance.name.equals("getInstance")
-                        || !instance.desc.equals("()L" + LOADER + ";") || instance.getOpcode() != INVOKESTATIC
-                        || !(instance.getNext() instanceof MethodInsnNode query)
-                        || !query.owner.equals(LOADER) || !query.name.equals("isDevelopmentEnvironment")
-                        || !query.desc.equals("()Z") || query.getOpcode() != INVOKEINTERFACE) continue;
-                method.instructions.set(instance, new InsnNode(ICONST_0));
-                method.instructions.remove(query);
-                adaptations.add(node.name + "#" + method.name + " isDevelopmentEnvironment=false");
+                        || !instance.desc.equals("()L" + LOADER + ";") || instance.getOpcode() != INVOKESTATIC) continue;
+                var next = instance.getNext();
+                String location = node.name + "#" + method.name + " ";
+                if (isQuery(next, "isDevelopmentEnvironment", "()Z")) {
+                    method.instructions.set(instance, new InsnNode(ICONST_0));
+                    method.instructions.remove(next);
+                    adaptations.add(location + "isDevelopmentEnvironment=false");
+                } else if (isQuery(next, "getEnvironmentType", "()Lnet/fabricmc/api/EnvType;")) {
+                    method.instructions.set(instance, new FieldInsnNode(GETSTATIC, "net/fabricmc/api/EnvType",
+                            "CLIENT", "Lnet/fabricmc/api/EnvType;"));
+                    method.instructions.remove(next);
+                    adaptations.add(location + "getEnvironmentType=CLIENT");
+                } else if (next instanceof LdcInsnNode constant && constant.cst instanceof String id
+                        && isQuery(next.getNext(), "isModLoaded", "(Ljava/lang/String;)Z")) {
+                    boolean loaded = loadedIds.contains(id);
+                    method.instructions.set(instance, new InsnNode(loaded ? ICONST_1 : ICONST_0));
+                    method.instructions.remove(next.getNext());
+                    method.instructions.remove(next);
+                    adaptations.add(location + "isModLoaded(" + id + ")=" + loaded);
+                }
             }
             for (var instruction : method.instructions) {
                 if (instruction instanceof MethodInsnNode call && call.owner.startsWith("net/fabricmc/loader/")) {
@@ -52,6 +67,11 @@ final class RuntimeLowering implements Opcodes {
                 }
             }
         }
+    }
+
+    private static boolean isQuery(org.objectweb.asm.tree.AbstractInsnNode instruction, String name, String descriptor) {
+        return instruction instanceof MethodInsnNode call && call.owner.equals(LOADER)
+                && call.name.equals(name) && call.desc.equals(descriptor) && call.getOpcode() == INVOKEINTERFACE;
     }
 
     static void removeUnusedEventProxy(String mod, String sourceHash, ClassNode node, List<String> adaptations) {

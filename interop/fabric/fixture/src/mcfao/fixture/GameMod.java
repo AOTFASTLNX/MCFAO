@@ -4,12 +4,20 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 
 import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.api.EnvType;
+import net.fabricmc.loader.api.FabricLoader;
 
 public final class GameMod implements ClientModInitializer {
     private static boolean initialized;
 
     @Override
     public void onInitializeClient() {
+        if (FabricLoader.getInstance().isDevelopmentEnvironment()
+                || FabricLoader.getInstance().getEnvironmentType() != EnvType.CLIENT
+                || !FabricLoader.getInstance().isModLoaded("mcfao_fixture")
+                || FabricLoader.getInstance().isModLoaded("mcfao_fixture_missing")) {
+            throw new IllegalStateException("Static Fabric Loader query mismatch");
+        }
         try (var stream = GameMod.class.getResourceAsStream("/assets/mcfao_fixture/proof.txt")) {
             if (stream == null || !new String(stream.readAllBytes(), StandardCharsets.UTF_8)
                     .equals("mcfao-world-resource-v1\n")) {

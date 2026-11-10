@@ -73,6 +73,11 @@ public final class AotExport implements Opcodes {
     }
 
     public static void main(String[] args) throws Exception {
+        if (args[0].equals("resolve")) {
+            var graph = FabricResolve.resolve(Path.of(args[2]), Path.of(args[3]), Path.of(args[4]));
+            Files.writeString(Path.of(args[1]), JSON.toJson(graph));
+            return;
+        }
         if (args[0].equals("inspect")) {
             var result = new ArrayList<Metadata>();
             for (int i = 2; i < args.length; i++) result.add(metadata(Path.of(args[i])));
@@ -84,8 +89,8 @@ public final class AotExport implements Opcodes {
         Set<String> requested = new TreeSet<>(Files.readAllLines(Path.of(args[3])));
         var knot = new Knot(EnvType.CLIENT);
         ClassLoader target = knot.init(new String[]{"--version", "26.1.2", "--gameDir", args[4]});
-        if (!"official".equals(knot.getMappingConfiguration().getRuntimeNamespace())) {
-            throw new IllegalStateException("Expected Fabric official runtime namespace");
+        if (knot.isDevelopment() || !"official".equals(knot.getMappingConfiguration().getRuntimeNamespace())) {
+            throw new IllegalStateException("Expected Fabric production with the official runtime namespace");
         }
         if (!target.getClass().getName().equals("net.fabricmc.loader.impl.launch.knot.KnotClassLoader")) {
             throw new IllegalStateException("Unsupported Fabric target classloader " + target.getName());
@@ -99,6 +104,11 @@ public final class AotExport implements Opcodes {
                 "getPostMixinClassByteArray", String.class, boolean.class);
         transform.setAccessible(true);
         var loader = FabricLoaderImpl.INSTANCE;
+        var loadedIds = new TreeSet<String>();
+        for (var mod : loader.getModsInternal()) {
+            loadedIds.add(mod.getMetadata().getId());
+            loadedIds.addAll(mod.getMetadata().getProvides());
+        }
         var entries = new ArrayList<Entry>();
         collect(entries, requested, loader, target, "main", ModInitializer.class, "onInitialize");
         collect(entries, requested, loader, target, "client", ClientModInitializer.class, "onInitializeClient");
@@ -124,7 +134,7 @@ public final class AotExport implements Opcodes {
                 ClassNode node = parse(after);
                 int rewritten = redirectHooks(node);
                 hooks += rewritten;
-                RuntimeLowering.lowerQueries(node, adaptations);
+                RuntimeLowering.lowerQueries(node, loadedIds, adaptations);
                 after = classBytes(node);
                 verify(node);
                 put(jar, names, path, after);
@@ -160,7 +170,7 @@ public final class AotExport implements Opcodes {
                                     throw new IllegalArgumentException("Invalid class path in " + id + ": " + name);
                                 }
                                 int previousAdaptations = adaptations.size();
-                                RuntimeLowering.lowerQueries(node, adaptations);
+                                RuntimeLowering.lowerQueries(node, loadedIds, adaptations);
                                 if (id.equals("fabric-api-base") && node.name.endsWith("/EventFactoryImpl")) {
                                     RuntimeLowering.removeUnusedEventProxy(id, hash(Files.readAllBytes(path)), node, adaptations);
                                 }
@@ -179,7 +189,7 @@ public final class AotExport implements Opcodes {
                 }
             }
             if (selected.isEmpty()) throw new IllegalArgumentException("No client mods resolved by Fabric Loader");
-            for (Class<?> api : List.of(ModInitializer.class, ClientModInitializer.class,
+            for (Class<?> api : List.of(ModInitializer.class, ClientModInitializer.class, EnvType.class,
                     CallbackInfo.class, CallbackInfoReturnable.class, Cancellable.class,
                     CancellationException.class)) {
                 String name = api.getName().replace('.', '/') + ".class";

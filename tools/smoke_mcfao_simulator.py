@@ -34,6 +34,7 @@ def run(args):
     mode = build.get("loader", "vanilla")
     if args.expect != mode:
         raise ValueError(f"Expected {args.expect} AOT image, got {mode}")
+    markers = args.require_marker or (FABRIC_MARKERS if mode == "fabric" else ())
     link = output / "link-product"
     step("link", script("link_c0_ios", "--sdk", "iphonesimulator", "--image", aot,
                         "--runtime", args.runtime.resolve(), "--output", link,
@@ -90,8 +91,7 @@ def run(args):
                 (output / "game.log").write_text(text)
                 if "[FAOT] run_main returned" in text:
                     raise RuntimeError(f"Game exited before world validation. See {output / 'game.log'}")
-                if "Dev joined the game" in text and (
-                        mode == "vanilla" or all(marker in text for marker in FABRIC_MARKERS)):
+                if "Dev joined the game" in text and all(marker in text for marker in markers):
                     if mode == "vanilla" and any(marker in text for marker in FABRIC_MARKERS):
                         raise ValueError("Vanilla image emitted a Fabric fixture marker")
                     time.sleep(3)
@@ -99,8 +99,9 @@ def run(args):
                     write_json(output / "result.json", {
                         "status": "SIMULATOR_WORLD_SMOKE_PASS", "loader": mode,
                         "simulator": args.simulator, "deviceRun": "NOT RUN",
-                        "fabricMarkers": list(FABRIC_MARKERS) if mode == "fabric" else [],
-                        "runtimeMixinTarget": "Minecraft#setLevel" if mode == "fabric" else None,
+                        "fabricMarkers": list(markers) if mode == "fabric" else [],
+                        "runtimeMixinTarget": "Minecraft#setLevel"
+                        if mode == "fabric" and not args.require_marker else None,
                         "build": str(args.build.resolve()), "image": str(link / "client-graph.dylib"),
                         "filesSHA256": tree_files(output / "staged"),
                     })
@@ -117,6 +118,8 @@ def main(argv=None):
         parser.add_argument(f"--{name}", type=Path, required=True)
     parser.add_argument("--simulator", required=True, help="Fresh disposable iPhone simulator UDID")
     parser.add_argument("--expect", choices=("vanilla", "fabric"), required=True)
+    parser.add_argument("--require-marker", action="append",
+                        help="Require this run log marker. Overrides the default Fabric fixture markers.")
     try:
         run(parser.parse_args(argv))
     except (OSError, ValueError, RuntimeError, KeyError) as error:

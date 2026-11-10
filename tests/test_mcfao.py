@@ -156,12 +156,31 @@ class FabricInputTests(unittest.TestCase):
             root.write_bytes(archive([("fabric.mod.json", '{"id":"test_mod","schemaVersion":1}')]))
         inventory = inspect_archives([first, second], self.root)
         parsed = [{"id": "test_mod", "client": True, "entrypoints": {stage: []}}
-                  for stage in ("preLaunch", "modmenu")]
+                  for stage in ("preLaunch", "custom-extension")]
         report = inspect_compatibility(inventory, parsed, {first, second})
         self.assertEqual(report["status"], "BLOCKED")
         self.assertEqual(report["rootJarsWithBlockers"], ["first!.jar", "second.jar"])
         self.assertEqual(report["duplicateRootModIds"], {"test_mod": ["first!.jar", "second.jar"]})
         self.assertEqual([item["path"] for item in report["findings"]], ["first!.jar", "second.jar"])
+
+    def test_optional_modmenu_entrypoint_requires_the_provider_to_be_absent(self):
+        root = self.jar([("fabric.mod.json", '{"id":"test_mod","schemaVersion":1}')])
+        inventory = inspect_archives([root], self.root)
+        parsed = [{"id": "test_mod", "client": True, "entrypoints": {"modmenu": []}, "mixins": []}]
+        transformation_checks(inventory, parsed)
+        with self.assertRaisesRegex(ValueError, "Unsupported lifecycle stage modmenu"):
+            transformation_checks(inventory, parsed, client_ids={"test_mod", "modmenu"})
+
+    def test_fabric_api_namespace_is_distinct_from_the_loader(self):
+        metadata = '{"id":"test_mod","schemaVersion":1}'
+        parsed = [{"id": "test_mod", "client": True, "entrypoints": {}, "mixins": []}]
+        root = self.jar([("fabric.mod.json", metadata),
+                         ("net/fabricmc/fabric/api/Example.class", "example")])
+        transformation_checks(inspect_archives([root], self.root), parsed)
+        root = self.jar([("fabric.mod.json", metadata),
+                         ("net/fabricmc/loader/api/Example.class", "example")])
+        with self.assertRaisesRegex(ValueError, "Unsupported host configuration"):
+            transformation_checks(inspect_archives([root], self.root), parsed)
 
     def test_prelaunch_and_custom_adapters_are_blocked(self):
         raw = {"schemaVersion": 1}
@@ -181,6 +200,17 @@ class FabricInputTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "plugin-free"):
             transformation_checks(inventory, [{"client": True, "id": "test_mod",
                                                 "entrypoints": {}, "mixins": ["test.mixins.json"]}])
+
+    def test_declared_refmap_can_be_absent_or_empty_but_cannot_remap(self):
+        metadata = {"client": True, "id": "test_mod", "entrypoints": {}, "mixins": ["test.mixins.json"]}
+        entries = [("fabric.mod.json", '{"schemaVersion":1}'),
+                   ("test.mixins.json", '{"required":true,"package":"test.mixin","refmap":"test.refmap.json"}')]
+        for extra in ([], [("test.refmap.json", '{"mappings":{},"data":{}}')]):
+            root = self.jar(entries + extra)
+            transformation_checks(inspect_archives([root], self.root), [metadata])
+        root = self.jar(entries + [("test.refmap.json", '{"mappings":{"test":{"a":"b"}}}')])
+        with self.assertRaisesRegex(ValueError, "use official names"):
+            transformation_checks(inspect_archives([root], self.root), [metadata])
 
     def test_merge_rejects_unreported_overwrite(self):
         base = self.jar([("net/minecraft/Target.class", "original")])

@@ -47,4 +47,20 @@
     [self attachFrame:@"landscape-saved-and-exited"];
 }
 
+- (void)testRecollection3InventoryInput {
+    self.continueAfterFailure=NO;
+    XCUIApplication *app=[XCUIApplication new];
+    app.launchEnvironment=@{@"FABRICAOT_SIMULATOR_QUICK_WORLD":@"New World", @"OS_ACTIVITY_MODE":@"disable"};
+    [app launch];
+    XCUIElement *inventory=app.buttons[@"Inventory"];
+    XCTAssertTrue([inventory waitForExistenceWithTimeout:90]);
+    [inventory tap];
+    XCUIElement *back=app.buttons[@"Back to game"];
+    XCTAssertTrue([back waitForExistenceWithTimeout:10]);
+    [[self pointIn:app x:0.49 y:0.53] tap];
+    [self attachFrame:@"recollection3-inventory-after-input"];
+    [back tap];
+    XCTAssertTrue([inventory waitForExistenceWithTimeout:10]);
+}
+
 @end

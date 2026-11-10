@@ -71,6 +71,19 @@ def read_entry(archive, name):
     return value
 
 
+def needs_reference_remapping(archive, name):
+    # A number of official-namespace builds retain the annotation processor's
+    # default filename without shipping a refmap. Knot uses identity in that case.
+    path = PurePosixPath(name)
+    if path.is_absolute() or ".." in path.parts or "\\" in name or str(path) != name:
+        raise ValueError(f"Unsafe Mixin refmap path: {name}")
+    if name not in archive.namelist():
+        return False
+    refmap = read_entry(archive, name)
+    return (bool(set(refmap) - {"mappings", "data"}) or bool(refmap.get("mappings"))
+            or bool(refmap.get("data")))
+
+
 def mod_files(directory):
     jars = sorted(directory.glob("*.jar"))
     if not jars or any(p.is_symlink() or not p.is_file() for p in jars):
@@ -147,6 +160,8 @@ def transformation_checks(inventory, metadata, *, client_ids=None):
                 if entry["adapter"] != "default" or not re.fullmatch(r"[\w$]+(?:\.[\w$]+)+", entry["value"], re.ASCII):
                     unsupported(f"Entrypoint must be a public Java class: {entry['value']}")
         for name in sorted(names):
+            if name == "META-INF/services/":
+                continue
             if (name.startswith(("META-INF/native-image/", "META-INF/versions/", "META-INF/services/",
                                  "mcfao/aot/", "org/spongepowered/", "com/llamalad7/"))
                     or (name.startswith("net/fabricmc/") and not (
@@ -159,7 +174,8 @@ def transformation_checks(inventory, metadata, *, client_ids=None):
         with zipfile.ZipFile(path) as archive:
             for name in parsed["mixins"]:
                 config = read_entry(archive, name)
-                if (any(config.get(key) for key in ("plugin", "parent", "refmap", "injectionPoints", "dynamicSelectors"))
+                if (any(config.get(key) for key in ("plugin", "parent", "injectionPoints", "dynamicSelectors"))
+                        or (config.get("refmap") and needs_reference_remapping(archive, config["refmap"]))
                         or config.get("required") is not True
                         or not re.fullmatch(r"[\w$]+(?:\.[\w$]+)*", config.get("package", ""), re.ASCII)):
                     unsupported(f"Mixin config must be required, plugin-free and use official names: {name}")
@@ -315,6 +331,13 @@ def prepare(prepared, client, mods, output, audited):
               "modSHA256": hashes, "mods": metadata}
     if not audited:
         record["compatibility"] = inspect_compatibility(inventory, metadata, set(roots))
+        resolution = work / "resolution.json"
+        log = output / "resolve"
+        solved = execute([*java, *cp, "resolve", str(resolution), str(client), str(work),
+                          str(work / "game/mods")], log, work)
+        if solved["exitCode"] or solved["timedOut"]:
+            raise RuntimeError(f"Fabric Loader dependency discovery failed. Logs: {log}")
+        record["resolution"] = json.loads(resolution.read_text())
     (output / "result.json").write_text(json.dumps(record, indent=2) + "\n")
     if not audited:
         return
