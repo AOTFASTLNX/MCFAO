@@ -280,6 +280,16 @@ static void FAOTInstallCrashHandlers(int fd) {
                         reserved >> 30, name];
 
     NSString *extra = self.extraArgs.text ?: @"";
+#if TARGET_OS_SIMULATOR
+    // simctl can pass SIMCTL_CHILD_FABRICAOT_SIMULATOR_EXTRA_ARGS without touching the app's
+    // preferences. This keeps automated server/Quick Play runs reproducible and out of the
+    // persisted UI state a person sees next time they open the app.
+    NSString *environmentExtra =
+        NSProcessInfo.processInfo.environment[@"FABRICAOT_SIMULATOR_EXTRA_ARGS"];
+    // An explicitly empty value must clear a Quick Play argument persisted by an earlier manual
+    // run; otherwise an automated single-player test and the old multiplayer argument conflict.
+    if (environmentExtra != nil) extra = environmentExtra;
+#endif
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         [self runImageReserving:reserved logPath:logPath extraArgs:extra];
     });
@@ -392,6 +402,12 @@ static void FAOTProbeReservations(FILE *logFile) {
             [argvList addObjectsFromArray:[extra componentsSeparatedByString:@" "]];
         }
 #if TARGET_OS_SIMULATOR
+        // A dedicated server address lets XCUITest exercise the real multiplayer path without
+        // typing into the UI or persisting a server entry in the simulator's save directory.
+        NSString *quickServer = NSProcessInfo.processInfo.environment[@"FABRICAOT_SIMULATOR_QUICK_SERVER"];
+        if (quickServer.length) {
+            [argvList addObjectsFromArray:@[@"--quickPlayMultiplayer", quickServer]];
+        }
         // Exercise an existing test save through Minecraft's own Quick Play path on a headless host.
         // Pass a save directory name as one argument, including any spaces.
         NSString *quickWorld = NSProcessInfo.processInfo.environment[@"FABRICAOT_SIMULATOR_QUICK_WORLD"];

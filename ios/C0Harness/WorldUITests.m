@@ -19,7 +19,9 @@
 - (void)testLandscapeInventory {
     self.continueAfterFailure=NO;
     XCUIApplication *app=[XCUIApplication new];
-    app.launchEnvironment=@{@"FABRICAOT_SIMULATOR_QUICK_WORLD":@"New World", @"OS_ACTIVITY_MODE":@"disable"};
+    app.launchEnvironment=@{@"FABRICAOT_SIMULATOR_QUICK_WORLD":@"New World",
+                            @"FABRICAOT_SIMULATOR_EXTRA_ARGS":@"",
+                            @"OS_ACTIVITY_MODE":@"disable"};
     [app launch];
     XCUIElement *forward=app.buttons[@"Move forward"];
     XCTAssertTrue([forward waitForExistenceWithTimeout:90]);
@@ -47,10 +49,41 @@
     [self attachFrame:@"landscape-saved-and-exited"];
 }
 
+// Requires a disposable dedicated server on the simulator host. MCFAO_TEST_SERVER can override
+// the default 127.0.0.1:25566 used by docs/MULTIPLAYER_DIAGNOSTICS.md. The test never changes the
+// server's configuration and never disables the loading screen itself.
+- (void)testMultiplayerTerrainAndMovement {
+    self.continueAfterFailure=NO;
+    NSString *server=NSProcessInfo.processInfo.environment[@"MCFAO_TEST_SERVER"] ?: @"127.0.0.1:25566";
+    XCUIApplication *app=[XCUIApplication new];
+    app.launchEnvironment=@{
+        @"FABRICAOT_SIMULATOR_QUICK_SERVER":server,
+        @"FABRICAOT_SIMULATOR_EXTRA_ARGS":@"-Dmcfao.diag.play=true -Dmcfao.diag.stallSeconds=20",
+        @"OS_ACTIVITY_MODE":@"disable",
+    };
+    [app launch];
+    XCUIElement *forward=app.buttons[@"Move forward"];
+    XCTAssertTrue([forward waitForExistenceWithTimeout:120],
+                  @"The multiplayer world never became interactive (Loading terrain did not close)");
+    [self attachFrame:@"multiplayer-terrain"];
+    [forward pressForDuration:1.2];
+    [NSThread sleepForTimeInterval:1.0];
+    [self attachFrame:@"multiplayer-moved"];
+    XCUIElement *jump=app.buttons[@"Jump"];
+    XCTAssertTrue([jump exists]);
+    [jump tap];
+    [NSThread sleepForTimeInterval:0.5];
+    [self attachFrame:@"multiplayer-jumped"];
+    [app.buttons[@"Break or attack"] tap];
+    [self attachFrame:@"multiplayer-interacted"];
+}
+
 - (void)testRecollection3InventoryInput {
     self.continueAfterFailure=NO;
     XCUIApplication *app=[XCUIApplication new];
-    app.launchEnvironment=@{@"FABRICAOT_SIMULATOR_QUICK_WORLD":@"New World", @"OS_ACTIVITY_MODE":@"disable"};
+    app.launchEnvironment=@{@"FABRICAOT_SIMULATOR_QUICK_WORLD":@"New World",
+                            @"FABRICAOT_SIMULATOR_EXTRA_ARGS":@"",
+                            @"OS_ACTIVITY_MODE":@"disable"};
     [app launch];
     XCUIElement *inventory=app.buttons[@"Inventory"];
     XCTAssertTrue([inventory waitForExistenceWithTimeout:90]);

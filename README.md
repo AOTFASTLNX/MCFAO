@@ -25,7 +25,7 @@ python3 -B -m unittest discover -s tests -v
 python3 -B tools/preflight.py /path/to/pack.mrpack
 ```
 
-[B0复现](docs/B0_TEST_HANDOFF.md) · [B1真机结果](docs/B1_DEVICE_HANDOFF.md) · [客户端诊断](docs/evidence/ADR-003.md) · [图形栈方案](docs/GRAPHICS_STACK_PLAN.md) · [ADR-008](docs/evidence/ADR-008.md) · [A1 真机记录及 IPA](docs/A1_DEVICE_HANDOFF.md) · [A0 桌面记录](docs/A0_DESKTOP_HANDOFF.md) · [状态](docs/STATUS.md) · [构建与复现](docs/BUILDING.md) · [ADR-001](docs/evidence/ADR-001.md) · [证据索引](docs/evidence/README.md)
+[B0复现](docs/B0_TEST_HANDOFF.md) · [B1真机结果](docs/B1_DEVICE_HANDOFF.md) · [客户端诊断](docs/evidence/ADR-003.md) · [图形栈方案](docs/GRAPHICS_STACK_PLAN.md) · [ADR-008](docs/evidence/ADR-008.md) · [A1 真机记录及 IPA](docs/A1_DEVICE_HANDOFF.md) · [A0 桌面记录](docs/A0_DESKTOP_HANDOFF.md) · [多人联机诊断](docs/MULTIPLAYER_DIAGNOSTICS.md) · [状态](docs/STATUS.md) · [构建与复现](docs/BUILDING.md) · [ADR-001](docs/evidence/ADR-001.md) · [证据索引](docs/evidence/README.md)
 
 源码布局：tools/ 为预检和实验工具，compiler/ 固定工具链输入与构建期转换器（splitter、reflection-config），interop/a1/、b0/、b1/、diagnostics/ 为语义及转换夹具与诊断代理，ios/A1Harness/、B1Harness/、C0Harness/ 为可编辑的原生测试 App/Xcode 工程（C0Harness 是真客户端宿主）。产品验收见 docs/ACCEPTANCE.md 与 docs/TECHNICAL_GATES.md。
 

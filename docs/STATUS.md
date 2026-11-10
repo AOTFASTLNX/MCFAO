@@ -30,6 +30,10 @@
 - Recollection3 整包 AOT 为 BLOCKED，真机测试为 NOT RUN。此次只处理清单与 Mod 元数据，未运行第三方 Mod 或应用 overrides。 已审计的第一方夹具通过构建期转换复测。 [夹具报告](../artifacts/mcfao/recollection3-import-02/first-party-transform/fabric/3ff3e2e6604741bda8412f22fd9c8dac/product/result.json)
 - 第 48 轮兼容性扩展：`Class::method` 入口改为构建期静态解析（生成 `invokestatic`/`invokevirtual`，运行时不经过 `MethodHandle`），`modmenu` 与提供者缺失的 `jei_mod_plugin` 入口记录为不可达并跳过，转换归档预算由 128 提高到 256 以覆盖整包 221 个归档，`MixinConfigPlugin` 由拒绝项改为构建期钩子，非字面量的 `isModLoaded` 查询改写成生成式成员测试。同一实例的预检降到 54 条诊断 / 31 组阻塞根。`fabric-networking-api-v1-6.3.0`、`fabric-api-base` 和 `chat_heads-1.2.2` 通过隔离转换，后者 18 个客户端类被 Mixin 实际改写。整包 AOT 仍为 BLOCKED，阻塞主因是 `META-INF/versions`/`services`、保留依赖 id 和 Kotlin 语言适配器。 [预检](../artifacts/mcfao/recollection3-import-07/)
 
+## 多人联机根因（2026-11-10）
+
+用户报告的 `Loading terrain` 已在模拟器定位到 Native Image 配置缺口：Netty 4.2.7 在 Java 25 下用 `Arena.ofShared` 管理 direct buffer，而 Native Image 默认不支持共享 arena，释放初始区块缓冲时抛出 `UnsupportedFeatureError` 并关闭连接。AOT 命令现已加入 `-H:+SharedArenaSupport`；构建期注入的 `PlayDiagnostics` 记录 Configuration→Play、区块批次、解码、位置包、`LevelLoadTracker` 状态和线程心跳。修复后模拟器联机进入 `ClientLevelReady`、出现真实地形，UI 测试完成前进/跳跃/破坏；单人 `testLandscapeInventory` 回归通过。**真机 NOT RUN，不能据此报告联机已修复。** 根因、日志开关、复现和待验项见 [MULTIPLAYER_DIAGNOSTICS](MULTIPLAYER_DIAGNOSTICS.md)。
+
 ## 历史门槛与实测
 
 | 检查 | 状态 | 证据 / 阻断 |

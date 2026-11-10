@@ -302,7 +302,7 @@ def main(argv=None):
         # rather than referenced from compiler/ where it is maintained.
         reflection_config = work / "reflection-config.json"
         shutil.copy2(ROOT / "compiler/reflection-config.json", reflection_config)
-        cmd=[*base,str(executable),"--no-fallback","-O1",f"--parallelism={args.parallelism}",f"-J-Xmx{args.heap_gib}g","-J-XX:-UsePerfData",
+        cmd=[*base,str(executable),"--no-fallback","-H:+SharedArenaSupport","-O1",f"--parallelism={args.parallelism}",f"-J-Xmx{args.heap_gib}g","-J-XX:-UsePerfData",
              "-J-Duser.home="+str(work/"home"),"-J-Djava.io.tmpdir="+str(work/"tmp"),"-H:+UnlockExperimentalVMOptions",
              "--shared","--verbose","--diagnostics-mode","-H:+PrintAnalysisStatistics",
              "-H:BuildOutputJSONFile="+str(work/"build-output.json"),
@@ -315,7 +315,7 @@ def main(argv=None):
              # Initialised at build time, that table is serialised into the image heap and the
              # Class-keyed lookups miss at run time, so the client died with
              # "class java.io.File is not a value type" before it ever looked at an asset.
-             "--initialize-at-run-time=net.minecraft,com.mojang,org.lwjgl,com.microsoft,io.netty,joptsimple",
+             "--initialize-at-run-time=net.minecraft,com.mojang,org.lwjgl,com.microsoft,io.netty,joptsimple,fabricaot",
              # Real cause of that message: joptsimple's constructorConverter calls
              # type.getConstructor(String.class) and swallows NoSuchMethodException. Native Image
              # ships no constructor metadata unless asked, so File had none. The config registers it.
