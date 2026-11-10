@@ -1,0 +1,12 @@
+{
+  "baseCommit": "fe15a748c0e5a10867a8161b58e4f75b016b12eb",
+  "sourceFilesSHA256": {
+    "tools/probe_client_graph.py": "3c273f651268911fdf8f5430b3412fba75b3454389ea8672d9d41f6fbc14399e",
+    "tools/prepare_census_agent.py": "e45ee55a2bb1023299cbd60381cbb0a7c95821d964fbc37800114fdb175139bf",
+    "tools/summarize_census.py": "ef76dd6c51f85c77911e4fcd2f358724be9a4402bef1c357f778cf575ba01fcc",
+    "interop/diagnostics/oom_census.c": "6e587203aa83088452a8e0df2bdae1318543a8d9563f6d2d726b6afdcc4883a5",
+    "interop/diagnostics/CensusFixture.java": "e0c8758b1bf4a417abe34fad4f7e0f99030f553fa7c58180cdb79a4c6745a573",
+    "tests/test_census.py": "bd2d0889e4eda13e49c0b02d96b42acac8bca8cdc4da0cb706aba3659abf0e48"
+  },
+  "scope": "handoff snapshot of current first-party research changes; preserve original workspace; untracked sources included as files"
+}

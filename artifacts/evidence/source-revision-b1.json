@@ -1,0 +1,12 @@
+{
+  "commit": "51e6aea01ce96ddba1fe7f48b17274a734dc3838",
+  "trackedSourceFiles": 87,
+  "worktreeClean": true,
+  "scope": "local first-party source/documentation only; artifacts separately fingerprinted; no remote push",
+  "unitTests": {
+    "count": 69,
+    "status": "PASS",
+    "evidence": "artifacts/evidence/unit-tests-b1-c0-final/"
+  },
+  "integrity": "artifacts/evidence/verification-b1-c0-final.json"
+}

@@ -1,0 +1,26 @@
+{
+  "argv": [
+    "codesign",
+    "-d",
+    "--entitlements",
+    "-",
+    "--xml",
+    "artifacts/b1/device-handoff/ipa-inspection/Payload/B1Harness.app"
+  ],
+  "cwd": "/Users/kexin/Documents/ChatGPT/MCFAO",
+  "startedUTC": "2026-11-08T06:14:26.018894+00:00",
+  "temporaryDirectory": "/Users/kexin/Documents/ChatGPT/MCFAO/artifacts/evidence/b1-ios-ipa-entitlements/tmp",
+  "finishedUTC": "2026-11-08T06:14:26.115166+00:00",
+  "exitCode": 0,
+  "timedOut": false,
+  "logs": {
+    "stdout.log": {
+      "bytes": 386,
+      "sha256": "2ce909c396ee1059ae0fb31a8562c426a31676f5aab073f3a0a33c7eee3f74e3"
+    },
+    "stderr.log": {
+      "bytes": 123,
+      "sha256": "ee8cf64d79c52ef0569d06ba9bec488fd05b42c528708c312bbd454bc7c1a8f0"
+    }
+  }
+}

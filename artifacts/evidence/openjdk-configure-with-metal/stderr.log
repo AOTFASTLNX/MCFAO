@@ -1,0 +1,1 @@
+configure: WARNING: Ignoring LDFLAGS(-L/usr/local/opt/qt/lib) found in environment. Use --with-extra-ldflags

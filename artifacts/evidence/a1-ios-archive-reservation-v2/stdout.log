@@ -1,0 +1,248 @@
+Command line invocation:
+    /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -project ios/A1Harness/A1Harness.xcodeproj -scheme A1Harness -configuration Release -destination generic/platform=iOS -derivedDataPath artifacts/a1/xcode-handoff-v2 -archivePath artifacts/a1/device-handoff-v2/A1Harness.xcarchive DEVELOPMENT_TEAM=P57SZ9Z7G2 -allowProvisioningUpdates archive
+
+Build settings from command line:
+    DEVELOPMENT_TEAM = P57SZ9Z7G2
+
+ComputePackagePrebuildTargetDependencyGraph
+
+Prepare packages
+
+CreateBuildRequest
+
+SendProjectDescription
+
+CreateBuildOperation
+
+ComputeTargetDependencyGraph
+note: Building targets in dependency order
+note: Target dependency graph (1 target)
+    Target 'A1Harness' in project 'A1Harness' (no dependencies)
+
+GatherProvisioningInputs
+
+CreateBuildDescription
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -v -E -dM -arch arm64 -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS27.2.sdk -x objective-c -c /dev/null
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -v -E -dM -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS27.2.sdk -x c -c /dev/null
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -v -E -dM -arch arm64 -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS27.2.sdk -x c -c /dev/null
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ld -version_details
+
+Build description signature: 6b407c7bb25258ff139cb81cc692a7d9
+Build description path: /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/XCBuildData/6b407c7bb25258ff139cb81cc692a7d9.xcbuilddata
+CreateBuildDirectory /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/ModuleCache.noindex
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness/A1Harness.xcodeproj
+    builtin-create-build-directory /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/ModuleCache.noindex
+
+CreateBuildDirectory /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/SDKExplicitPrecompiledModules
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness/A1Harness.xcodeproj
+    builtin-create-build-directory /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/SDKExplicitPrecompiledModules
+
+CreateBuildDirectory /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/CompilationCache.noindex
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness/A1Harness.xcodeproj
+    builtin-create-build-directory /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/CompilationCache.noindex
+
+CreateBuildDirectory /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/PrecompiledHeaders
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness/A1Harness.xcodeproj
+    builtin-create-build-directory /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/PrecompiledHeaders
+
+CreateBuildDirectory /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness/A1Harness.xcodeproj
+    builtin-create-build-directory /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation
+
+CreateBuildDirectory /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/BuildProductsPath
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness/A1Harness.xcodeproj
+    builtin-create-build-directory /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/BuildProductsPath
+
+ClangStatCache /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS27.2.sdk /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/SDKStatCaches.noindex/iphoneos27.2-24B8118-9aa026f88bf9ed31cff8761912ac5bd16890c9e4970e00494a266ff652f095d9.sdkstatcache
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness/A1Harness.xcodeproj
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS27.2.sdk -o /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/SDKStatCaches.noindex/iphoneos27.2-24B8118-9aa026f88bf9ed31cff8761912ac5bd16890c9e4970e00494a266ff652f095d9.sdkstatcache
+
+CreateBuildDirectory /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness/A1Harness.xcodeproj
+    builtin-create-build-directory /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath
+
+CreateBuildDirectory /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/SwiftExplicitPrecompiledModules
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness/A1Harness.xcodeproj
+    builtin-create-build-directory /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/SwiftExplicitPrecompiledModules
+
+CreateBuildDirectory /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/ExplicitPrecompiledModules
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness/A1Harness.xcodeproj
+    builtin-create-build-directory /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/ExplicitPrecompiledModules
+
+CreateBuildDirectory /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/EagerLinkingTBDs/Release-iphoneos
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness/A1Harness.xcodeproj
+    builtin-create-build-directory /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/EagerLinkingTBDs/Release-iphoneos
+
+WriteAuxiliaryFile /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness-90d6d5a92a1653b7877f7096fb2d9160-VFS-iphoneos/all-product-headers.yaml
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness/A1Harness.xcodeproj
+    write-file /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness-90d6d5a92a1653b7877f7096fb2d9160-VFS-iphoneos/all-product-headers.yaml
+
+CreateBuildDirectory /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/BuildProductsPath/Release-iphoneos
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness/A1Harness.xcodeproj
+    builtin-create-build-directory /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/BuildProductsPath/Release-iphoneos
+
+WriteAuxiliaryFile /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/A1Harness-own-target-headers.hmap (in target 'A1Harness' from project 'A1Harness')
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness
+    write-file /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/A1Harness-own-target-headers.hmap
+
+WriteAuxiliaryFile /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/A1Harness.DependencyStaticMetadataFileList (in target 'A1Harness' from project 'A1Harness')
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness
+    write-file /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/A1Harness.DependencyStaticMetadataFileList
+
+WriteAuxiliaryFile /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/A1Harness-project-headers.hmap (in target 'A1Harness' from project 'A1Harness')
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness
+    write-file /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/A1Harness-project-headers.hmap
+
+WriteAuxiliaryFile /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/A1Harness-all-target-headers.hmap (in target 'A1Harness' from project 'A1Harness')
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness
+    write-file /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/A1Harness-all-target-headers.hmap
+
+WriteAuxiliaryFile /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/A1Harness-generated-files.hmap (in target 'A1Harness' from project 'A1Harness')
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness
+    write-file /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/A1Harness-generated-files.hmap
+
+WriteAuxiliaryFile /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/A1Harness.DependencyMetadataFileList (in target 'A1Harness' from project 'A1Harness')
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness
+    write-file /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/A1Harness.DependencyMetadataFileList
+
+WriteAuxiliaryFile /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/A1Harness.hmap (in target 'A1Harness' from project 'A1Harness')
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness
+    write-file /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/A1Harness.hmap
+
+WriteAuxiliaryFile /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/Objects-normal/arm64/A1Harness.LinkFileList (in target 'A1Harness' from project 'A1Harness')
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness
+    write-file /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/Objects-normal/arm64/A1Harness.LinkFileList
+
+WriteAuxiliaryFile /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/DerivedSources/Entitlements.plist (in target 'A1Harness' from project 'A1Harness')
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness
+    write-file /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/DerivedSources/Entitlements.plist
+
+WriteAuxiliaryFile /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/Objects-normal/arm64/e6072d4f65d7061329687fe24e3d63a7-common-args.resp (in target 'A1Harness' from project 'A1Harness')
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness
+    write-file /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/Objects-normal/arm64/e6072d4f65d7061329687fe24e3d63a7-common-args.resp
+'-std=gnu11' -fobjc-arc -fpascal-strings -Os '-DOBJC_OLD_DISPATCH_PROTOTYPES=1' -g '-fvisibility=hidden' -iquote /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/A1Harness-generated-files.hmap -I/Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/A1Harness-own-target-headers.hmap -I/Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/A1Harness-all-target-headers.hmap -iquote /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/A1Harness-project-headers.hmap -I/Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/BuildProductsPath/Release-iphoneos/include -I/Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/ios-framework/FabricAOTProbe.framework/Headers -I/Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/DerivedSources-normal/arm64 -I/Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/DerivedSources/arm64 -I/Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/DerivedSources -F/Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/BuildProductsPath/Release-iphoneos -F/Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/ios-framework
+
+WriteAuxiliaryFile /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/A1Harness-all-non-framework-target-headers.hmap (in target 'A1Harness' from project 'A1Harness')
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness
+    write-file /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/A1Harness-all-non-framework-target-headers.hmap
+
+SymLink /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/BuildProductsPath/Release-iphoneos/A1Harness.app ../../InstallationBuildProductsLocation/Applications/A1Harness.app (in target 'A1Harness' from project 'A1Harness')
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness
+    /bin/ln -sfh ../../InstallationBuildProductsLocation/Applications/A1Harness.app /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/BuildProductsPath/Release-iphoneos/A1Harness.app
+
+MkDir /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation/Applications/A1Harness.app (in target 'A1Harness' from project 'A1Harness')
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness
+    /bin/mkdir -p /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation/Applications/A1Harness.app
+
+MkDir /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation/Applications/A1Harness.app/Frameworks (in target 'A1Harness' from project 'A1Harness')
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness
+    /bin/mkdir -p /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation/Applications/A1Harness.app/Frameworks
+
+ProcessProductPackaging "" /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/A1Harness.app.xcent (in target 'A1Harness' from project 'A1Harness')
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness
+    
+    Entitlements:
+    
+    {
+    "application-identifier" = "P57SZ9Z7G2.org.fabricaot.research.a1probe.kexin";
+    "com.apple.developer.team-identifier" = P57SZ9Z7G2;
+    "get-task-allow" = 1;
+}
+    
+    builtin-productPackagingUtility -entitlements -format xml -o /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/A1Harness.app.xcent
+
+ProcessProductPackaging /Users/kexin/Library/Developer/Xcode/UserData/Provisioning\ Profiles/64846659-6206-4cb0-a77f-502d2efa5d03.mobileprovision /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation/Applications/A1Harness.app/embedded.mobileprovision (in target 'A1Harness' from project 'A1Harness')
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness
+    builtin-productPackagingUtility /Users/kexin/Library/Developer/Xcode/UserData/Provisioning\ Profiles/64846659-6206-4cb0-a77f-502d2efa5d03.mobileprovision -o /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation/Applications/A1Harness.app/embedded.mobileprovision
+
+ProcessProductPackagingDER /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/A1Harness.app.xcent /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/A1Harness.app.xcent.der (in target 'A1Harness' from project 'A1Harness')
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness
+    /usr/bin/derq query -f xml -i /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/A1Harness.app.xcent -o /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/A1Harness.app.xcent.der --raw
+
+CompileC /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/Objects-normal/arm64/main.o /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness/main.m normal arm64 objective-c com.apple.compilers.llvm.clang.1_0.compiler (in target 'A1Harness' from project 'A1Harness')
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness
+    
+    Using response file: /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/Objects-normal/arm64/e6072d4f65d7061329687fe24e3d63a7-common-args.resp
+    
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -x objective-c -ivfsstatcache /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/SDKStatCaches.noindex/iphoneos27.2-24B8118-9aa026f88bf9ed31cff8761912ac5bd16890c9e4970e00494a266ff652f095d9.sdkstatcache -target arm64-apple-ios17.0 -fmessage-length\=0 -fdiagnostics-show-note-include-stack -fmacro-backtrace-limit\=0 -fno-color-diagnostics -Wno-trigraphs -Wno-missing-field-initializers -Wno-missing-prototypes -Wno-return-type -Wno-implicit-atomic-properties -Wno-objc-interface-ivars -Wno-arc-repeated-use-of-weak -Wno-missing-braces -Wparentheses -Wswitch -Wno-unused-function -Wno-unused-label -Wno-unused-parameter -Wno-unused-variable -Wunused-value -Wno-empty-body -Wno-uninitialized -Wno-unknown-pragmas -Wno-shadow -Wno-four-char-constants -Wno-conversion -Wno-constant-conversion -Wno-int-conversion -Wno-bool-conversion -Wno-enum-conversion -Wno-float-conversion -Wno-non-literal-null-conversion -Wno-objc-literal-conversion -Wshorten-64-to-32 -Wpointer-sign -Wno-newline-eof -Wno-selector -Wno-strict-selector-match -Wno-undeclared-selector -Wno-deprecated-implementations -Wno-implicit-fallthrough -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS27.2.sdk -fstrict-aliasing -Wprotocol -Wdeprecated-declarations -Wno-sign-conversion -Wno-infinite-recursion -Wno-comma -Wno-block-capture-autoreleasing -Wno-strict-prototypes -Wno-semicolon-before-method-body @/Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/Objects-normal/arm64/e6072d4f65d7061329687fe24e3d63a7-common-args.resp -MMD -MT dependencies -MF /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/Objects-normal/arm64/main.d --serialize-diagnostics /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/Objects-normal/arm64/main.dia -c /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness/main.m -o /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/Objects-normal/arm64/main.o
+
+Ld /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation/Applications/A1Harness.app/A1Harness normal (in target 'A1Harness' from project 'A1Harness')
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target arm64-apple-ios17.0 -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS27.2.sdk -Os -Xlinker -no_warn_duplicate_libraries -L/Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/EagerLinkingTBDs/Release-iphoneos -L/Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/BuildProductsPath/Release-iphoneos -F/Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/EagerLinkingTBDs/Release-iphoneos -F/Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/BuildProductsPath/Release-iphoneos -F/Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/ios-framework -filelist /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/Objects-normal/arm64/A1Harness.LinkFileList -Xlinker -rpath -Xlinker @executable_path/Frameworks -Xlinker -dead_strip -Xlinker -object_path_lto -Xlinker /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/Objects-normal/arm64/A1Harness_lto.o -Xlinker -final_output -Xlinker /Applications/A1Harness.app/A1Harness -Xlinker -dependency_info -Xlinker /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/Objects-normal/arm64/A1Harness_dependency_info.dat -fobjc-arc -fobjc-link-runtime -framework UIKit -framework FabricAOTProbe -Xlinker -no_adhoc_codesign -o /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation/Applications/A1Harness.app/A1Harness
+
+Copy /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation/Applications/A1Harness.app/Frameworks/liba1probe.dylib /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/ios-relocatable-retained/liba1probe.dylib (in target 'A1Harness' from project 'A1Harness')
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -strip-unsigned-binaries -strip-deterministic -bitcode-strip all -bitcode-strip-tool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/bitcode_strip -strip-tool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/strip -resolve-src-symlinks -remove-static-executable /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/ios-relocatable-retained/liba1probe.dylib /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation/Applications/A1Harness.app/Frameworks
+/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/strip -D -S -no_atom_info /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/ios-relocatable-retained/liba1probe.dylib -o /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation/Applications/A1Harness.app/Frameworks/liba1probe.dylib/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/bitcode_strip /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation/Applications/A1Harness.app/Frameworks/liba1probe.dylib -r -o /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation/Applications/A1Harness.app/Frameworks/liba1probe.dylib
+Copy /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation/Applications/A1Harness.app/Frameworks/FabricAOTProbe.framework /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/ios-framework/FabricAOTProbe.framework (in target 'A1Harness' from project 'A1Harness')
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -strip-unsigned-binaries -strip-deterministic -bitcode-strip all -bitcode-strip-tool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/bitcode_strip -strip-tool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/strip -resolve-src-symlinks -remove-static-executable /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/ios-framework/FabricAOTProbe.framework /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation/Applications/A1Harness.app/Frameworks
+/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/strip -D -S -no_atom_info /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/ios-framework/FabricAOTProbe.framework/FabricAOTProbe -o /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation/Applications/A1Harness.app/Frameworks/FabricAOTProbe.framework/FabricAOTProbe/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/bitcode_strip /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation/Applications/A1Harness.app/Frameworks/FabricAOTProbe.framework/FabricAOTProbe -r -o /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation/Applications/A1Harness.app/Frameworks/FabricAOTProbe.framework/FabricAOTProbe
+CodeSign /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation/Applications/A1Harness.app/Frameworks/liba1probe.dylib (in target 'A1Harness' from project 'A1Harness')
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness
+    
+    Signing Identity:     "Apple Development: kexin_0@outlook.com (27R45R4LU5)"
+    Provisioning Profile: "iOS Team Provisioning Profile: org.fabricaot.research.a1probe.kexin"
+                          (64846659-6206-4cb0-a77f-502d2efa5d03)
+    
+    /usr/bin/codesign --force --sign A659E89E437CB8CF0F35AC2D87529CAFCF7F4323 --preserve-metadata\=identifier,entitlements,flags --generate-entitlement-der --strip-disallowed-xattrs /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation/Applications/A1Harness.app/Frameworks/liba1probe.dylib
+
+ProcessInfoPlistFile /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation/Applications/A1Harness.app/Info.plist /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness/Info.plist (in target 'A1Harness' from project 'A1Harness')
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness
+    builtin-infoPlistUtility /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness/Info.plist -producttype com.apple.product-type.application -genpkginfo /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation/Applications/A1Harness.app/PkgInfo -expandbuildsettings -format binary -platform iphoneos -scanforprivacyfile /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation/Applications/A1Harness.app/Frameworks/FabricAOTProbe.framework -requiredArchitecture arm64 -o /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation/Applications/A1Harness.app/Info.plist
+
+CodeSign /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation/Applications/A1Harness.app/Frameworks/FabricAOTProbe.framework (in target 'A1Harness' from project 'A1Harness')
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness
+    
+    Signing Identity:     "Apple Development: kexin_0@outlook.com (27R45R4LU5)"
+    Provisioning Profile: "iOS Team Provisioning Profile: org.fabricaot.research.a1probe.kexin"
+                          (64846659-6206-4cb0-a77f-502d2efa5d03)
+    
+    /usr/bin/codesign --force --sign A659E89E437CB8CF0F35AC2D87529CAFCF7F4323 --preserve-metadata\=identifier,entitlements,flags --generate-entitlement-der --strip-disallowed-xattrs /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation/Applications/A1Harness.app/Frameworks/FabricAOTProbe.framework
+
+Strip /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation/Applications/A1Harness.app/A1Harness (in target 'A1Harness' from project 'A1Harness')
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/strip -D /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation/Applications/A1Harness.app/A1Harness
+
+SetOwnerAndGroup kexin:staff /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation/Applications/A1Harness.app (in target 'A1Harness' from project 'A1Harness')
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness
+    /usr/sbin/chown -RH kexin:staff /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation/Applications/A1Harness.app
+
+SetMode u+w,go-w,a+rX /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation/Applications/A1Harness.app (in target 'A1Harness' from project 'A1Harness')
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness
+    /bin/chmod -RH u+w,go-w,a+rX /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation/Applications/A1Harness.app
+
+CodeSign /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation/Applications/A1Harness.app (in target 'A1Harness' from project 'A1Harness')
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness
+    
+    Signing Identity:     "Apple Development: kexin_0@outlook.com (27R45R4LU5)"
+    Provisioning Profile: "iOS Team Provisioning Profile: org.fabricaot.research.a1probe.kexin"
+                          (64846659-6206-4cb0-a77f-502d2efa5d03)
+    
+    /usr/bin/codesign --force --sign A659E89E437CB8CF0F35AC2D87529CAFCF7F4323 --entitlements /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/A1Harness.build/Release-iphoneos/A1Harness.build/A1Harness.app.xcent --generate-entitlement-der --strip-disallowed-xattrs /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation/Applications/A1Harness.app
+
+RegisterExecutionPolicyException /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation/Applications/A1Harness.app (in target 'A1Harness' from project 'A1Harness')
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness
+    builtin-RegisterExecutionPolicyException /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation/Applications/A1Harness.app
+
+Validate /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation/Applications/A1Harness.app (in target 'A1Harness' from project 'A1Harness')
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness
+    builtin-validationUtility /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation/Applications/A1Harness.app -shallow-bundle -infoplist-subpath Info.plist
+warning: All interface orientations must be supported unless the app requires full screen. (in target 'A1Harness' from project 'A1Harness')
+
+Touch /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation/Applications/A1Harness.app (in target 'A1Harness' from project 'A1Harness')
+    cd /Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness
+    /usr/bin/touch -c /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/InstallationBuildProductsLocation/Applications/A1Harness.app
+
+PruneExplicitPrecompiledModules /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/ExplicitPrecompiledModules
+
+PruneExplicitPrecompiledModules /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/Build/Intermediates.noindex/ArchiveIntermediates/A1Harness/IntermediateBuildFilesPath/SwiftExplicitPrecompiledModules
+
+PruneExplicitPrecompiledModules /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-handoff-v2/SDKExplicitPrecompiledModules
+
+** ARCHIVE SUCCEEDED **
+

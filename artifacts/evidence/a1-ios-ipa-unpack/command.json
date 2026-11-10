@@ -1,0 +1,25 @@
+{
+  "argv": [
+    "ditto",
+    "-x",
+    "-k",
+    "artifacts/a1/device-handoff/export/A1Harness.ipa",
+    "artifacts/a1/device-handoff/inspection"
+  ],
+  "cwd": "/Users/kexin/Documents/ChatGPT/MCFAO",
+  "startedUTC": "2026-11-08T01:55:40.988423+00:00",
+  "temporaryDirectory": "/Users/kexin/Documents/ChatGPT/MCFAO/artifacts/evidence/a1-ios-ipa-unpack/tmp",
+  "finishedUTC": "2026-11-08T01:55:40.995060+00:00",
+  "exitCode": 1,
+  "timedOut": false,
+  "logs": {
+    "stdout.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "stderr.log": {
+      "bytes": 83,
+      "sha256": "31af703395570c78d3bd604e94082969defd50d55fa2fc6d5cf41849dfb98f7a"
+    }
+  }
+}

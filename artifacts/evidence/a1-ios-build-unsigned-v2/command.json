@@ -1,0 +1,33 @@
+{
+  "argv": [
+    "xcodebuild",
+    "-project",
+    "ios/A1Harness/A1Harness.xcodeproj",
+    "-scheme",
+    "A1Harness",
+    "-configuration",
+    "Release",
+    "-destination",
+    "generic/platform=iOS",
+    "-derivedDataPath",
+    "artifacts/a1/xcode-unsigned",
+    "CODE_SIGNING_ALLOWED=NO",
+    "build"
+  ],
+  "cwd": "/Users/kexin/Documents/ChatGPT/MCFAO",
+  "startedUTC": "2026-11-08T01:27:25.853512+00:00",
+  "temporaryDirectory": "/Users/kexin/Documents/ChatGPT/MCFAO/artifacts/evidence/a1-ios-build-unsigned-v2/tmp",
+  "finishedUTC": "2026-11-08T01:27:36.863594+00:00",
+  "exitCode": 0,
+  "timedOut": false,
+  "logs": {
+    "stdout.log": {
+      "bytes": 4177,
+      "sha256": "ebe59f09494bc6d15db11c47a48855abdef3ffde0491118d9e93da329e5b89d2"
+    },
+    "stderr.log": {
+      "bytes": 386,
+      "sha256": "e9523406a01420f9ed991ba78a2cfdfc6581df37e5aea5e82902567f01e3e7e2"
+    }
+  }
+}

@@ -1,0 +1,90 @@
+{
+  "status": "PASS",
+  "gateB1": "PASS",
+  "mode": "physical-device-fixture-run",
+  "scope": "same first-party B0 converted behavior only; not Minecraft game startup",
+  "runs": [
+    {
+      "nativeReport": {
+        "probeID": "B1",
+        "createIsolate": 0,
+        "reservedAddressSpaceBytes": 268435456,
+        "tearDownIsolate": 0,
+        "harnessBuild": "4",
+        "scope": "B1 pre-transformed first-party fixture",
+        "processID": 43683,
+        "log": "b1-1794118566231.log",
+        "bundleID": "org.fabricaot.research.a1probe.kexin",
+        "systemVersion": "27.2",
+        "runResult": 0,
+        "startedUnix": 1794118566.230958,
+        "finishedUnix": 1794118566.239839,
+        "runID": "1794118566231",
+        "status": "PASS"
+      },
+      "log": "b1-1794118566231.log",
+      "assertionsChecked": [
+        "B0_BEHAVIOR mixed=42 widened=7 parent=1 nested=1",
+        "B0_REPLAY_PASS",
+        "B1_SEMANTICS_PASS",
+        "B1_NATIVE_FINISH create=0 run=0 teardown=0"
+      ]
+    },
+    {
+      "nativeReport": {
+        "probeID": "B1",
+        "createIsolate": 0,
+        "reservedAddressSpaceBytes": 268435456,
+        "tearDownIsolate": 0,
+        "harnessBuild": "4",
+        "scope": "B1 pre-transformed first-party fixture",
+        "processID": 43706,
+        "log": "b1-1794118600241.log",
+        "bundleID": "org.fabricaot.research.a1probe.kexin",
+        "systemVersion": "27.2",
+        "runResult": 0,
+        "startedUnix": 1794118600.241078,
+        "finishedUnix": 1794118600.249398,
+        "runID": "1794118600241",
+        "status": "PASS"
+      },
+      "log": "b1-1794118600241.log",
+      "assertionsChecked": [
+        "B0_BEHAVIOR mixed=42 widened=7 parent=1 nested=1",
+        "B0_REPLAY_PASS",
+        "B1_SEMANTICS_PASS",
+        "B1_NATIVE_FINISH create=0 run=0 teardown=0"
+      ]
+    }
+  ],
+  "independentLaunch": {
+    "confirmed": true,
+    "basis": "User supplied two PASS screenshots and explicitly stated one connected to Xcode and one not connected; mapping of each screenshot to mode not inferred",
+    "userStatement": "一次连了Xcode一次没连"
+  },
+  "matchesDesktopBehavior": true,
+  "desktopReference": "artifacts/b0/run-04/result.json",
+  "nativeAotEvidence": "artifacts/b1/ios-probe-03/result.json",
+  "runtimeInputChain": "artifacts/b1/ios-probe-03/input-chain.json",
+  "devicePackage": "artifacts/b1/device-handoff/result.json",
+  "filesSHA256": {
+    "b1-1794118566231.log": "3879ea53781bfb25b061e76c8b6f597bdbdbacdf60665d11ace0b04e50e806a6",
+    "b1-1794118600241.log": "08fc7d007b468ec9ca9893eaefb877f0e84d43b2b03e96f04731ea67df77fb9f",
+    "b1-1794118649917.log": "989905badaf2497f781b3a79bef2588106e9e1aaca9882659f435adb99f890f4",
+    "b1-result-1794118566231.json": "dcc68c0b0aac4eb498f00eb84f0e7e750ded42137fb35d1677a6ffbe11a105fc",
+    "b1-result-1794118600241.json": "1f3e4512861c75ab4ad806592a9f369da37fca9c22ee2afe8058158c046752b2",
+    "b1-result-1794118649917.json": "fe25affefea638a8340a2e987ba85fa233810127882614ac6a83d129b9bbc5b0",
+    "latest.json": "fe25affefea638a8340a2e987ba85fa233810127882614ac6a83d129b9bbc5b0"
+  },
+  "screenshots": [
+    {
+      "path": "/var/folders/z5/jgq3c8hx50zfg6zr1wqq1v4c0000gn/T/codex-clipboard-a71fa62b-5fbc-44f6-ad02-868fb759b34b.png",
+      "sha256": "dc80e53b7bccbd9c6e56ad8a64fbb8f98077ac8e5723c73c23ff22ad8e73e58f"
+    },
+    {
+      "path": "/var/folders/z5/jgq3c8hx50zfg6zr1wqq1v4c0000gn/T/codex-clipboard-fd819edc-2f50-42fc-b5f2-47355a5ca286.png",
+      "sha256": "f1c1161f80be831bfbee0c5aff0bba15d321976e05eb75b5cfb0cba47c4798f1"
+    }
+  ],
+  "agentDeviceExecution": "NONE"
+}

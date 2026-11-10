@@ -1,0 +1,28 @@
+{
+  "argv": [
+    "/Users/kexin/.workbuddy/binaries/python/versions/3.13.12/bin/python3",
+    "-B",
+    "-m",
+    "unittest",
+    "discover",
+    "-s",
+    "tests",
+    "-v"
+  ],
+  "cwd": "/Users/kexin/Documents/ChatGPT/MCFAO",
+  "startedUTC": "2026-11-08T11:09:23.556205+00:00",
+  "temporaryDirectory": "/Users/kexin/Documents/ChatGPT/MCFAO/artifacts/evidence/unit-tests-20261108-c0-harness/tmp",
+  "finishedUTC": "2026-11-08T11:09:26.969297+00:00",
+  "exitCode": 0,
+  "timedOut": false,
+  "logs": {
+    "stdout.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "stderr.log": {
+      "bytes": 16997,
+      "sha256": "485987ba16cc20df9250fd890f57dc15700a3d0f48d3aeb6f33208bffc6544a6"
+    }
+  }
+}

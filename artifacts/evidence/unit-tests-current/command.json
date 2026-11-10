@@ -1,0 +1,28 @@
+{
+  "argv": [
+    "python3",
+    "-B",
+    "-m",
+    "unittest",
+    "discover",
+    "-s",
+    "tests",
+    "-v"
+  ],
+  "cwd": "/Users/kexin/Documents/ChatGPT/MCFAO",
+  "startedUTC": "2026-11-08T01:44:46.111699+00:00",
+  "temporaryDirectory": "/Users/kexin/Documents/ChatGPT/MCFAO/artifacts/evidence/unit-tests-current/tmp",
+  "finishedUTC": "2026-11-08T01:44:47.496704+00:00",
+  "exitCode": 1,
+  "timedOut": false,
+  "logs": {
+    "stdout.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "stderr.log": {
+      "bytes": 6190,
+      "sha256": "2b6e8d0c5598e99a51ca4bebc201115176baa8447df434a0dcb69ee61e5a4da7"
+    }
+  }
+}

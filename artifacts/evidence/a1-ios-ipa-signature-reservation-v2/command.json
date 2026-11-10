@@ -1,0 +1,26 @@
+{
+  "argv": [
+    "codesign",
+    "--verify",
+    "--deep",
+    "--strict",
+    "--verbose=2",
+    "artifacts/a1/device-handoff-v2/ipa-inspection/Payload/A1Harness.app"
+  ],
+  "cwd": "/Users/kexin/Documents/ChatGPT/MCFAO",
+  "startedUTC": "2026-11-08T02:04:19.629410+00:00",
+  "temporaryDirectory": "/Users/kexin/Documents/ChatGPT/MCFAO/artifacts/evidence/a1-ios-ipa-signature-reservation-v2/tmp",
+  "finishedUTC": "2026-11-08T02:04:19.670045+00:00",
+  "exitCode": 0,
+  "timedOut": false,
+  "logs": {
+    "stdout.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "stderr.log": {
+      "bytes": 189,
+      "sha256": "0431af70afd98be13954752e9ca572c561fa1963145698fe745db3791dee2112"
+    }
+  }
+}

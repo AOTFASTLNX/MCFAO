@@ -1,0 +1,13 @@
+artifacts/a1/xcode-unsigned/Build/Products/Release-iphoneos/A1Harness.app/Frameworks/FabricAOTProbe.framework/FabricAOTProbe:
+	@rpath/FabricAOTProbe.framework/FabricAOTProbe (compatibility version 0.0.0, current version 0.0.0)
+	/System/Library/Frameworks/Foundation.framework/Foundation (compatibility version 300.0.0, current version 5027.1.8)
+	/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation (compatibility version 150.0.0, current version 5027.1.8)
+	/System/Library/Frameworks/CFNetwork.framework/CFNetwork (compatibility version 1.0.0, current version 3896.200.61)
+	/System/Library/Frameworks/SystemConfiguration.framework/SystemConfiguration (compatibility version 1.0.0, current version 1453.40.1)
+	/System/Library/Frameworks/Security.framework/Security (compatibility version 1.0.0, current version 62460.40.78)
+	/System/Library/Frameworks/MobileCoreServices.framework/MobileCoreServices (compatibility version 1.0.0, current version 1226.0.0)
+	/usr/lib/libz.1.dylib (compatibility version 1.0.0, current version 1.2.12)
+	/usr/lib/libiconv.2.dylib (compatibility version 7.0.0, current version 7.0.0)
+	/usr/lib/libresolv.9.dylib (compatibility version 1.0.0, current version 1.0.0)
+	/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1359.40.3)
+	/usr/lib/libobjc.A.dylib (compatibility version 1.0.0, current version 228.0.0)
