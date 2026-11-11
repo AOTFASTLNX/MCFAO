@@ -313,7 +313,7 @@ static UIWindowScene *activeScene(void) {
     bindButton(input.leftButton,0);
     bindButton(input.rightButton,1);
     bindButton(input.middleButton,2);
-    input.scroll.valueChangedHandler=^(GCDeviceCursor *sender,float dx,float dy){
+    input.scroll.valueChangedHandler=^(GCControllerDirectionPad *sender,float dx,float dy){
         (void)sender;
         dispatch_block_t forward=^{
             FAOTMetalView *view=weakView;
