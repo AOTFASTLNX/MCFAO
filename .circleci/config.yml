@@ -5,6 +5,9 @@ parameters:
   run_check:
     type: boolean
     default: false
+  run_toolchain:
+    type: boolean
+    default: false
 
 jobs:
   check_aot_mac:
@@ -47,8 +50,52 @@ jobs:
               echo "native-image not installed; will configure for the AOT build."
             fi
 
+  check_graalvm25:
+    macos:
+      xcode: "27.1.0"
+    resource_class: m4pro.medium
+    steps:
+      - checkout
+      - run:
+          name: Verify locked Java 25 and iOS SDK prerequisites
+          no_output_timeout: 15m
+          command: |
+            set -eu
+            test "$(uname -m)" = "arm64"
+
+            echo "=== Python ==="
+            python3 --version
+            python3 -c 'import sys; assert sys.version_info >= (3, 11, 8), "Requires Python 3.11.8+ for safe tar extraction"'
+
+            echo "=== Xcode and iPhoneOS SDK ==="
+            xcodebuild -version
+            xcrun --sdk iphoneos --show-sdk-version
+            xcrun --sdk iphoneos --find clang
+
+            echo "=== Pinned GraalVM CE 25.0.2 download and SHA-256 verification ==="
+            python3 -B tools/bootstrap_toolchain.py
+
+            GRAALVM_HOME="$PWD/.cache/toolchains/graalvm-25.0.2/graalvm-community-openjdk-25.0.2+10.1/Contents/Home"
+            test -x "$GRAALVM_HOME/bin/java"
+            test -x "$GRAALVM_HOME/bin/native-image"
+
+            echo "=== Pinned GraalVM Java ==="
+            "$GRAALVM_HOME/bin/java" -version
+            echo "=== Pinned Native Image ==="
+            "$GRAALVM_HOME/bin/native-image" --version
+
+            echo "=== Java major version ==="
+            "$GRAALVM_HOME/bin/java" -version 2>&1 | grep -E 'version "25\.|openjdk 25\.'
+
+            echo "=== Remaining disk ==="
+            df -h .
+
 workflows:
   manual_check:
     when: << pipeline.parameters.run_check >>
     jobs:
       - check_aot_mac
+  manual_toolchain:
+    when: << pipeline.parameters.run_toolchain >>
+    jobs:
+      - check_graalvm25
