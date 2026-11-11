@@ -1,6 +1,7 @@
 #import <UIKit/UIKit.h>
 #import <QuartzCore/CAMetalLayer.h>
 #import <Metal/Metal.h>
+#import <GameController/GameController.h>
 #include "glfw_lite.h"
 #include "input_mapping.h"
 
@@ -21,6 +22,9 @@ static UIWindowScene *activeScene(void) {
 @property(nonatomic,assign) BOOL textEnabled;
 @property(nonatomic,assign) BOOL captured;
 @property(nonatomic,assign) BOOL hasCapturedGame;
+@property(nonatomic,assign) BOOL nativeMouseConnected;
+@property(nonatomic,assign) BOOL pointerIsLocked;
+@property(nonatomic,assign) unsigned heldNativeMouseButtons;
 @property(nonatomic,strong) UIView *noKeyboard;
 @property(nonatomic,strong) UITouch *primaryTouch;
 @property(nonatomic,assign) int primaryButton;
@@ -30,6 +34,9 @@ static UIWindowScene *activeScene(void) {
 - (void)installControls;
 - (void)setGameCapture:(BOOL)captured;
 - (void)releaseGameControls;
+- (void)releaseNativeMouseButtons;
+- (void)nativeMouseButton:(int)index pressed:(BOOL)pressed;
+- (void)pointerHovered:(UIHoverGestureRecognizer *)recognizer;
 - (void)controlDown:(UIButton *)button;
 - (void)controlUp:(UIButton *)button;
 - (BOOL)sendControl:(int)code pressed:(BOOL)pressed;
@@ -120,6 +127,9 @@ static UIWindowScene *activeScene(void) {
         [self addSubview:button];[controls addObject:button];
     }
     self.controls=controls;
+    // Menu pointer positions are independent of clicks. UIKit touches alone cannot track hover.
+    UIHoverGestureRecognizer *hover=[[UIHoverGestureRecognizer alloc] initWithTarget:self action:@selector(pointerHovered:)];
+    [self addGestureRecognizer:hover];
 }
 - (BOOL)sendControl:(int)code pressed:(BOOL)pressed {
     if(!self.handle)return NO;
@@ -157,15 +167,37 @@ static UIWindowScene *activeScene(void) {
     if([self.heldControls containsObject:key]&&[self sendControl:(int)button.tag pressed:NO])
         [self.heldControls removeObject:key];
 }
+- (void)releaseNativeMouseButtons {
+    if(self.handle)for(int i=0;i<3;i++)if(self.heldNativeMouseButtons&(1u<<i))
+        faot_glfw_enqueue(self.handle,FAOT_EVENT_BUTTON,i,0,0,0);
+    self.heldNativeMouseButtons=0;
+}
+- (void)nativeMouseButton:(int)index pressed:(BOOL)pressed {
+    if(!self.handle||!self.captured||index<0||index>2)return;
+    unsigned bit=1u<<index;
+    if(((self.heldNativeMouseButtons&bit)!=0)==pressed)return;
+    if(!faot_glfw_enqueue(self.handle,FAOT_EVENT_BUTTON,index,pressed,0,0))return;
+    if(pressed)self.heldNativeMouseButtons|=bit;
+    else self.heldNativeMouseButtons&=~bit;
+}
 - (void)releaseGameControls {
+    [self releaseNativeMouseButtons];
     for(NSNumber *key in self.heldControls)[self sendControl:key.intValue pressed:NO];
     [self.heldControls removeAllObjects];
+}
+- (void)pointerHovered:(UIHoverGestureRecognizer *)recognizer {
+    if(!self.handle||self.captured)return;
+    if(recognizer.state!=UIGestureRecognizerStateBegan&&recognizer.state!=UIGestureRecognizerStateChanged)return;
+    CGPoint p=[recognizer locationInView:self];
+    faot_glfw_enqueue(self.handle,FAOT_EVENT_CURSOR,p.x,p.y,0,0);
 }
 - (void)setGameCapture:(BOOL)captured {
     if(self.captured==captured)return;
     if(!captured)[self releaseGameControls];
     self.captured=captured;
     self.hasCapturedGame|=captured;
+    // iPadOS may deny pointer lock (for example in Split View). Observe the actual lock state.
+    [(UIViewController *)self.window.rootViewController setNeedsUpdateOfPrefersPointerLocked];
     for(UIButton *button in self.controls){
         if(button.tag==CONTROL_ESCAPE){
             button.hidden=!self.hasCapturedGame;
@@ -178,6 +210,8 @@ static UIWindowScene *activeScene(void) {
 - (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
     if(!self.handle||self.primaryTouch)return;
     UITouch *touch=touches.anyObject;
+    // GCMouse supplies hardware mouse clicks in game; do not forward UIKit duplicates.
+    if(self.captured&&self.nativeMouseConnected&&touch.type==UITouchTypeIndirectPointer)return;
     self.primaryTouch=touch;
     CGPoint p=[touch locationInView:self];
     if(!self.captured)faot_glfw_enqueue(self.handle,FAOT_EVENT_CURSOR,p.x,p.y,0,0);
@@ -221,6 +255,11 @@ static UIWindowScene *activeScene(void) {
 @end
 @implementation FAOTGameController
 - (BOOL)prefersStatusBarHidden { return YES; }
+- (BOOL)prefersPointerLocked { return ((FAOTMetalView *)self.view).captured; }
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
+    [self setNeedsUpdateOfPrefersPointerLocked];
+}
 @end
 
 @interface FAOTSurface : NSObject
@@ -229,8 +268,61 @@ static UIWindowScene *activeScene(void) {
 @property(nonatomic,strong) FAOTMetalView *view;
 @property(nonatomic,strong) id foregroundToken;
 @property(nonatomic,strong) id backgroundToken;
+@property(nonatomic,strong) id pointerToken;
+@property(nonatomic,strong) id mouseConnectToken;
+@property(nonatomic,strong) id mouseDisconnectToken;
+@property(nonatomic,strong) GCMouse *mouse;
+- (void)attachMouse:(GCMouse *)mouse;
 @end
 @implementation FAOTSurface
+- (void)attachMouse:(GCMouse *)mouse {
+    if(self.mouse==mouse)return;
+    if(self.mouse){
+        GCMouseInput *old=self.mouse.mouseInput;
+        old.mouseMovedHandler=nil;
+        old.leftButton.valueChangedHandler=nil;
+        old.rightButton.valueChangedHandler=nil;
+        old.middleButton.valueChangedHandler=nil;
+        old.scroll.valueChangedHandler=nil;
+    }
+    [self.view releaseNativeMouseButtons];
+    self.mouse=mouse;
+    self.view.nativeMouseConnected=mouse!=nil;
+    if(!mouse)return;
+
+    __weak FAOTMetalView *weakView=self.view;
+    GCMouseInput *input=mouse.mouseInput;
+    // GameController reports unaccelerated relative motion; GLFW expects Y increasing down.
+    input.mouseMovedHandler=^(GCMouseInput *sender,float dx,float dy){
+        (void)sender;
+        dispatch_block_t forward=^{
+            FAOTMetalView *view=weakView;
+            if(view&&view.handle&&view.captured&&view.pointerIsLocked)
+                faot_glfw_enqueue(view.handle,FAOT_EVENT_CURSOR_DELTA,dx,-dy,0,0);
+        };
+        if(NSThread.isMainThread)forward();else dispatch_async(dispatch_get_main_queue(),forward);
+    };
+    void (^bindButton)(GCControllerButtonInput *,int)=^(GCControllerButtonInput *button,int index){
+        if(!button)return;
+        button.valueChangedHandler=^(GCControllerButtonInput *sender,float value,BOOL pressed){
+            (void)sender;(void)value;
+            dispatch_block_t forward=^{ FAOTMetalView *view=weakView; if(view)[view nativeMouseButton:index pressed:pressed]; };
+            if(NSThread.isMainThread)forward();else dispatch_async(dispatch_get_main_queue(),forward);
+        };
+    };
+    bindButton(input.leftButton,0);
+    bindButton(input.rightButton,1);
+    bindButton(input.middleButton,2);
+    input.scroll.valueChangedHandler=^(GCDeviceCursor *sender,float dx,float dy){
+        (void)sender;
+        dispatch_block_t forward=^{
+            FAOTMetalView *view=weakView;
+            if(view&&view.handle)
+                faot_glfw_enqueue(view.handle,FAOT_EVENT_SCROLL,dx,dy,0,0);
+        };
+        if(NSThread.isMainThread)forward();else dispatch_async(dispatch_get_main_queue(),forward);
+    };
+}
 @end
 
 void faot_surface_screen(GLFWvidmode *mode) {
@@ -270,6 +362,23 @@ void *faot_surface_create(GLFWwindow *handle,int *width,int *height,int *pw,int 
         *width=(int)surface.view.bounds.size.width;*height=(int)surface.view.bounds.size.height;
         *pw=(int)layer.drawableSize.width;*ph=(int)layer.drawableSize.height;
         NSNotificationCenter *nc=NSNotificationCenter.defaultCenter;
+        __weak FAOTSurface *weakSurface=surface;
+        __weak FAOTMetalView *pointerView=surface.view;
+        surface.pointerToken=[nc addObserverForName:UIPointerLockStateDidChangeNotification object:scene.pointerLockState queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note){
+            (void)note;
+            FAOTMetalView *view=pointerView;
+            view.pointerIsLocked=scene.pointerLockState.isLocked;
+            fprintf(stderr,"[GLFW-lite] iPad pointer lock: %s\\n",view.pointerIsLocked?"locked":"unlocked");
+        }];
+        surface.view.pointerIsLocked=scene.pointerLockState.isLocked;
+        surface.mouseConnectToken=[nc addObserverForName:GCMouseDidConnectNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note){
+            [weakSurface attachMouse:(GCMouse *)note.object];
+        }];
+        surface.mouseDisconnectToken=[nc addObserverForName:GCMouseDidDisconnectNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note){
+            FAOTSurface *current=weakSurface;
+            if(current.mouse==note.object)[current attachMouse:[GCMouse mice].firstObject];
+        }];
+        [surface attachMouse:[GCMouse mice].firstObject];
         surface.foregroundToken=[nc addObserverForName:UISceneDidActivateNotification object:scene queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note){
             (void)note;faot_glfw_enqueue(handle,FAOT_EVENT_FOCUS,1,0,0,0);
         }];
@@ -278,6 +387,7 @@ void *faot_surface_create(GLFWwindow *handle,int *width,int *height,int *pw,int 
             (void)note;FAOTMetalView *view=inputView;
             if(view.primaryTouch){if(view.primaryButton>=0)faot_glfw_enqueue(handle,FAOT_EVENT_BUTTON,view.primaryButton,0,0,0);view.primaryTouch=nil;}
             [view releaseGameControls];
+            view.pointerIsLocked=NO;
             [view.forwardedKeys removeAllIndexes];faot_glfw_enqueue(handle,FAOT_EVENT_FOCUS,0,0,0,0);
         }];
     });
@@ -291,6 +401,10 @@ void faot_surface_destroy(void *raw) {
         NSNotificationCenter *nc=NSNotificationCenter.defaultCenter;
         if(surface.foregroundToken)[nc removeObserver:surface.foregroundToken];
         if(surface.backgroundToken)[nc removeObserver:surface.backgroundToken];
+        if(surface.pointerToken)[nc removeObserver:surface.pointerToken];
+        if(surface.mouseConnectToken)[nc removeObserver:surface.mouseConnectToken];
+        if(surface.mouseDisconnectToken)[nc removeObserver:surface.mouseDisconnectToken];
+        [surface attachMouse:nil];
         [surface.view resignFirstResponder];
         surface.window.hidden=YES;
         [surface.previous makeKeyAndVisible];
