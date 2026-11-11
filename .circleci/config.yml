@@ -1,0 +1,54 @@
+version: 2.1
+
+# Opt in manually to avoid spending macOS build credits on normal pushes.
+parameters:
+  run_check:
+    type: boolean
+    default: false
+
+jobs:
+  check_aot_mac:
+    macos:
+      xcode: "27.1.0"
+    resource_class: m4pro.medium
+    steps:
+      - checkout
+      - run:
+          name: Verify Apple Silicon and AOT toolchain prerequisites
+          command: |
+            set -eu
+            echo "=== Architecture ==="
+            uname -m
+            test "$(uname -m)" = "arm64"
+
+            echo "=== Physical RAM (bytes) ==="
+            sysctl -n hw.memsize
+
+            echo "=== macOS ==="
+            sw_vers
+
+            echo "=== Xcode ==="
+            xcodebuild -version
+
+            echo "=== Available disk ==="
+            df -h .
+
+            echo "=== Java (optional for first check) ==="
+            if command -v java >/dev/null 2>&1; then
+              java -version
+            else
+              echo "Java not installed; will configure for the AOT build."
+            fi
+
+            echo "=== GraalVM Native Image (optional for first check) ==="
+            if command -v native-image >/dev/null 2>&1; then
+              native-image --version
+            else
+              echo "native-image not installed; will configure for the AOT build."
+            fi
+
+workflows:
+  manual_check:
+    when: << pipeline.parameters.run_check >>
+    jobs:
+      - check_aot_mac
