@@ -128,7 +128,7 @@ xcodebuild -project ios/A1Harness/A1Harness.xcodeproj -scheme A1Harness -configu
 账户恢复后已成功生成开发签名归档并由 Xcode 导出 IPA。使用新的输出目录复现：
 
 ```bash
-xcodebuild -project ios/A1Harness/A1Harness.xcodeproj -scheme A1Harness -configuration Release -destination 'generic/platform=iOS' -derivedDataPath artifacts/a1/xcode-handoff-new -archivePath artifacts/a1/handoff-new/A1Harness.xcarchive DEVELOPMENT_TEAM=P57SZ9Z7G2 -allowProvisioningUpdates archive
+xcodebuild -project ios/A1Harness/A1Harness.xcodeproj -scheme A1Harness -configuration Release -destination 'generic/platform=iOS' -derivedDataPath artifacts/a1/xcode-handoff-new -archivePath artifacts/a1/handoff-new/A1Harness.xcarchive DEVELOPMENT_TEAM=YOUR_TEAM_ID -allowProvisioningUpdates archive
 xcodebuild -exportArchive -archivePath artifacts/a1/handoff-new/A1Harness.xcarchive -exportPath artifacts/a1/handoff-new/export -exportOptionsPlist ios/A1Harness/ExportOptions.plist -allowProvisioningUpdates
 ```
 
@@ -199,7 +199,7 @@ xcodebuild -project ios/C0Harness/C0Harness.xcodeproj -scheme WorldDevice -desti
 
 ## 专用模拟器调试
 
-本轮用单独 iPhone18Pro / iOS27.2模拟器，ID BD25D247-F3BF-4883-A779-D2D46015616D。创建、安装、启动和原始结果见 evidence。模拟器结果不提升真机 Gate。
+本轮用单独 iPhone18Pro / iOS27.2模拟器，ID YOUR_DEVICE_UDID。创建、安装、启动和原始结果见 evidence。模拟器结果不提升真机 Gate。
 
 Simulator 必须重新编译上游原生库，不能重标记设备 archive：
 
@@ -213,7 +213,7 @@ JNI 辅助库亦以 SDK iphonesimulator、target arm64-apple-ios17.0-simulator �
 运行结果采集：
 
 ```bash
-python3 -B tools/collect_probe_result.py --container-file artifacts/evidence/a1-simulator-container/stdout.log --simulator BD25D247-F3BF-4883-A779-D2D46015616D --output artifacts/evidence/simulator-run-new
+python3 -B tools/collect_probe_result.py --container-file artifacts/evidence/a1-simulator-container/stdout.log --simulator YOUR_DEVICE_UDID --output artifacts/evidence/simulator-run-new
 ```
 
 采集器限定所选模拟器及测试 Bundle ID，并同时检查原生生命周期退出码与 Java 成功标记。
@@ -237,7 +237,7 @@ python3 -B tools/verify_evidence.py --output artifacts/evidence/verification-new
 
 当前151项单元/安全回归通过，见artifacts/graphics/regression-06/stderr.log（79/123/133项为历史轮次）。Mac脚本由助手执行，真机由用户负责。verify_evidence 检查其支持的命令输出、报告及二进制字段；图形库另有构建指纹及Xcode嵌入核对，当前源清单含 docs/.codex。它不认证游戏或设备行为。
 
-AAR 只使用 /Users/kexin/Documents/Codex/monitor/registry.sqlite。可靠可再取得的固定缓存带 regenerable；历史运行记录、耦合的源构建状态和设备状态保留。安全删除标志均 false，不执行清理。新产物需重新核验登记。外部专用测试目录可显式提供 --external-build-root，不能用主目录或系统目录作项目。
+AAR 只使用 $HOME/Documents/Codex/monitor/registry.sqlite。可靠可再取得的固定缓存带 regenerable；历史运行记录、耦合的源构建状态和设备状态保留。安全删除标志均 false，不执行清理。新产物需重新核验登记。外部专用测试目录可显式提供 --external-build-root，不能用主目录或系统目录作项目。
 
 tools/register_artifacts.py 用于不含符号链接的实验树，发现链接会明确拒绝递归登记。Xcode 归档构建目录含有指向实际 App 的符号链接，按独立 BUILD 目录登记且不跟随该链接，方式与含内部链接的 JDK 缓存相同。device-handoff 的归档/解包文件和 evidence 可分别 include-files 登记；导出目录以 DISTRIBUTION 再登记，记录 xcodebuild 导出命令。不得为登记改动或删除 Xcode 的链接。
 

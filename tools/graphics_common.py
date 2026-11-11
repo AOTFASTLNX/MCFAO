@@ -24,7 +24,7 @@ def bridge_overlays(directory: Path) -> list[Path]:
 def register_tree(path: Path, command: list[str], *, regenerable: bool = True, kind: str = "BUILD", recursive: bool = True) -> dict:
     if os.environ.get("AAR_HOME"):
         raise RuntimeError("AAR_HOME must be unset: the central registry is mandatory")
-    aar = shutil.which("aar") or "/Users/kexin/Documents/Codex/monitor/bin/aar"
+    aar = shutil.which("aar") or str(Path.home() / "Documents/Codex/monitor/bin/aar")
     argv = [aar,"register","--path",str(path.resolve()),"--project",str(ROOT),"--type",kind,
             "--source","First-party graphics build; source and command fingerprints in result.json",
             "--argv-json",json.dumps(command),"--json"]

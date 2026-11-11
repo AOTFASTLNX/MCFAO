@@ -4,7 +4,6 @@
 <key>method</key><string>debugging</string>
 <key>destination</key><string>export</string>
 <key>signingStyle</key><string>automatic</string>
-<key>teamID</key><string>P57SZ9Z7G2</string>
 <key>manageAppVersionAndBuildNumber</key><false/>
 <key>thinning</key><string>&lt;none&gt;</string>
 <key>stripSwiftSymbols</key><true/>

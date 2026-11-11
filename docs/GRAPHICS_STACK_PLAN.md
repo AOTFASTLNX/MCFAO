@@ -205,7 +205,7 @@ C0 本身（无图形入口可达）保持现状：**第 43 轮已经到过 `Mai
 本轮数据来自一次性只读检查（未固化成工具，后续若要回归需先落成 `tools/` 脚本）：
 
 ```bash
-JAR="/Users/kexin/Library/Application Support/Swift Craft Launcher/meta/versions/26.1.2/26.1.2.jar"
+JAR="$HOME/Library/Application Support/Swift Craft Launcher/meta/versions/26.1.2/26.1.2.jar"
 # 2.3 OpenGL 引用零泄漏
 python3 - <<'PY'
 import json

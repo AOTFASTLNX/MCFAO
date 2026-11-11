@@ -20,7 +20,7 @@ def main(argv=None):
     args=p.parse_args(argv)
     if os.environ.get("AAR_HOME"):p.error("AAR_HOME must be unset")
     root=ROOT/"artifacts/graphics"
-    aar=shutil.which("aar") or "/Users/kexin/Documents/Codex/monitor/bin/aar"
+    aar=shutil.which("aar") or str(Path.home() / "Documents/Codex/monitor/bin/aar")
     specs=[]
     selected=[path.resolve(strict=True) for path in args.paths] if args.paths else sorted(root.iterdir())
     if any(not path.is_relative_to(root) for path in selected):p.error('Selected evidence must be under artifacts/graphics')
@@ -38,7 +38,7 @@ def main(argv=None):
             if not recursive:
                 for app in path.rglob('*.app'):
                     if not app.is_symlink():specs.append((app,"BUILD",True))
-    result={"centralDatabase":"/Users/kexin/Documents/Codex/monitor/registry.sqlite","registrations":[],"failures":[]}
+    result={"centralDatabase":str(Path.home() / "Documents/Codex/monitor/registry.sqlite"),"registrations":[],"failures":[]}
     for path,kind,recursive in specs:
         command=[aar,"register","--path",str(path),"--project",str(ROOT),"--type",kind,
                  "--source","FabricAOT graphics evidence; per-step commands in command.json; docs/GRAPHICS_BOOTSTRAP.md","--json"]

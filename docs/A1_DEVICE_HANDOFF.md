@@ -27,7 +27,7 @@ build 3 补充 RUNNING 状态、本次开始时间、耗时、runID/processID与
 下列命令限定此前已配对的用户 iPhone，只安装、不自动启动；由用户自行执行：
 
 ```bash
-xcrun devicectl device install app --device 00008160-001A78620A600036 artifacts/a1/device-handoff-v3/ipa-inspection/Payload/A1Harness.app
+xcrun devicectl device install app --device YOUR_DEVICE_UDID artifacts/a1/device-handoff-v3/ipa-inspection/Payload/A1Harness.app
 ```
 
 随后退出 Xcode、断开 USB，从 iPhone 主屏幕点开 **FabricAOT A1**。测试时不附加调试器，不开启 Java JIT。App 会自动执行一次探针，并显示 PASS 或 FAIL。若持续停在 STARTED/Starting、闪退或无法安装，保留当时错误和日志。
@@ -44,7 +44,7 @@ App 已开放 Documents 文件共享。可在“文件”→“我的 iPhone”�
 若使用命令行复制，下面命令只读取该测试 App 的 Documents，目标目录使用新的名称，避免覆盖既有记录：
 
 ```bash
-xcrun devicectl device copy from --device 00008160-001A78620A600036 --domain-type appDataContainer --domain-identifier org.fabricaot.research.a1probe.kexin --source Documents --destination artifacts/evidence/a1-user-device-run-05
+xcrun devicectl device copy from --device YOUR_DEVICE_UDID --domain-type appDataContainer --domain-identifier org.fabricaot.research.a1probe.kexin --source Documents --destination artifacts/evidence/a1-user-device-run-05
 ```
 
 反馈时提供上述画面、设备/iOS 信息和同一次的 JSON/日志即可。若还测试了 Swift Craft Launcher 的 Java25 + Fabric26.1.2 桌面基线，请一并记录实际使用的 Java、Loader 版本和启动结果。

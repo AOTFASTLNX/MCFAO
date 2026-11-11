@@ -32,8 +32,8 @@ MAVEN = "https://repo1.maven.org/maven2/org/ow2/asm"
 def gradle_asm() -> dict:
     """Return {name: path} for the ASM jars bundled with the local Gradle distribution."""
     patterns = [
-        "/Users/kexin/.gradle/wrapper/dists/gradle-*-bin/*/gradle-*/lib/asm-%s.jar" % ASM_VERSION,
-        "/Users/kexin/.gradle/wrapper/dists/gradle-*-bin/*/gradle-*/lib/asm-tree-%s.jar" % ASM_VERSION,
+        str(Path.home() / ".gradle/wrapper/dists/gradle-*-bin/*/gradle-*/lib/asm-%s.jar") % ASM_VERSION,
+        str(Path.home() / ".gradle/wrapper/dists/gradle-*-bin/*/gradle-*/lib/asm-tree-%s.jar") % ASM_VERSION,
     ]
     found = {}
     for pattern in patterns:

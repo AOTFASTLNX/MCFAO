@@ -1,8 +1,0 @@
-A1_NATIVE_START
-A1_NATIVE_FINISH create=801 run=-1 teardown=-1
-
-OSLOG-885EF231-B03A-42D0-B9E6-3433ECD08D30 7 80 L 1 {t:1794103238.747383,category:"TrackingElementWindowController",offset:0xbb058}	The tracking window controller is unable to get the keyboard scene from <UIWindowScene: 0x1039187a0; role: UIWindowSceneSessionRoleApplication; persistentIdentifier: CD91F490-AEC6-46FB-A358-307DF202CDC2; activationState: UISceneActivationStateForegroundInactive> for conversions
-
-OSLOG-885EF231-B03A-42D0-B9E6-3433ECD08D30 7 80 L 2 {t:1794103238.752155,type:"Fault",subsystem:"com.apple.ManagedConfiguration",category:"MC",offset:0x1a7c,imgUUID:"7AB9DDBB-9AA6-3C96-8992-2487D17B70A9",imgPath:"/System/Library/PrivateFrameworks/ManagedConfiguration.framework/ManagedConfiguration"}	Reading from public effective user settings.
-
-OSLOG-885EF231-B03A-42D0-B9E6-3433ECD08D30 7 80 L 3 {t:1794103290.243583,type:"Error",subsystem:"com.apple.TextInputUI",category:"KeyboardTrackingCoordinator",offset:0x65d8,imgUUID:"2997F3BD-8F06-3ECA-A835-9D169793EEED",imgPath:"/System/Library/PrivateFrameworks/TextInputUI.framework/TextInputUI"}	Conversion error! {{0, 678}, {466, 0}} was converted to {{-516.05899764046876, 834.07595956224748}, {667.42159254389753, 0}}

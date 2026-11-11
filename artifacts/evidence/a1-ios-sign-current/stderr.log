@@ -1,8 +1,0 @@
-2026-11-08 09:36:54.407 xcodebuild[83426:3656259] [MT] IDERunDestination: Supported platforms for the buildables in the current scheme is empty.
-2026-11-08 09:36:54.422 xcodebuild[83426:3656259] [MT] IDESchemeActionsInvocationRecord: Device <DVTiPhonePlaceholder: 0x7c4fa6a440 (Any iOS Device | undefined_arch)> is missing operatingSystemVersion, operatingSystemVersionWithBuildNumber.
-** BUILD FAILED **
-
-
-The following build commands failed:
-	Building project A1Harness with scheme A1Harness and configuration Release
-(1 failure)

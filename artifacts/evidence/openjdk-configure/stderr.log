@@ -1,3 +1,0 @@
-configure: WARNING: Ignoring LDFLAGS(-L/usr/local/opt/qt/lib) found in environment. Use --with-extra-ldflags
-configure: error: XCode tool 'metal' neither found in path nor with xcrun
-/Users/kexin/Documents/ChatGPT/MCFAO/.cache/upstream/jdk/labs-openjdk-3bdcc4536ac3ee02420bcfbfa6fdd3f4bc7d6831/build/.configure-support/generated-configure.sh: line 3511: 5: Bad file descriptor

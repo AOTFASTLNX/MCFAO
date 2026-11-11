@@ -1,2 +1,0 @@
-2026-11-08 09:27:33.484 xcodebuild[79516:3634132] [MT] IDERunDestination: Supported platforms for the buildables in the current scheme is empty.
-2026-11-08 09:27:33.571 xcodebuild[79516:3634132] [MT] IDESchemeActionsInvocationRecord: Device <DVTiPhonePlaceholder: 0x7c0f85a440 (Any iOS Device | undefined_arch)> is missing operatingSystemVersion, operatingSystemVersionWithBuildNumber.

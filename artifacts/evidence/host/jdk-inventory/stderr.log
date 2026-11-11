@@ -1,6 +1,0 @@
-Matching Java Virtual Machines (5):
-    26.0.1 (arm64) "Oracle Corporation" - "Java SE 26.0.1" /Library/Java/JavaVirtualMachines/jdk-26.jdk/Contents/Home
-    24 (arm64) "Oracle Corporation" - "Java SE 24" /Library/Java/JavaVirtualMachines/jdk-24.jdk/Contents/Home
-    21.0.12.1 (arm64) "Eclipse Adoptium" - "OpenJDK 21.0.12.1" /Users/kexin/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home
-    21.0.2 (x86_64) "Microsoft Build of OpenJDK" - "Microsoft Build of OpenJDK 21" /Library/Java/JavaVirtualMachines/microsoft-21.jdk/Contents/Home
-    1.8.441.07 (arm64) "Oracle Corporation" - "Java" /Library/Internet Plug-Ins/JavaAppletPlugin.plugin/Contents/Home

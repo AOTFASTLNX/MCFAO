@@ -34,7 +34,7 @@ python3 -B tools/build_b1_probe.py --b0 artifacts/b0/run-new --output artifacts/
 该命令校验B0结果与全部快照指纹，再通过沙盒拒绝控制，最后生成iOS AOT对象。它不会安装或启动手机App。按该次result.json找到work/native-tmp/SVM-*/a1probe.o，交给build_ios_runtime.py和link_a1_ios.py，方法见[BUILDING](BUILDING.md)。链接时--probe指向probe-new。
 
 ```bash
-xcodebuild -project ios/B1Harness/B1Harness.xcodeproj -scheme B1Harness -configuration Release -destination 'generic/platform=iOS' -derivedDataPath artifacts/b1/xcode-new -archivePath artifacts/b1/handoff-new/B1Harness.xcarchive DEVELOPMENT_TEAM=P57SZ9Z7G2 -allowProvisioningUpdates archive
+xcodebuild -project ios/B1Harness/B1Harness.xcodeproj -scheme B1Harness -configuration Release -destination 'generic/platform=iOS' -derivedDataPath artifacts/b1/xcode-new -archivePath artifacts/b1/handoff-new/B1Harness.xcarchive DEVELOPMENT_TEAM=YOUR_TEAM_ID -allowProvisioningUpdates archive
 xcodebuild -exportArchive -archivePath artifacts/b1/handoff-new/B1Harness.xcarchive -exportPath artifacts/b1/handoff-new/export -exportOptionsPlist ios/B1Harness/ExportOptions.plist -allowProvisioningUpdates
 ```
 
