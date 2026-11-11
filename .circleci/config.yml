@@ -49,31 +49,78 @@ jobs:
               | tee build/ci/ios-platform.txt
 
       - run:
-          name: Attempt unsigned WorldDevice IPA without inventing client assets
+          name: Check WorldDevice inputs and attempt genuine unsigned IPA
           command: |
-            set -o pipefail
-            echo "Attempting complete Minecraft WorldDevice build." > build/ci/ipa-status.txt
-            if xcodebuild -project ios/C0Harness/C0Harness.xcodeproj \
-                -scheme WorldDevice -configuration "World Device" \
-                -destination 'generic/platform=iOS' \
-                -derivedDataPath "$PWD/build/ci/DerivedData" \
-                CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
-                build >build/ci/worlddevice-build.log 2>&1; then
-              APP="$(find "$PWD/build/ci/DerivedData/Build/Products" -name C0Harness.app -type d -print -quit)"
-              if [ -n "$APP" ]; then
-                mkdir -p build/ci/package/Payload
-                ditto "$APP" build/ci/package/Payload/C0Harness.app
-                (cd build/ci/package && zip -qr ../MCFAO-WorldDevice-unsigned.ipa Payload)
-                echo "IPA_CREATED_UNSIGNED - requires code signing to install" >> build/ci/ipa-status.txt
-              else
-                echo "BLOCKED: no complete app generated" >> build/ci/ipa-status.txt
+            set -eu
+            GAME_INPUT="artifacts/graphics/world-device-input-02"
+            GAME_ASSETS="artifacts/graphics/game-assets-01/assets"
+            echo "Checking the complete Minecraft WorldDevice prerequisites." > build/ci/ipa-status.txt
+            : > build/ci/missing-inputs.txt
+            for path in \
+              "$GAME_INPUT/client-graph.dylib" \
+              "$GAME_INPUT/liblwjgl.dylib" \
+              "$GAME_INPUT/libfaot_metal.dylib" \
+              "$GAME_INPUT/libopenal.dylib" \
+              "$GAME_INPUT/fabricaot-present.metallib" \
+              "$GAME_INPUT/fabricaot-shaders/index.json" \
+              "$GAME_ASSETS/indexes/30.json"; do
+              if [ ! -s "$path" ]; then
+                printf '%s\n' "$path" >> build/ci/missing-inputs.txt
               fi
+            done
+            if [ ! -d "$GAME_ASSETS/objects" ]; then
+              echo "$GAME_ASSETS/objects/" >> build/ci/missing-inputs.txt
+            fi
+            if [ -s build/ci/missing-inputs.txt ]; then
+              echo "IPA_NOT_BUILT_MISSING_INPUTS" >> build/ci/ipa-status.txt
+              echo "The GitHub repository intentionally excludes the licensed game client and local AOT/Metal build outputs." >> build/ci/ipa-status.txt
+              echo "Required missing inputs:" >> build/ci/ipa-status.txt
+              cat build/ci/missing-inputs.txt >> build/ci/ipa-status.txt
+              echo "Skipped xcodebuild: inputs missing." > build/ci/worlddevice-build.log
             else
-              echo "BLOCKED: full AOT client, Metal libraries or licensed game assets may be absent. See worlddevice-build.log." >> build/ci/ipa-status.txt
+              # Ensure this CI run embeds the *new* mouse/trackpad implementation.
+              cp build/ci/libglfw.dylib "$GAME_INPUT/libglfw.dylib"
+              if xcodebuild -project ios/C0Harness/C0Harness.xcodeproj \
+                  -scheme WorldDevice -configuration "World Device" \
+                  -destination 'generic/platform=iOS' \
+                  -derivedDataPath "$PWD/build/ci/DerivedData" \
+                  CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+                  build >build/ci/worlddevice-build.log 2>&1; then
+                APP="$(find "$PWD/build/ci/DerivedData/Build/Products" -name C0Harness.app -type d -print -quit)"
+                if [ -n "$APP" ] && \
+                   [ -s "$APP/Frameworks/client-graph.dylib" ] && \
+                   [ -s "$APP/Frameworks/libglfw.dylib" ] && \
+                   [ -s "$APP/assets/indexes/30.json" ]; then
+                  mkdir -p build/ci/package/Payload
+                  ditto "$APP" build/ci/package/Payload/C0Harness.app
+                  (cd build/ci/package && zip -qr ../MCFAO-WorldDevice-unsigned.ipa Payload)
+                  unzip -t build/ci/MCFAO-WorldDevice-unsigned.ipa > build/ci/ipa-zip-test.log
+                  echo "IPA_CREATED_UNSIGNED_REQUIRES_SIGNING" >> build/ci/ipa-status.txt
+                else
+                  echo "IPA_NOT_BUILT_INCOMPLETE_APP" >> build/ci/ipa-status.txt
+                fi
+              else
+                echo "IPA_NOT_BUILT_XCODEBUILD_FAILED" >> build/ci/ipa-status.txt
+                grep -E 'error:|BUILD FAILED' build/ci/worlddevice-build.log | tail -n 30 >> build/ci/ipa-status.txt || true
+              fi
             fi
 
+      - run:
+          name: Collect compact public CI outputs
+          when: always
+          command: |
+            mkdir -p build/ci/published
+            for name in arch.txt xcode.txt ios-sdk.txt pointer-tests.log \
+              glfw-state-test.log iphoneos-clang.log ios-platform.txt \
+              libglfw.dylib ipa-status.txt missing-inputs.txt \
+              worlddevice-build.log ipa-zip-test.log MCFAO-WorldDevice-unsigned.ipa; do
+              if [ -f "build/ci/$name" ]; then
+                cp "build/ci/$name" build/ci/published/
+              fi
+            done
+
       - store_artifacts:
-          path: build/ci
+          path: build/ci/published
           destination: ipados-pointer
 
 workflows:
