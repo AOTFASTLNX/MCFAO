@@ -67,7 +67,7 @@ def main(argv=None):
     if not a.cache_only and not a.output:p.error('--output is required for a build')
     roots=cache_inputs()
     # CMake.app contains internal links; register its parent without traversing them.
-    aar='/Users/kexin/Documents/Codex/monitor/bin/aar';command=[sys.executable,'-B',str(Path(__file__).resolve()),'--cache-only']
+    aar=str(Path.home() / 'Documents/Codex/monitor/bin/aar');command=[sys.executable,'-B',str(Path(__file__).resolve()),'--cache-only']
     for directory in [CACHE/'archives',*(CACHE/name for name in roots)]:
         args=[aar,'register','--path',str(directory),'--project',str(ROOT),'--type','CACHE','--regenerable','--source','Official checksum-pinned shader host tools; compiler/graphics-toolchain.lock.json','--argv-json',json.dumps(command),'--json']
         if not any(f.is_symlink() for f in directory.rglob('*')):args.append('--include-files')

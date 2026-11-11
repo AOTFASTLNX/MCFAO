@@ -38,7 +38,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if os.environ.get("AAR_HOME"):
         parser.error("AAR_HOME must be unset; only the configured central registry is allowed")
-    aar = shutil.which("aar") or "/Users/kexin/Documents/Codex/monitor/bin/aar"
+    aar = shutil.which("aar") or str(Path.home() / "Documents/Codex/monitor/bin/aar")
     specs = [
         (".cache/toolchains", "CACHE", False, None, ["python3", "-B", "tools/bootstrap_toolchain.py"], True),
         # Register downloaded archives and the extracted JDK directory separately.

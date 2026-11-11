@@ -1,6 +1,6 @@
 # FabricAOT 工作交接
 
-交接日期：2026-11-08（北京时间）。第17–24轮更新于当日17:40，第37–43轮真机/模拟器引导于当日20:59，第44轮图形栈侦察于当日21:40。项目目录：`/Users/kexin/Documents/ChatGPT/MCFAO`。
+交接日期：2026-11-08（北京时间）。第17–24轮更新于当日17:40，第37–43轮真机/模拟器引导于当日20:59，第44轮图形栈侦察于当日21:40。项目目录：`$HOME/Documents/ChatGPT/MCFAO`。
 
 ## 1. 接手者首先需要知道的结论
 
@@ -77,7 +77,7 @@ B0/B1只覆盖第一方夹具，入口按固定列表重放；不能视作通用
 
 ### 本地Minecraft与启动器
 
-Swift Craft Launcher 根：`/Users/kexin/Library/Application Support/Swift Craft Launcher`。
+Swift Craft Launcher 根：`$HOME/Library/Application Support/Swift Craft Launcher`。
 
 - 客户端：`meta/versions/26.1.2/26.1.2.jar`，38113927字节。
 - 客户端SHA256：`b1b3158572666445eff01e82fad8c7de2e4953db6d354f311730d77a8359d0b0`。
@@ -87,7 +87,7 @@ Swift Craft Launcher 根：`/Users/kexin/Library/Application Support/Swift Craft
 
 ### 已有App与签名
 
-可编辑工程为 [A1Harness](../ios/A1Harness/A1Harness.xcodeproj) 与 [B1Harness](../ios/B1Harness/B1Harness.xcodeproj)。B1 build4复用研究Bundle ID `org.fabricaot.research.a1probe.kexin`，Team `P57SZ9Z7G2`，保留该研究App旧A1 Documents。
+可编辑工程为 [A1Harness](../ios/A1Harness/A1Harness.xcodeproj) 与 [B1Harness](../ios/B1Harness/B1Harness.xcodeproj)。B1 build4复用研究Bundle ID `org.fabricaot.research.a1probe.kexin`，Team `YOUR_TEAM_ID`，保留该研究App旧A1 Documents。
 
 C0 宿主是第三个工程 [C0Harness](../ios/C0Harness/C0Harness.xcodeproj)：Bundle ID `org.fabricaot.research.c0.kexin`，同 Team，`dlopen` 加载 `Frameworks/client-graph.dylib` 后调 `run_main`，日志逐行 `fflush` 到 `Documents/c0-logs/run-*.log`。它同时支持真机与模拟器两条通道（`tools/build_c0_harness.py --device` / `--simulator`），模拟器通道不需要解锁设备，是当前默认的迭代方式。`CFBundleVersion` 已迭代到 5：build 2 补 `UIApplicationSceneManifest`（修 iOS 26 的 `UIApplicationMain` trap），build 3/4 修 801 与逐行日志，build 5 修 joptsimple 反射。
 
@@ -382,7 +382,7 @@ Java_jdk_net_MacOSXSocketOptions_{getIpDontFragment0,getSoPeerCred0,getTcpKeepAl
 | 项 | 数值 |
 |---|---|
 | 未签名编译 | BUILD SUCCEEDED（`CODE_SIGNING_ALLOWED=NO`） |
-| 签名构建 | BUILD SUCCEEDED，`Apple Development: kexin_0@outlook.com (27R45R4LU5)`，Profile `iOS Team Provisioning Profile: org.fabricaot.research.c0.kexin`（`ab354b01-…`） |
+| 签名构建 | BUILD SUCCEEDED，`Apple Development: [LOCAL_SIGNING_IDENTITY]`，Profile `iOS Team Provisioning Profile: org.fabricaot.research.c0.kexin`（`ab354b01-…`） |
 | 归档 / 导出 | ARCHIVE SUCCEEDED / EXPORT SUCCEEDED |
 | IPA | `artifacts/c0/harness/export/FabricAOT C0.ipa`，39,117,679 字节，SHA-256 `e7d99f2c298a98a4212066107d3d2181abf3bf6057d16b5b445823e6d5748e71` |
 | 嵌入 dylib | 114,187,752 字节，SHA-256 `a19c949c…f875e`，Xcode 的 `strip -D -S` 已作用其上 |
@@ -391,8 +391,8 @@ Java_jdk_net_MacOSXSocketOptions_{getIpDontFragment0,getSoPeerCred0,getTcpKeepAl
 
 `ProvisionedDevices` 为空不是签名失败：该 App ID 的 Team Profile 是新生成的，而账号下没有已注册的设备槽。要把 IPA 装上去，必须先让某台设备出现在描述文件里，而唯一途径是**连接并解锁设备后重新构建**（Xcode 会自动注册）。当次环境里：
 
-- `Kexin的iPhone`（`00008160-001A78620A600036`）、`Y·H`、`iPhone Lily` 全部 `unavailable`（未连接）；
-- 唯一 `available (paired)` 的 `iPad Pro`（`00008112-001218EA0AA3401E`）处于锁屏，`xcodebuild -destination 'platform=iOS,id=…'` 直接报 `iPad Pro needs to be unlocked to enable development services`。
+- `Kexin的iPhone`（`YOUR_DEVICE_UDID`）、`Y·H`、`iPhone Lily` 全部 `unavailable`（未连接）；
+- 唯一 `available (paired)` 的 `iPad Pro`（`YOUR_DEVICE_UDID`）处于锁屏，`xcodebuild -destination 'platform=iOS,id=…'` 直接报 `iPad Pro needs to be unlocked to enable development services`。
 
 因此本轮交付到「可安装的签名 App + 一键脚本」为止，不宣称任何真机行为。用户解锁设备后执行 `python3 -B tools/build_c0_harness.py --device <UDID> --install --launch`，或直接在 Xcode 里 ⌘R；随后 `--pull-logs` 取回 `Documents/c0-logs/run-*.log`。
 
@@ -400,7 +400,7 @@ Java_jdk_net_MacOSXSocketOptions_{getIpDontFragment0,getSoPeerCred0,getTcpKeepAl
 
 ## 6h. 第38轮：真机首启崩溃——缺 scene 清单
 
-用户在 Xcode 里选了自己的 iPhone（`00008160-001A78620A600036`）直接 ⌘R，停在 `main()`：
+用户在 Xcode 里选了自己的 iPhone（`YOUR_DEVICE_UDID`）直接 ⌘R，停在 `main()`：
 
 ```
 Thread 1: EXC_BREAKPOINT (code=1, subcode=0x188cfcdc)
@@ -414,11 +414,11 @@ Thread 1: EXC_BREAKPOINT (code=1, subcode=0x188cfcdc)
 - `Info.plist` 增加 `UIApplicationSceneManifest = {UIApplicationSupportsMultipleScenes: NO}`；
 - `main.m` 改为 `FAOTSceneDelegate`（`UIWindowSceneDelegate`）在 `scene:willConnectToSession:` 里建 window，`FAOTAppDelegate` 只实现 `configurationForConnectingSceneSession:options:` 返回带 `delegateClass` 的配置。
 
-装到真机：设备此时已连接，Xcode 的首次 Run 已把 `00008160-001A78620A600036` 注册进 Team Profile，`ProvisionedDevices` 变成 `[00008160-001A78620A600036, 00008310-001495211400E01E]`。
+装到真机：设备此时已连接，Xcode 的首次 Run 已把 `YOUR_DEVICE_UDID` 注册进 Team Profile，`ProvisionedDevices` 变成 `[YOUR_DEVICE_UDID, YOUR_DEVICE_UDID]`。
 
 | 项 | 数值 |
 |---|---|
-| 命令 | `python3 -B tools/build_c0_harness.py --device 00008160-001A78620A600036 --install --launch` |
+| 命令 | `python3 -B tools/build_c0_harness.py --device YOUR_DEVICE_UDID --install --launch` |
 | 构建/导出 | ARCHIVE + EXPORT 成功，IPA 39,118,501 字节，SHA-256 `10dfe0f4a7cf8ba1400f5a29ad6bc9df1a3b441b1933d4cc33167cdca7c63a14` |
 | 安装 | `installed: true`；`devicectl device info apps` 列出 `FAOT C0  org.fabricaot.research.c0.kexin  0.1  2` |
 | 启动 | `devicectl process launch` 等待 60 s 超时；无崩溃报告、无进程、`Documents` 为空 |
@@ -619,7 +619,7 @@ jar 内 `assets/minecraft/shaders/`：88 个 GLSL 文件（`.vsh` 35 / `.fsh` 44
 | 路径 | 状态 / 用途 |
 |---|---|
 | `ios/C0Harness/main.m` | 新增；`dlopen` + `run_main`，`-XX:ReservedAddressSpaceSize` 注入，逐行 flush 日志，`FAOTSceneDelegate`，`chdir` 到 gameDir |
-| `ios/C0Harness/Info.plist`、`C0Harness.xcodeproj`、`ExportOptions.plist` | 新增；`UIApplicationSceneManifest`、Bundle ID `org.fabricaot.research.c0.kexin`、Team `P57SZ9Z7G2` |
+| `ios/C0Harness/Info.plist`、`C0Harness.xcodeproj`、`ExportOptions.plist` | 新增；`UIApplicationSceneManifest`、Bundle ID `org.fabricaot.research.c0.kexin`、Team `YOUR_TEAM_ID` |
 
 **诊断工具（分析墙阶段，已收敛）**
 
@@ -650,7 +650,7 @@ jar 内 `assets/minecraft/shaders/`：88 个 GLSL 文件（`.vsh` 35 / `.fsh` 44
 所有命令从项目根执行。输出目录/文件必须尚不存在；重试换新名称，不覆盖12–16及更早记录。先检查主机余量，不并行启动多个大堆分析。
 
 ```bash
-cd /Users/kexin/Documents/ChatGPT/MCFAO
+cd $HOME/Documents/ChatGPT/MCFAO
 python3 -B -m unittest discover -s tests -v
 python3 -B tools/prepare_census_agent.py --output artifacts/c0/census-agent-new
 python3 -B tools/probe_client_graph.py --heap-gib 6 --oom-stack --census-agent artifacts/c0/census-agent-new --census-at 10,16,22,30 --output artifacts/c0/client-graph-new
@@ -693,7 +693,7 @@ python3 -B tools/build_c0_harness.py --dylib artifacts/c0/client-link-new/client
 
 镜像对象名由 `--relocatable` 写出，位于该轮 `work/` 下（第 35 轮记录为 `client-graph.o`，115,623,411 字节，SHA-256 `4a384f15…651a`）；不要硬编码文件名，先看该轮 `result.json`/`work/`。模拟器中 `probe reserve 32768 MiB` 会成功而真机失败，这是 mprotect 预留探测的宿主差异，不能拿它证明真机能跑。
 
-`python3` 必须是3.11或更新的解释器：本机的 `/usr/bin/python3` 是3.9.6，`tools/bootstrap_toolchain.py` 使用 `hashlib.file_digest`，在3.9下会有20项测试报错而看起来像回归。第17–44轮使用 `/Users/kexin/.workbuddy/binaries/python/versions/3.13.12/bin/python3`。`$CLIENT_JAR` 指启动器meta目录下的 `26.1.2.jar`（本机见§4）。
+`python3` 必须是3.11或更新的解释器：本机的 `/usr/bin/python3` 是3.9.6，`tools/bootstrap_toolchain.py` 使用 `hashlib.file_digest`，在3.9下会有20项测试报错而看起来像回归。第17–44轮使用 `$HOME/.workbuddy/binaries/python/versions/3.13.12/bin/python3`。`$CLIENT_JAR` 指启动器meta目录下的 `26.1.2.jar`（本机见§4）。
 
 `probe_client_graph.py`在分析未完成时返回2；读取每轮result.json、analysis/command.json及原始stdout/stderr确认具体原因。当前参数中的conservative、内联深度0、构造器预算0均为**失败实验开关**，不是推荐的生产配置。直接关闭首次OOM退出也可能只换来长时间GC并最终耗尽CPU预算。
 
@@ -707,7 +707,7 @@ B0/B1重新构建见 [B0复现](B0_TEST_HANDOFF.md)、[B1记录](B1_DEVICE_HANDO
 
 证据完整性复核见 [verification-c0-22-24.json](../artifacts/evidence/verification-c0-22-24.json)（976条命令/78个二进制/730份报告，PASS）；只核对已存日志/二进制/报告和当前源清单，不能替代Gate行为。
 
-中央AAR唯一位置：`/Users/kexin/Documents/Codex/monitor/registry.sqlite`，CLI：`/Users/kexin/Documents/Codex/monitor/bin/aar`。不得设置AAR_HOME切换私有数据库。
+中央AAR唯一位置：`$HOME/Documents/Codex/monitor/registry.sqlite`，CLI：`$HOME/Documents/Codex/monitor/bin/aar`。不得设置AAR_HOME切换私有数据库。
 
 新增12–16轮、代理构建、自测、源快照及交接核验的登记回执见 [registry-handoff-20261108.json](../artifacts/registry-handoff-20261108.json)；第17–21轮与定时快照工具的登记回执见 [registry-c0-17-21.json](../artifacts/registry-c0-17-21.json)；第22–24轮（线程转储、方法形状普查、第一方夹具）见 [registry-c0-22-24.json](../artifacts/registry-c0-22-24.json)。历史记录见`registry-c0-diagnostics.json`与`registry-b1-c0.json`。安全删除标志保持false，不执行清理；登记目录不授权递归删除。本文是项目源文档，按SOURCE保留。
 
@@ -768,6 +768,6 @@ B0/B1重新构建见 [B0复现](B0_TEST_HANDOFF.md)、[B1记录](B1_DEVICE_HANDO
 | 元数据/GC对照 | tools/client_graph_diagnostics.py、tools/compare_client_graph_runs.py |
 | 图形面静态清单 | artifacts/evidence/client-native-call-inventory.json（319 引用，分组见 §6k） |
 | 最有用的一条原始错误 | `LinkageError: Unknown platform: iOS`（§6j）⇒ 本文件 §10 P0 图形栈 |
-| 生成物中央登记 | /Users/kexin/Documents/Codex/monitor/registry.sqlite |
+| 生成物中央登记 | $HOME/Documents/Codex/monitor/registry.sqlite |
 
 当前Xcode入口已切到四分屏资源探针，输入与构建核对见`xcode-default-device-check-02`；真机蓝屏诊断成功证据见§6m。后续用户运行新的资源探针后另存新设备证据，不改写历史包的运行状态。
