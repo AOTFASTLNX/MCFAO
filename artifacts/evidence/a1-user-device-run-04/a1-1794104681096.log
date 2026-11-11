@@ -1,0 +1,25 @@
+A1_NATIVE_START
+A1_RUN_ID 1794104681096 pid=40795
+A1_ISOLATE_CONFIG reserved_address_space_bytes=268435456
+PASS exact-java-25
+runtime=25.0.2+10-jvmci-b01
+os=iOS/arm64
+PASS thread-joined
+PASS thread-joined
+PASS thread-joined
+PASS thread-joined
+PASS thread-joined
+PASS thread-joined
+PASS thread-joined
+PASS thread-joined
+PASS threads-and-java25-scoped-values
+PASS gc-reclaims-unreachable-array
+PASS embedded-resource
+PASS explicit-native-library-path
+PASS jni-integer-call
+PASS jni-unicode-roundtrip
+PASS file-write-atomic-move-read
+A1_SEMANTICS_PASS
+A1_NATIVE_FINISH create=0 run=0 teardown=0
+
+OSLOG-0954CD32-69F6-4F6B-874F-589F421AB43B 7 80 L 1 {t:1794104683.204364,type:"Fault",subsystem:"com.apple.ManagedConfiguration",category:"MC",offset:0x1a7c,imgUUID:"7AB9DDBB-9AA6-3C96-8992-2487D17B70A9",imgPath:"/System/Library/PrivateFrameworks/ManagedConfiguration.framework/ManagedConfiguration"}	Reading from public effective user settings.

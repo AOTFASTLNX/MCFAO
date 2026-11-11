@@ -1,0 +1,23 @@
+{
+  "argv": [
+    "xcrun",
+    "devicectl",
+    "list",
+    "devices"
+  ],
+  "cwd": "/Users/kexin/Documents/ChatGPT/MCFAO",
+  "startedUTC": "2026-11-07T18:31:54.306287+00:00",
+  "finishedUTC": "2026-11-07T18:31:54.453045+00:00",
+  "exitCode": 0,
+  "timedOut": false,
+  "logs": {
+    "stdout.log": {
+      "bytes": 3790,
+      "sha256": "b88d78f96c42266c7dcfd4e374fee54f004e3d380463cf073ce821966f7bb51c"
+    },
+    "stderr.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  }
+}

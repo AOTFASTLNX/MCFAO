@@ -1,0 +1,25 @@
+{
+  "argv": [
+    "ditto",
+    "-x",
+    "-k",
+    "artifacts/a1/device-handoff-v2/export/FabricAOT A1.ipa",
+    "artifacts/a1/device-handoff-v2/ipa-inspection"
+  ],
+  "cwd": "/Users/kexin/Documents/ChatGPT/MCFAO",
+  "startedUTC": "2026-11-08T02:04:15.633126+00:00",
+  "temporaryDirectory": "/Users/kexin/Documents/ChatGPT/MCFAO/artifacts/evidence/a1-ios-ipa-unpack-reservation-v2/tmp",
+  "finishedUTC": "2026-11-08T02:04:15.668578+00:00",
+  "exitCode": 0,
+  "timedOut": false,
+  "logs": {
+    "stdout.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "stderr.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  }
+}

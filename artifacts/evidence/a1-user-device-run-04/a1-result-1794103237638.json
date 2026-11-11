@@ -1,0 +1,12 @@
+{
+  "status" : "FAIL",
+  "runResult" : -1,
+  "tearDownIsolate" : -1,
+  "finishedUnix" : 1794103237.642216,
+  "scope" : "Java25 A1 semantic probe only",
+  "startedUnix" : 1794103237.638989,
+  "systemVersion" : "27.2",
+  "createIsolate" : 801,
+  "log" : "a1-1794103237638.log",
+  "bundleID" : "org.fabricaot.research.a1probe.kexin"
+}

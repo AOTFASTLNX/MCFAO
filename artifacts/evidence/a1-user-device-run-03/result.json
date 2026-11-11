@@ -1,0 +1,63 @@
+{
+  "status": "PASS",
+  "mode": "physical-device-run",
+  "target": "physical iPhone arm64",
+  "scope": "Java25 A1 probe only",
+  "nativeLifecyclePass": true,
+  "javaAssertionsPass": true,
+  "deviceRun": "USER PERFORMED",
+  "independentLaunch": {
+    "confirmed": true,
+    "basis": "User explicitly confirmed exiting Xcode, unplugging USB, and relaunching; changed log name independently verified"
+  },
+  "iosGateA1": "PASS",
+  "gateA0": "BLOCKED",
+  "nativeReport": {
+    "createIsolate": 0,
+    "tearDownIsolate": 0,
+    "reservedAddressSpaceBytes": 268435456,
+    "log": "a1-1794104082625.log",
+    "scope": "Java25 A1 semantic probe only",
+    "harnessBuild": "2",
+    "bundleID": "org.fabricaot.research.a1probe.kexin",
+    "systemVersion": "27.2",
+    "runResult": 0,
+    "finishedUnix": 1794104082.649428,
+    "startedUnix": 1794104082.625782,
+    "status": "PASS"
+  },
+  "assertionsChecked": [
+    "PASS exact-java-25",
+    "PASS threads-and-java25-scoped-values",
+    "PASS gc-reclaims-unreachable-array",
+    "PASS embedded-resource",
+    "PASS explicit-native-library-path",
+    "PASS jni-integer-call",
+    "PASS jni-unicode-roundtrip",
+    "PASS file-write-atomic-move-read",
+    "A1_SEMANTICS_PASS",
+    "A1_NATIVE_FINISH create=0 run=0 teardown=0"
+  ],
+  "threadJoinAssertions": 8,
+  "durationSeconds": 0.023645877838134766,
+  "startedBeijing": "2026-11-08T10:14:42.625782+08:00",
+  "filesSHA256": {
+    "a1-1794103237638.log": "e1c6170e772e450f367d53485d5f2d33f001c6ce2c95e1242f984ad4abf22e6d",
+    "a1-1794103907099.log": "a48f6a74e8f19913b9c49a4bf51015481d952e73b86839ab45014f2739cfce03",
+    "a1-1794104069522.log": "04ba5167bf87a642af00603a0d7589f8e44f7aaf088e0a57ace5036ef69dd7fa",
+    "a1-1794104082625.log": "04ba5167bf87a642af00603a0d7589f8e44f7aaf088e0a57ace5036ef69dd7fa",
+    "a1-result-1794103237638.json": "5d7f2c5c96742aca9873c9fd8cc6b64689cb0b5ccbccd09b4820436e16f25a32",
+    "a1-result-1794103907099.json": "c7781f4ef248fcebfd8479df76379a52db80fad2301825baa3cde8370389de07",
+    "a1-result-1794104069522.json": "a1f6183f98512612a4b069b8f0cc388814f5d648d2826b8d5307fa402526c604",
+    "a1-result-1794104082625.json": "380c933f513825fd4aa798120dd2337a1b26ce74461ead3eebed9ba8c651bf7a",
+    "latest.json": "380c933f513825fd4aa798120dd2337a1b26ce74461ead3eebed9ba8c651bf7a",
+    "probe-files/probe.txt": "0804575b62af601916e69a16b2caffed63dad6dc33a07c0839f23edc0dd15f8b"
+  },
+  "collectedBy": "read-only devicectl appDataContainer Documents copy; agent did not install/start the app or rerun tests",
+  "userConfirmation": {
+    "answer": "是，两步都已完成",
+    "question": "这次重新打开前，你是否已经退出 Xcode 并拔掉手机连接线？",
+    "followup": "日志名是变化的，只是我没注意到"
+  },
+  "earlierLog": "a1-1794103907099.log"
+}

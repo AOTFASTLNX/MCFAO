@@ -1,0 +1,39 @@
+{
+  "argv": [
+    "xcodebuild",
+    "-project",
+    "ios/A1Harness/A1Harness.xcodeproj",
+    "-scheme",
+    "A1Harness",
+    "-configuration",
+    "Release",
+    "-sdk",
+    "iphonesimulator",
+    "-destination",
+    "generic/platform=iOS Simulator",
+    "-derivedDataPath",
+    "artifacts/a1/xcode-simulator",
+    "SUPPORTED_PLATFORMS=iphonesimulator",
+    "CODE_SIGN_IDENTITY=-",
+    "CODE_SIGNING_ALLOWED=YES",
+    "FAOT_FRAMEWORK_DIR=/Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/ios-framework-simulator",
+    "FAOT_JNI_LIBRARY=/Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/jni-simulator/liba1probe.dylib",
+    "build"
+  ],
+  "cwd": "/Users/kexin/Documents/ChatGPT/MCFAO",
+  "startedUTC": "2026-11-08T01:25:07.925076+00:00",
+  "temporaryDirectory": "/Users/kexin/Documents/ChatGPT/MCFAO/artifacts/evidence/a1-simulator-build/tmp",
+  "finishedUTC": "2026-11-08T01:25:10.233471+00:00",
+  "exitCode": 0,
+  "timedOut": false,
+  "logs": {
+    "stdout.log": {
+      "bytes": 30515,
+      "sha256": "ae9dee6a857725e59d08244de151eb7500d1f73cdec56108b3ad7075a90a1d0b"
+    },
+    "stderr.log": {
+      "bytes": 408,
+      "sha256": "e196a607be475e7f00bd89f6a502fbfffc35592aee8ed7d7483c3661bdef677a"
+    }
+  }
+}

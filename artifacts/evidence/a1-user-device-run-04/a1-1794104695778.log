@@ -1,0 +1,23 @@
+A1_NATIVE_START
+A1_RUN_ID 1794104695778 pid=40801
+A1_ISOLATE_CONFIG reserved_address_space_bytes=268435456
+PASS exact-java-25
+runtime=25.0.2+10-jvmci-b01
+os=iOS/arm64
+PASS thread-joined
+PASS thread-joined
+PASS thread-joined
+PASS thread-joined
+PASS thread-joined
+PASS thread-joined
+PASS thread-joined
+PASS thread-joined
+PASS threads-and-java25-scoped-values
+PASS gc-reclaims-unreachable-array
+PASS embedded-resource
+PASS explicit-native-library-path
+PASS jni-integer-call
+PASS jni-unicode-roundtrip
+PASS file-write-atomic-move-read
+A1_SEMANTICS_PASS
+A1_NATIVE_FINISH create=0 run=0 teardown=0

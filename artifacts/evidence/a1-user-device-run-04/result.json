@@ -1,0 +1,58 @@
+{
+  "status": "PASS",
+  "mode": "physical-device-run",
+  "target": "physical iPhone arm64",
+  "scope": "build 3 Java25 probe and current-run display; user performed",
+  "nativeLifecyclePass": true,
+  "javaAssertionsPass": true,
+  "nativeReport": {
+    "createIsolate": 0,
+    "reservedAddressSpaceBytes": 268435456,
+    "tearDownIsolate": 0,
+    "log": "a1-1794104695778.log",
+    "scope": "Java25 A1 semantic probe only",
+    "processID": 40801,
+    "harnessBuild": "3",
+    "bundleID": "org.fabricaot.research.a1probe.kexin",
+    "systemVersion": "27.2",
+    "runResult": 0,
+    "startedUnix": 1794104695.777524,
+    "finishedUnix": 1794104695.79987,
+    "runID": "1794104695778",
+    "status": "PASS"
+  },
+  "durationSeconds": 0.022346019744873047,
+  "filesSHA256": {
+    "a1-1794103237638.log": "e1c6170e772e450f367d53485d5f2d33f001c6ce2c95e1242f984ad4abf22e6d",
+    "a1-1794103907099.log": "a48f6a74e8f19913b9c49a4bf51015481d952e73b86839ab45014f2739cfce03",
+    "a1-1794104069522.log": "04ba5167bf87a642af00603a0d7589f8e44f7aaf088e0a57ace5036ef69dd7fa",
+    "a1-1794104082625.log": "04ba5167bf87a642af00603a0d7589f8e44f7aaf088e0a57ace5036ef69dd7fa",
+    "a1-1794104413064.log": "04ba5167bf87a642af00603a0d7589f8e44f7aaf088e0a57ace5036ef69dd7fa",
+    "a1-1794104415755.log": "04ba5167bf87a642af00603a0d7589f8e44f7aaf088e0a57ace5036ef69dd7fa",
+    "a1-1794104681096.log": "692e08242bc021e4e3698e5cd5ae66a261a0c1425c66589f49a76b006301184d",
+    "a1-1794104690772.log": "ad4e6fa367ef8706caceddeadfed80c550648ddd29de63550b5e500ba8511d29",
+    "a1-1794104695778.log": "39c752952f155dca9ab037bab5aed51a85be2af98e3b2129043985eeae7a6b3b",
+    "a1-result-1794103237638.json": "5d7f2c5c96742aca9873c9fd8cc6b64689cb0b5ccbccd09b4820436e16f25a32",
+    "a1-result-1794103907099.json": "c7781f4ef248fcebfd8479df76379a52db80fad2301825baa3cde8370389de07",
+    "a1-result-1794104069522.json": "a1f6183f98512612a4b069b8f0cc388814f5d648d2826b8d5307fa402526c604",
+    "a1-result-1794104082625.json": "380c933f513825fd4aa798120dd2337a1b26ce74461ead3eebed9ba8c651bf7a",
+    "a1-result-1794104413064.json": "2185ed57b844077b84362e040e6e1ccf20be6a948016689ae8f511054780fa7d",
+    "a1-result-1794104415755.json": "bc3d82ed7ad754fec37155d8c50c5daa1c9ed6e072a8d08cdc65c7bb199206ee",
+    "a1-result-1794104681096.json": "368b2df042fcea55cec4d59b4a51cce239ffcf332542f62c734ecab476954884",
+    "a1-result-1794104690772.json": "2d1f3e127d19ff22ed4bfc1a3bc33c85d9771e0a6d75e84d50555b222811c2ee",
+    "a1-result-1794104695778.json": "e9baf530163037e8594076fd2b0da972afdc53ab429324632a1f1f462870e570",
+    "latest.json": "e9baf530163037e8594076fd2b0da972afdc53ab429324632a1f1f462870e570",
+    "probe-files/probe.txt": "0804575b62af601916e69a16b2caffed63dad6dc33a07c0839f23edc0dd15f8b"
+  },
+  "independentLaunch": {
+    "thisSpecificRun": "NOT SEPARATELY CONFIRMED",
+    "confirmedBuild2Evidence": "artifacts/evidence/a1-user-device-run-03/result.json"
+  },
+  "gateA0": "BLOCKED",
+  "agentDeviceExecution": "NONE",
+  "uiEvidence": "User screenshot shows build 3 / PASS / start 2026-11-08 10:24:55.778 / duration 0.022 seconds / matching log name",
+  "screenshot": {
+    "path": "/Users/kexin/Downloads/Screenshot Kexin的iPhone 11-08-2026 at 10.25.12 AM.png",
+    "sha256": "4ddd25c14f0d60edfc696e2a72c131473f0a6b076de90f037c26533706d9850d"
+  }
+}

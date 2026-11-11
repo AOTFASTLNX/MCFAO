@@ -1,0 +1,25 @@
+{
+  "argv": [
+    "xcrun",
+    "simctl",
+    "launch",
+    "BD25D247-F3BF-4883-A779-D2D46015616D",
+    "org.fabricaot.research.a1probe.kexin"
+  ],
+  "cwd": "/Users/kexin/Documents/ChatGPT/MCFAO",
+  "startedUTC": "2026-11-08T01:27:40.272377+00:00",
+  "temporaryDirectory": "/Users/kexin/Documents/ChatGPT/MCFAO/artifacts/evidence/a1-simulator-launch/tmp",
+  "finishedUTC": "2026-11-08T01:27:41.370905+00:00",
+  "exitCode": 0,
+  "timedOut": false,
+  "logs": {
+    "stdout.log": {
+      "bytes": 44,
+      "sha256": "fb6e5bcbd670de3ff05c4eb7d24ccd0895cede69a66ab9ec767cab9267d3b83d"
+    },
+    "stderr.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  }
+}

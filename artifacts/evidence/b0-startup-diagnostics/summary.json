@@ -1,0 +1,70 @@
+{
+  "scope": "selected first-party sandbox startup failures; OS-managed originals retained in place",
+  "reports": [
+    {
+      "sourcePath": "/Users/kexin/Library/Logs/DiagnosticReports/java-2026-11-08-135254.ips",
+      "sourceSHA256": "d134390946805272ed0f6b247802467f9d83cb4bc46fa981e7ae920da8718cbc",
+      "pid": 68531,
+      "exception": {
+        "codes": "0x0000000000000000, 0x0000000000000000",
+        "rawCodes": [
+          0,
+          0
+        ],
+        "type": "EXC_CRASH",
+        "signal": "SIGABRT"
+      },
+      "termination": {
+        "namespace": "<0x23>",
+        "flags": 582,
+        "code": 2
+      },
+      "captureTime": "2026-11-08 13:52:54.0765 +0800"
+    },
+    {
+      "sourcePath": "/Users/kexin/Library/Logs/DiagnosticReports/java-2026-11-08-135444.ips",
+      "sourceSHA256": "5e2b4657932b8842ba17f4c09e7d9952fdfa95c64815967fc217f30972be8bc6",
+      "pid": 68949,
+      "exception": {
+        "codes": "0x0000000000000000, 0x0000000000000000",
+        "rawCodes": [
+          0,
+          0
+        ],
+        "type": "EXC_CRASH",
+        "signal": "SIGABRT"
+      },
+      "termination": {
+        "namespace": "<0x23>",
+        "flags": 582,
+        "code": 2
+      },
+      "captureTime": "2026-11-08 13:54:44.5498 +0800"
+    },
+    {
+      "sourcePath": "/Users/kexin/Library/Logs/DiagnosticReports/java-2026-11-08-135816.ips",
+      "sourceSHA256": "1ec5d9a3ff5fe8a08a11838438963e3b568b3b623dac1c4afb5df9b7f029b566",
+      "pid": 70204,
+      "exception": {
+        "codes": "0x0000000000000001, 0x0000000000000000",
+        "rawCodes": [
+          1,
+          0
+        ],
+        "type": "EXC_BAD_ACCESS",
+        "signal": "SIGSEGV",
+        "subtype": "KERN_INVALID_ADDRESS at 0x0000000000000000"
+      },
+      "termination": {
+        "flags": 0,
+        "code": 11,
+        "namespace": "SIGNAL",
+        "indicator": "Segmentation fault: 11",
+        "byProc": "exc handler",
+        "byPid": 70204
+      },
+      "captureTime": "2026-11-08 13:58:14.9467 +0800"
+    }
+  ],
+  "resolution": "dyld root-directory read and native local UID lookup added; child evidence via parent-owned pipes; sandbox denials then passed in run-04"
+}

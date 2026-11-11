@@ -1,0 +1,134 @@
+{
+  "host": {
+    "system": "Darwin",
+    "machine": "arm64"
+  },
+  "commands": {
+    "os": {
+      "argv": [
+        "sw_vers"
+      ],
+      "cwd": "/Users/kexin/Documents/ChatGPT/MCFAO",
+      "startedUTC": "2026-11-07T18:31:54.177620+00:00",
+      "finishedUTC": "2026-11-07T18:31:54.191358+00:00",
+      "exitCode": 0,
+      "timedOut": false,
+      "logs": {
+        "stdout.log": {
+          "bytes": 64,
+          "sha256": "e5da02eb465e88c7c63b21a4b6156f58f079a4995f790b3b61c5d4ad6ac5258b"
+        },
+        "stderr.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      }
+    },
+    "jdk-inventory": {
+      "argv": [
+        "/usr/libexec/java_home",
+        "-V"
+      ],
+      "cwd": "/Users/kexin/Documents/ChatGPT/MCFAO",
+      "startedUTC": "2026-11-07T18:31:54.191772+00:00",
+      "finishedUTC": "2026-11-07T18:31:54.216339+00:00",
+      "exitCode": 0,
+      "timedOut": false,
+      "logs": {
+        "stdout.log": {
+          "bytes": 59,
+          "sha256": "bc20bd4e11bc6b493579d08b2e3aaecf4f0480718e53009e3a344f22500fc0c0"
+        },
+        "stderr.log": {
+          "bytes": 668,
+          "sha256": "7c5f9a7e904c0c75f5667d5fd67258a8ae87f543f30c1940e51fb165ec1b5810"
+        }
+      }
+    },
+    "xcode": {
+      "argv": [
+        "xcodebuild",
+        "-version"
+      ],
+      "cwd": "/Users/kexin/Documents/ChatGPT/MCFAO",
+      "startedUTC": "2026-11-07T18:31:54.216748+00:00",
+      "finishedUTC": "2026-11-07T18:31:54.298976+00:00",
+      "exitCode": 0,
+      "timedOut": false,
+      "logs": {
+        "stdout.log": {
+          "bytes": 31,
+          "sha256": "67c5b47bcf0e788aecae2f9b3af345813bdf7fe736faefb9666a7f4b2bf27ba7"
+        },
+        "stderr.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      }
+    },
+    "iphoneos-sdk": {
+      "argv": [
+        "xcrun",
+        "--sdk",
+        "iphoneos",
+        "--show-sdk-version"
+      ],
+      "cwd": "/Users/kexin/Documents/ChatGPT/MCFAO",
+      "startedUTC": "2026-11-07T18:31:54.299447+00:00",
+      "finishedUTC": "2026-11-07T18:31:54.305862+00:00",
+      "exitCode": 0,
+      "timedOut": false,
+      "logs": {
+        "stdout.log": {
+          "bytes": 5,
+          "sha256": "53e1ae253beb3b8a3b99dd2d4ec1eb641d392378329fcdccb560779fdf46de0b"
+        },
+        "stderr.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      }
+    },
+    "devices": {
+      "argv": [
+        "xcrun",
+        "devicectl",
+        "list",
+        "devices"
+      ],
+      "cwd": "/Users/kexin/Documents/ChatGPT/MCFAO",
+      "startedUTC": "2026-11-07T18:31:54.306287+00:00",
+      "finishedUTC": "2026-11-07T18:31:54.453045+00:00",
+      "exitCode": 0,
+      "timedOut": false,
+      "logs": {
+        "stdout.log": {
+          "bytes": 3790,
+          "sha256": "b88d78f96c42266c7dcfd4e374fee54f004e3d380463cf073ce821966f7bb51c"
+        },
+        "stderr.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      }
+    }
+  },
+  "localClient": {
+    "versionMetadataPresent": true,
+    "clientJarPresent": false,
+    "ownership": "NOT CHECKED",
+    "fabricLaunch": "NOT RUN",
+    "version": "26.1.2",
+    "javaVersion": {
+      "component": "java-runtime-epsilon",
+      "majorVersion": 25
+    },
+    "libraryCount": 107,
+    "metadataSHA256": "3b56c4b613fe67dd877bd03abe440568218103e61a4f66173b2434bef6b92865"
+  },
+  "gates": {
+    "A0": "BLOCKED",
+    "A1": "BLOCKED"
+  },
+  "reason": "Prerequisite inventory does not establish an authenticated Fabric desktop launch or an iPhone AOT run."
+}

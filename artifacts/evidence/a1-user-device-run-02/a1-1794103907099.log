@@ -1,0 +1,26 @@
+A1_NATIVE_START
+A1_ISOLATE_CONFIG reserved_address_space_bytes=268435456
+PASS exact-java-25
+runtime=25.0.2+10-jvmci-b01
+os=iOS/arm64
+PASS thread-joined
+PASS thread-joined
+PASS thread-joined
+PASS thread-joined
+PASS thread-joined
+PASS thread-joined
+PASS thread-joined
+PASS thread-joined
+PASS threads-and-java25-scoped-values
+PASS gc-reclaims-unreachable-array
+PASS embedded-resource
+PASS explicit-native-library-path
+PASS jni-integer-call
+PASS jni-unicode-roundtrip
+PASS file-write-atomic-move-read
+A1_SEMANTICS_PASS
+A1_NATIVE_FINISH create=0 run=0 teardown=0
+
+OSLOG-88C06DE1-F81D-421C-B852-F7D3356AD537 7 80 L 1 {t:1794103946.700463,type:"Fault",subsystem:"com.apple.ManagedConfiguration",category:"MC",offset:0x1a7c,imgUUID:"7AB9DDBB-9AA6-3C96-8992-2487D17B70A9",imgPath:"/System/Library/PrivateFrameworks/ManagedConfiguration.framework/ManagedConfiguration"}	Reading from public effective user settings.
+
+OSLOG-88C06DE1-F81D-421C-B852-F7D3356AD537 7 80 L 2 {t:1794103949.190557,type:"Error",subsystem:"com.apple.BoardServices",category:"XPCErrors",offset:0x140b0,imgUUID:"43E32003-8750-333F-ACF6-01DB42CF8FF0",imgPath:"/System/Library/PrivateFrameworks/BoardServices.framework/BoardServices"}	non-launching port is incompatible with service identifier "com.apple.PointerUI.pointeruid.default-service"

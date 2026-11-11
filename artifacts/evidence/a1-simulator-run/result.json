@@ -1,0 +1,25 @@
+{
+  "status": "PASS",
+  "target": "iOS Simulator arm64",
+  "nativeLifecyclePass": true,
+  "javaAssertionsPass": true,
+  "deviceRun": "NOT RUN",
+  "iosGateA1": "BLOCKED",
+  "simulator": "BD25D247-F3BF-4883-A779-D2D46015616D",
+  "nativeReport": {
+    "status": "PASS",
+    "runResult": 0,
+    "tearDownIsolate": 0,
+    "finishedUnix": 1794101262.955776,
+    "scope": "Java25 A1 semantic probe only",
+    "startedUnix": 1794101262.719398,
+    "systemVersion": "27.2",
+    "createIsolate": 0,
+    "log": "a1-1794101262719.log",
+    "bundleID": "org.fabricaot.research.a1probe.kexin"
+  },
+  "filesSHA256": {
+    "native-report.json": "b0cecaaf700486ab36efbe50194577d3381ec6148b8fd72de73a8946942fd32b",
+    "runtime.log": "84e11e13b0b70ce3d90df8fd78ae74d9bed1e581660c820053b9dfd60fb146f3"
+  }
+}

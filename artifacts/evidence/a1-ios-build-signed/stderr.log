@@ -1,0 +1,9 @@
+2026-11-08 08:59:41.733 xcodebuild[66596:3566952]  DVTDeveloperAccountManager: Failed to load credentials for 5F958C75-6EF6-4B8D-B654-394D212ED69D: Error Domain=DVTDeveloperAccountCredentialsError Code=0 "Invalid credentials in keychain for 5F958C75-6EF6-4B8D-B654-394D212ED69D, missing Xcode-Username" UserInfo={NSLocalizedDescription=Invalid credentials in keychain for 5F958C75-6EF6-4B8D-B654-394D212ED69D, missing Xcode-Username}
+2026-11-08 08:59:41.857 xcodebuild[66596:3566910] [MT] IDERunDestination: Supported platforms for the buildables in the current scheme is empty.
+2026-11-08 08:59:41.873 xcodebuild[66596:3566910] [MT] IDESchemeActionsInvocationRecord: Device <DVTiPhonePlaceholder: 0x7cf3a6e440 (Any iOS Device | undefined_arch)> is missing operatingSystemVersion, operatingSystemVersionWithBuildNumber.
+** BUILD FAILED **
+
+
+The following build commands failed:
+	Building project A1Harness with scheme A1Harness and configuration Release
+(1 failure)

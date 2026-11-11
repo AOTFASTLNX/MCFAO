@@ -1,0 +1,62 @@
+diff --git a/tools/probe_client_graph.py b/tools/probe_client_graph.py
+index 66318b0..9313a46 100644
+--- a/tools/probe_client_graph.py
++++ b/tools/probe_client_graph.py
+@@ -20,6 +20,12 @@ def main(argv=None):
+     parser.add_argument("--output", type=Path, required=True)
+     parser.add_argument("--heap-gib", type=int, choices=(6, 8), default=6)
+     parser.add_argument("--builder-gc", choices=("parallel", "g1"), default="parallel")
++    parser.add_argument("--oom-stack", action="store_true", help="Let the build JVM report the first OOM instead of immediately exiting")
++    parser.add_argument("--census-agent",type=Path,help="Sandbox-verified first-party Mac JVMTI agent directory")
++    parser.add_argument("--analysis-mode",choices=("default","conservative"),default="default",
++                        help="Conservative points-to mode disables primitive tracking and predicates")
++    parser.add_argument("--analysis-inline-depth",type=int,choices=(0,20),default=20)
++    parser.add_argument("--constructor-inline-nodes",type=int,choices=(0,200),default=200)
+     args = parser.parse_args(argv)
+     if json.loads((ROOT / "artifacts/evidence/b1-user-device-run-01/result.json").read_text())["gateB1"] != "PASS":
+         parser.error("Confirmed B1 device behavior required")
+@@ -46,6 +52,14 @@ def main(argv=None):
+     work = output / "work"
+     for name in ["tmp", "home", "caps"]:
+         (work / name).mkdir(parents=True, exist_ok=True)
++    agent_library=None
++    if args.census_agent:
++        agent=args.census_agent.resolve(strict=True)
++        verified=json.loads((agent/'result.json').read_text())
++        if verified.get('status')!='VERIFIED' or verified.get('fixtureTest')!='PASS' or verified['javaSHA256']!=manifest['javaSHA256']:
++            parser.error('Verified diagnostic agent for this Java required')
++        if sha256(agent/'liboomcensus.dylib')!=verified['librarySHA256']:parser.error('Agent changed')
++        agent_library=work/'liboomcensus.dylib';shutil.copy2(agent/'liboomcensus.dylib',agent_library)
+     shutil.copytree(ROOT / "artifacts/b1/ios-probe-03/work/caps", work / "caps", dirs_exist_ok=True)
+     driver = prepared / "driver.jar"
+     if sha256(driver) != manifest["binaries"]["driver.jar"]["sha256"]:
+@@ -79,6 +93,11 @@ def main(argv=None):
+               "fullClientFabricTransformation":"NOT RUN",
+               "analysisCompleted":False, "builderJfrEnabled":False,
+               "builderGC":args.builder_gc,
++              "oomStackRequested":args.oom_stack,
++              "diagnosticAgent":str(args.census_agent) if args.census_agent else None,
++              "analysisMode":args.analysis_mode,
++              "analysisInlineDepth":args.analysis_inline_depth,
++              "constructorInlineNodes":args.constructor_inline_nodes,
+               "builderSHA256":sha256(Path(__file__)),
+               "diagnosticsHelperSHA256":sha256(ROOT/"tools/client_graph_diagnostics.py")}
+     try:
+@@ -122,6 +141,17 @@ def main(argv=None):
+             # These flags affect the Mac build JVM, not the target iOS collector.
+             cmd[cmd.index("-J-XX:-UsePerfData"):cmd.index("-J-XX:-UsePerfData")]=[
+                 "-J-XX:-UseParallelGC","-J-XX:+UseG1GC"]
++        if args.oom_stack:
++            cmd.insert(cmd.index("-J-XX:-UsePerfData"),"-J-XX:-ExitOnOutOfMemoryError")
++        if agent_library:
++            cmd.insert(cmd.index("-J-XX:-UsePerfData"),"-J-agentpath:"+str(agent_library)+'='+str(work/'census.tsv'))
++        if args.analysis_mode=="conservative":
++            cmd.insert(cmd.index("-H:+ExitAfterAnalysis"),"-H:-TrackPrimitiveValues")
++            cmd.insert(cmd.index("-H:+ExitAfterAnalysis"),"-H:-UsePredicates")
++        if args.analysis_inline_depth!=20:
++            cmd.insert(cmd.index("-H:+ExitAfterAnalysis"),"-H:InlineBeforeAnalysisAllowedDepth="+str(args.analysis_inline_depth))
++        if args.constructor_inline_nodes!=200:
++            cmd.insert(cmd.index("-H:+ExitAfterAnalysis"),"-H:InlineBeforeAnalysisConstructorAllowedNodes="+str(args.constructor_inline_nodes))
+         audit=audit_metadata(libraries,cmd)
+         (output/"metadata-audit.json").write_text(json.dumps(audit,indent=2)+"\n")
+         if audit["preserveAllOccurrences"]:raise RuntimeError("Broad preservation requires review before analysis")

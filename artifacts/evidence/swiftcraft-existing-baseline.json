@@ -1,0 +1,20 @@
+{
+  "status": "PARTIAL",
+  "gateA0": "BLOCKED",
+  "scope": "sanitized metadata from pre-existing user launch log only; no game or Mods executed by agent",
+  "sourcePath": "/Users/kexin/Library/Application Support/Swift Craft Launcher/profiles/Recollection3/logs/latest.log",
+  "sourceBytes": 482482,
+  "sourceSHA256": "e6f35333b64a6cb2a05ff151c3c9157e7aacce222b65bce6f89ede829d6b2886",
+  "sourceModifiedUTC": "2026-05-17T07:52:11.437038+00:00",
+  "minecraftFabricVersions": [
+    {
+      "minecraft": "26.1.2",
+      "fabricLoader": "0.19.2"
+    }
+  ],
+  "exactJavaVersionNumbers": [],
+  "java25Verified": false,
+  "mainMenu": "NOT VERIFIED",
+  "reproducibleLaunchAndDependencies": "NOT VERIFIED",
+  "note": "Only version numbers and source metadata retained; no accounts, chat, world content or full launcher log copied."
+}

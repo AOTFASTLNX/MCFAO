@@ -1,0 +1,19 @@
+Building target 'java.base-java' in configuration 'fabricaot-host'
+Compiling up to 8 files for BUILD_TOOLS_LANGTOOLS
+Generating classes for compiler.properties launcher.properties
+Compiling 17 properties into resource bundles for jdk.javadoc
+Compiling 19 properties into resource bundles for jdk.compiler
+Compiling up to 136 files for BUILD_java.compiler.interim
+Compiling up to 359 files for BUILD_jdk.compiler.interim
+Compiling up to 145 files for BUILD_jdk.internal.md.interim
+Compiling up to 213 files for BUILD_jdk.javadoc.interim
+Compiling up to 17 files for BUILD_JAVAC_SERVER
+Compiling up to 188 files for BUILD_TOOLS_JDK
+Compiling up to 2 files for COMPILE_DEPEND
+Compiling 11 properties into resource bundles for java.base
+Compiling 3 properties into resource bundles for java.base
+Compiling 22 properties into resource bundles for java.base
+Compiling 11 properties into resource bundles for java.base
+Compiling up to 3362 files for java.base
+Stopping javac server
+Finished building target 'java.base-java' in configuration 'fabricaot-host'

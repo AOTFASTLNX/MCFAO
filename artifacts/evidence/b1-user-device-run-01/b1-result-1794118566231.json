@@ -1,0 +1,17 @@
+{
+  "probeID" : "B1",
+  "createIsolate" : 0,
+  "reservedAddressSpaceBytes" : 268435456,
+  "tearDownIsolate" : 0,
+  "harnessBuild" : "4",
+  "scope" : "B1 pre-transformed first-party fixture",
+  "processID" : 43683,
+  "log" : "b1-1794118566231.log",
+  "bundleID" : "org.fabricaot.research.a1probe.kexin",
+  "systemVersion" : "27.2",
+  "runResult" : 0,
+  "startedUnix" : 1794118566.230958,
+  "finishedUnix" : 1794118566.2398391,
+  "runID" : "1794118566231",
+  "status" : "PASS"
+}

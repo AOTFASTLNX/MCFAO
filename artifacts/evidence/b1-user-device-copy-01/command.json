@@ -1,0 +1,35 @@
+{
+  "argv": [
+    "xcrun",
+    "devicectl",
+    "device",
+    "copy",
+    "from",
+    "--device",
+    "00008160-001A78620A600036",
+    "--domain-type",
+    "appDataContainer",
+    "--domain-identifier",
+    "org.fabricaot.research.a1probe.kexin",
+    "--source",
+    "Documents",
+    "--destination",
+    "artifacts/evidence/b1-user-device-run-01"
+  ],
+  "cwd": "/Users/kexin/Documents/ChatGPT/MCFAO",
+  "startedUTC": "2026-11-08T06:20:02.328539+00:00",
+  "temporaryDirectory": "/Users/kexin/Documents/ChatGPT/MCFAO/artifacts/evidence/b1-user-device-copy-01/tmp",
+  "finishedUTC": "2026-11-08T06:20:03.792088+00:00",
+  "exitCode": 0,
+  "timedOut": false,
+  "logs": {
+    "stdout.log": {
+      "bytes": 104,
+      "sha256": "738687faed70e84a3268e67918ec10c001f656cb21425b3aed274b7f0ed3444f"
+    },
+    "stderr.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  }
+}

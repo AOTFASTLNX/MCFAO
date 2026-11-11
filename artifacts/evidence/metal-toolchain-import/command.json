@@ -1,0 +1,25 @@
+{
+  "argv": [
+    "xcodebuild",
+    "-importComponent",
+    "MetalToolchain",
+    "-importPath",
+    ".cache/apple-metal/MetalToolchain-27B47.exportedBundle"
+  ],
+  "cwd": "/Users/kexin/Documents/ChatGPT/MCFAO",
+  "startedUTC": "2026-11-08T00:49:26.275069+00:00",
+  "temporaryDirectory": "/Users/kexin/Documents/ChatGPT/MCFAO/artifacts/evidence/metal-toolchain-import/tmp",
+  "finishedUTC": "2026-11-08T00:49:26.966108+00:00",
+  "exitCode": 70,
+  "timedOut": false,
+  "logs": {
+    "stdout.log": {
+      "bytes": 26,
+      "sha256": "98ae5d11cf7ed0117416f4d8b183301894a981c5d071ab3f81fe20cdc8059f9c"
+    },
+    "stderr.log": {
+      "bytes": 369,
+      "sha256": "e383c7203daa95f9447918c675a9dccdb837a2cba593459eada39004ea2523b1"
+    }
+  }
+}

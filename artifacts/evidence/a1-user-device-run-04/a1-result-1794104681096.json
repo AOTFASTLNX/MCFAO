@@ -1,0 +1,16 @@
+{
+  "createIsolate" : 0,
+  "reservedAddressSpaceBytes" : 268435456,
+  "tearDownIsolate" : 0,
+  "log" : "a1-1794104681096.log",
+  "scope" : "Java25 A1 semantic probe only",
+  "processID" : 40795,
+  "harnessBuild" : "3",
+  "bundleID" : "org.fabricaot.research.a1probe.kexin",
+  "systemVersion" : "27.2",
+  "runResult" : 0,
+  "startedUnix" : 1794104681.0961909,
+  "finishedUnix" : 1794104682.1929941,
+  "runID" : "1794104681096",
+  "status" : "PASS"
+}

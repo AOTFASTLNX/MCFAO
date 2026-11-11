@@ -1,0 +1,37 @@
+Command line invocation:
+    /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -project ios/A1Harness/A1Harness.xcodeproj -scheme A1Harness -configuration Release -destination generic/platform=iOS -derivedDataPath artifacts/a1/xcode-derived DEVELOPMENT_TEAM=P57SZ9Z7G2 -allowProvisioningUpdates build
+
+Build settings from command line:
+    DEVELOPMENT_TEAM = P57SZ9Z7G2
+
+ComputePackagePrebuildTargetDependencyGraph
+
+Prepare packages
+
+CreateBuildRequest
+
+SendProjectDescription
+
+CreateBuildOperation
+
+ComputeTargetDependencyGraph
+note: Building targets in dependency order
+note: Target dependency graph (1 target)
+    Target 'A1Harness' in project 'A1Harness' (no dependencies)
+
+GatherProvisioningInputs
+
+CreateBuildDescription
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -v -E -dM -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS27.2.sdk -x c -c /dev/null
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -v -E -dM -arch arm64 -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS27.2.sdk -x objective-c -c /dev/null
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -v -E -dM -arch arm64 -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS27.2.sdk -x c -c /dev/null
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ld -version_details
+
+Build description signature: e5c0693dd79cd4ddc93177f0c4884eaa
+Build description path: /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/a1/xcode-derived/Build/Intermediates.noindex/XCBuildData/e5c0693dd79cd4ddc93177f0c4884eaa.xcbuilddata
+/Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness/A1Harness.xcodeproj: error: No Accounts: Add a new account in Accounts settings. (in target 'A1Harness' from project 'A1Harness')
+/Users/kexin/Documents/ChatGPT/MCFAO/ios/A1Harness/A1Harness.xcodeproj: error: No profiles for 'org.fabricaot.research.a1probe.kexin' were found: Xcode couldn't find any iOS App Development provisioning profiles matching 'org.fabricaot.research.a1probe.kexin'. (in target 'A1Harness' from project 'A1Harness')
