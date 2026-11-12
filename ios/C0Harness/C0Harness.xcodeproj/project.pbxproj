@@ -343,6 +343,10 @@
 				OTHER_LDFLAGS = (
 					"-framework",
 					UIKit,
+					"-framework",
+					Foundation,
+					"-framework",
+					CoreGraphics,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = org.fabricaot.research.c0.kexin;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -368,6 +372,10 @@
 				OTHER_LDFLAGS = (
 					"-framework",
 					UIKit,
+					"-framework",
+					Foundation,
+					"-framework",
+					CoreGraphics,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = org.fabricaot.research.c0.kexin;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -415,6 +423,10 @@
 				OTHER_LDFLAGS = (
 					"-framework",
 					UIKit,
+					"-framework",
+					Foundation,
+					"-framework",
+					CoreGraphics,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = org.fabricaot.research.c0.kexin;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -439,6 +451,10 @@
 				OTHER_LDFLAGS = (
 					"-framework",
 					UIKit,
+					"-framework",
+					Foundation,
+					"-framework",
+					CoreGraphics,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = org.fabricaot.research.c0.kexin;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -484,6 +500,10 @@
 				OTHER_LDFLAGS = (
 					"-framework",
 					UIKit,
+					"-framework",
+					Foundation,
+					"-framework",
+					CoreGraphics,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = org.fabricaot.research.c0.kexin;
 				PRODUCT_NAME = "$(TARGET_NAME)";
