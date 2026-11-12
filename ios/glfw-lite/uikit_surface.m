@@ -157,7 +157,7 @@ static NSArray<NSDictionary *> *FAOTBuiltinControlModels(void) {
         UIButton *button=self.controls[i];
         NSDictionary *model=self.controlModels[i];
         CGFloat width=MAX(28.0,[model[@"width"] doubleValue]*safe.size.width);
-        CGFloat height=MAX(28.0,[model[@"height"] doubleValue]*safe.size.width);
+        CGFloat height=MAX(28.0,[model[@"height"] doubleValue]*safe.size.height);
         CGFloat x=safe.origin.x+[model[@"x"] doubleValue]*safe.size.width;
         CGFloat y=safe.origin.y+[model[@"y"] doubleValue]*safe.size.height;
         x=MIN(MAX(x,CGRectGetMinX(safe)),CGRectGetMaxX(safe)-width);

@@ -113,7 +113,7 @@
     model.x = (CGRectGetMinX(button.frame) - safe.origin.x) / MAX(1, safe.size.width);
     model.y = (CGRectGetMinY(button.frame) - safe.origin.y) / MAX(1, safe.size.height);
     model.width = button.bounds.size.width / MAX(1, safe.size.width);
-    model.height = button.bounds.size.height / MAX(1, safe.size.width);
+    model.height = button.bounds.size.height / MAX(1, safe.size.height);
     [self setNeedsLayout];
 }
 
