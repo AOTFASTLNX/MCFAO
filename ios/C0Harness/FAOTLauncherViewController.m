@@ -67,6 +67,7 @@ NSString *FAOTPojavDefaultLayoutJSON(void) {
 @property (nonatomic, assign) BOOL launchedInThisProcess;
 @property (nonatomic, copy) NSArray<NSNumber *> *memoryOptions;
 @property (nonatomic, strong) UIView *card;
+@property (nonatomic, strong) UIStackView *contentStack;
 @property (nonatomic, strong) CAGradientLayer *backdrop;
 @property (nonatomic, copy) NSString *layoutName;
 @end
@@ -101,7 +102,7 @@ NSString *FAOTPojavDefaultLayoutJSON(void) {
 
 + (NSString *)deviceMemoryCaption {
     double physicalGiB = (double)NSProcessInfo.processInfo.physicalMemory / 1073741824.0;
-    return [NSString stringWithFormat:@"Java heap (device %.0f GB, reserve %.0f GB)", physicalGiB, MAX(1.0, floor(physicalGiB * 0.55))];
+    return [NSString stringWithFormat:@"Java 内存 · 设备 %.0f GB", physicalGiB];
 }
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -134,6 +135,13 @@ NSString *FAOTPojavDefaultLayoutJSON(void) {
 
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
+    BOOL landscape = self.view.bounds.size.width > self.view.bounds.size.height;
+    UILayoutConstraintAxis axis = landscape ? UILayoutConstraintAxisHorizontal : UILayoutConstraintAxisVertical;
+    if (self.contentStack.axis != axis) {
+        self.contentStack.axis = axis;
+        self.contentStack.alignment = landscape ? UIStackViewAlignmentTop : UIStackViewAlignmentFill;
+        self.contentStack.distribution = landscape ? UIStackViewDistributionFillEqually : UIStackViewDistributionFill;
+    }
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
     self.backdrop.frame = self.view.bounds;
@@ -142,7 +150,8 @@ NSString *FAOTPojavDefaultLayoutJSON(void) {
 
 - (void)buildInterface {
     UILabel *title = [UILabel new];
-    title.text = @"FabricAOT  /  PLAY";
+    title.text = @"FabricAOT";
+    title.numberOfLines = 0;
     title.font = [UIFont systemFontOfSize:30 weight:UIFontWeightBold];
     title.textColor = [UIColor colorWithRed:0.6 green:0.95 blue:0.82 alpha:1];
 
@@ -180,6 +189,9 @@ NSString *FAOTPojavDefaultLayoutJSON(void) {
     self.memoryPicker = [[UISegmentedControl alloc] initWithItems:titles];
     self.memoryPicker.selectedSegmentIndex = MIN(1, self.memoryPicker.numberOfSegments - 1);
     self.memoryPicker.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.08];
+    self.memoryPicker.selectedSegmentTintColor = [UIColor colorWithRed:0.6 green:0.95 blue:0.82 alpha:1];
+    [self.memoryPicker setTitleTextAttributes:@{NSForegroundColorAttributeName:UIColor.whiteColor} forState:UIControlStateNormal];
+    [self.memoryPicker setTitleTextAttributes:@{NSForegroundColorAttributeName:UIColor.blackColor} forState:UIControlStateSelected];
 
     self.layoutLabel = [UILabel new];
     self.layoutLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightMedium];
@@ -202,7 +214,7 @@ NSString *FAOTPojavDefaultLayoutJSON(void) {
     self.statusLabel.font = [UIFont monospacedSystemFontOfSize:11 weight:UIFontWeightRegular];
     self.statusLabel.textColor = [UIColor colorWithWhite:1.0 alpha:0.5];
     self.statusLabel.numberOfLines = 0;
-    self.statusLabel.text = @"准备就绪 · 可在编辑按键中自定义布局与大小";
+    self.statusLabel.text = @"准备就绪";
 
     UIButton *diagnostics = [self pillButton:@"运行诊断" action:@selector(diagnosticsTapped)];
 
@@ -216,22 +228,29 @@ NSString *FAOTPojavDefaultLayoutJSON(void) {
     self.card.layer.shadowOffset = CGSizeMake(0,8);
     self.card.layer.cornerRadius = 24;
 
-    NSArray *all = @[title, subtitle, self.nameField, memoryCaption, self.memoryPicker,
-                     self.layoutLabel, editLayout, importLayout, launch, self.statusLabel, diagnostics];
-    for (UIView *view in all) {
-        view.translatesAutoresizingMaskIntoConstraints = NO;
-        [self.card addSubview:view];
-    }
+    UIStackView *actions = [[UIStackView alloc] initWithArrangedSubviews:@[editLayout,importLayout]];
+    actions.axis = UILayoutConstraintAxisHorizontal;
+    actions.distribution = UIStackViewDistributionFillEqually;
+    actions.spacing = 8;
+    UIStackView *hero = [[UIStackView alloc] initWithArrangedSubviews:@[title,subtitle,launch]];
+    hero.axis = UILayoutConstraintAxisVertical;
+    hero.spacing = 16;
+    UIStackView *settings = [[UIStackView alloc] initWithArrangedSubviews:@[self.nameField,memoryCaption,self.memoryPicker,self.layoutLabel,actions,self.statusLabel,diagnostics]];
+    settings.axis = UILayoutConstraintAxisVertical;
+    settings.spacing = 8;
+    self.contentStack = [[UIStackView alloc] initWithArrangedSubviews:@[hero,settings]];
+    self.contentStack.axis = self.view.bounds.size.width > self.view.bounds.size.height ? UILayoutConstraintAxisHorizontal : UILayoutConstraintAxisVertical;
+    self.contentStack.distribution = self.contentStack.axis == UILayoutConstraintAxisHorizontal ? UIStackViewDistributionFillEqually : UIStackViewDistributionFill;
+    self.contentStack.alignment = self.contentStack.axis == UILayoutConstraintAxisHorizontal ? UIStackViewAlignmentTop : UIStackViewAlignmentFill;
+    self.contentStack.spacing = 24;
+    self.contentStack.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.card addSubview:self.contentStack];
     self.card.translatesAutoresizingMaskIntoConstraints = NO;
-    /* A landscape iPhone leaves about 375 pt of height while the card needs more than that, so the
-       content scrolls instead of being compressed by Auto Layout. */
     UIScrollView *scroll = [UIScrollView new];
     scroll.translatesAutoresizingMaskIntoConstraints = NO;
     scroll.alwaysBounceVertical = YES;
-    scroll.showsVerticalScrollIndicator = YES;
     [self.view addSubview:scroll];
     [scroll addSubview:self.card];
-
     UILayoutGuide *safe = self.view.safeAreaLayoutGuide;
     [NSLayoutConstraint activateConstraints:@[
         [scroll.topAnchor constraintEqualToAnchor:safe.topAnchor],
@@ -243,49 +262,14 @@ NSString *FAOTPojavDefaultLayoutJSON(void) {
         [self.card.trailingAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.trailingAnchor constant:-16],
         [self.card.bottomAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.bottomAnchor constant:-16],
         [self.card.widthAnchor constraintEqualToAnchor:scroll.frameLayoutGuide.widthAnchor constant:-32],
-
-        [title.topAnchor constraintEqualToAnchor:self.card.topAnchor constant:20],
-        [title.leadingAnchor constraintEqualToAnchor:self.card.leadingAnchor constant:18],
-        [subtitle.topAnchor constraintEqualToAnchor:title.bottomAnchor constant:4],
-        [subtitle.leadingAnchor constraintEqualToAnchor:title.leadingAnchor],
-        [subtitle.trailingAnchor constraintEqualToAnchor:self.card.trailingAnchor constant:-18],
-
-        [self.nameField.topAnchor constraintEqualToAnchor:subtitle.bottomAnchor constant:18],
-        [self.nameField.leadingAnchor constraintEqualToAnchor:title.leadingAnchor],
-        [self.nameField.trailingAnchor constraintEqualToAnchor:self.card.trailingAnchor constant:-18],
+        [self.contentStack.topAnchor constraintEqualToAnchor:self.card.topAnchor constant:20],
+        [self.contentStack.leadingAnchor constraintEqualToAnchor:self.card.leadingAnchor constant:20],
+        [self.contentStack.trailingAnchor constraintEqualToAnchor:self.card.trailingAnchor constant:-20],
+        [self.contentStack.bottomAnchor constraintEqualToAnchor:self.card.bottomAnchor constant:-20],
         [self.nameField.heightAnchor constraintEqualToConstant:44],
-
-        [memoryCaption.topAnchor constraintEqualToAnchor:self.nameField.bottomAnchor constant:18],
-        [memoryCaption.leadingAnchor constraintEqualToAnchor:title.leadingAnchor],
-        [self.memoryPicker.topAnchor constraintEqualToAnchor:memoryCaption.bottomAnchor constant:8],
-        [self.memoryPicker.leadingAnchor constraintEqualToAnchor:title.leadingAnchor],
-        [self.memoryPicker.trailingAnchor constraintEqualToAnchor:self.card.trailingAnchor constant:-18],
-
-        [self.layoutLabel.topAnchor constraintEqualToAnchor:self.memoryPicker.bottomAnchor constant:20],
-        [self.layoutLabel.leadingAnchor constraintEqualToAnchor:title.leadingAnchor],
-        [self.layoutLabel.trailingAnchor constraintEqualToAnchor:self.card.trailingAnchor constant:-18],
-
-        [editLayout.topAnchor constraintEqualToAnchor:self.layoutLabel.bottomAnchor constant:10],
-        [editLayout.leadingAnchor constraintEqualToAnchor:title.leadingAnchor],
-        [editLayout.heightAnchor constraintEqualToConstant:36],
-        [importLayout.topAnchor constraintEqualToAnchor:editLayout.topAnchor],
-        [importLayout.leadingAnchor constraintEqualToAnchor:editLayout.trailingAnchor constant:10],
-        [importLayout.trailingAnchor constraintLessThanOrEqualToAnchor:self.card.trailingAnchor constant:-18],
-        [importLayout.heightAnchor constraintEqualToConstant:36],
-
-        [launch.topAnchor constraintEqualToAnchor:editLayout.bottomAnchor constant:22],
-        [launch.leadingAnchor constraintEqualToAnchor:title.leadingAnchor],
-        [launch.trailingAnchor constraintEqualToAnchor:self.card.trailingAnchor constant:-18],
+        [actions.heightAnchor constraintEqualToConstant:36],
         [launch.heightAnchor constraintEqualToConstant:52],
-
-        [self.statusLabel.topAnchor constraintEqualToAnchor:launch.bottomAnchor constant:12],
-        [self.statusLabel.leadingAnchor constraintEqualToAnchor:title.leadingAnchor],
-        [self.statusLabel.trailingAnchor constraintEqualToAnchor:self.card.trailingAnchor constant:-18],
-
-        [diagnostics.topAnchor constraintEqualToAnchor:self.statusLabel.bottomAnchor constant:12],
-        [diagnostics.leadingAnchor constraintEqualToAnchor:title.leadingAnchor],
         [diagnostics.heightAnchor constraintEqualToConstant:32],
-        [diagnostics.bottomAnchor constraintEqualToAnchor:self.card.bottomAnchor constant:-18],
     ]];
 }
 
@@ -314,7 +298,7 @@ NSString *FAOTPojavDefaultLayoutJSON(void) {
     self.layoutName = [defaults stringForKey:FAOTControlLayoutDefaultsKey];
     if (self.layoutName.length == 0) self.layoutName = @"default";
     FAOTControlLayout *layout = [FAOTLauncherViewController activeLayout];
-    self.layoutLabel.text = [NSString stringWithFormat:@"Control layout: %@ (%lu buttons)",
+    self.layoutLabel.text = [NSString stringWithFormat:@"按钮布局：%@ · %lu 个按键",
                              self.layoutName, (unsigned long)layout.controls.count];
 }
 
