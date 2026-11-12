@@ -3,6 +3,9 @@ on:
   push:
     branches: [feature/performance-launcher-size-2026-11-13]
   workflow_dispatch:
+concurrency:
+  group: launcher-metal-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:

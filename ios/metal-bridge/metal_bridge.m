@@ -17,8 +17,14 @@
 @property(nonatomic,strong) id<MTLCommandQueue> queue;
 @property(nonatomic,strong) id<MTLCommandQueue> texelUploadQueue;
 // Render-thread-owned counters; one log per 300 presented frames, never per draw.
-@property(nonatomic) NSUInteger sampleFrames, sharedTexelBindings, privateTexelBindings;
-@property(nonatomic) double sampleStarted, syncWaitSeconds, drawableWaitSeconds, uploadWaitSeconds, finalGpuSeconds;
+@property(nonatomic) NSUInteger sampleFrames;
+@property(nonatomic) NSUInteger sharedTexelBindings;
+@property(nonatomic) NSUInteger privateTexelBindings;
+@property(nonatomic) double sampleStarted;
+@property(nonatomic) double syncWaitSeconds;
+@property(nonatomic) double drawableWaitSeconds;
+@property(nonatomic) double uploadWaitSeconds;
+@property(nonatomic) double finalGpuSeconds;
 @property(nonatomic,strong) CAMetalLayer *layer;
 
 @property(nonatomic,strong) id<MTLCommandBuffer> pending;
