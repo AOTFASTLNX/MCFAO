@@ -39,6 +39,17 @@ typedef int (*faot_tear_down_t)(void *thread);
 
 
 /* Clamped so a 4 GiB phone keeps its native/Metal headroom. */
+
+/* The Metal budget holds textures, buffers and pipeline caches. 768 MiB suited a 4 GiB phone;
+   larger devices can keep more resident and stop re-uploading atlas pages every frame. */
+static long FAOTMetalBudgetMiB(void) {
+    double physicalGiB = (double)NSProcessInfo.processInfo.physicalMemory / 1073741824.0;
+    double budget = physicalGiB * 0.15 * 1024.0;
+    if (budget < 768) budget = 768;
+    if (budget > 1536) budget = 1536;
+    return (long)budget;
+}
+
 static long FAOTSelectedHeapGiB(void) {
     NSInteger gib = [NSUserDefaults.standardUserDefaults integerForKey:@"FAOTMemoryGiB"];
     if (gib <= 0) gib = 2;
@@ -379,7 +390,10 @@ static void FAOTProbeReservations(FILE *logFile) {
 #if TARGET_OS_SIMULATOR || defined(FAOT_DEVICE_WORLD)
         // Seed a modest profile on first launch. Minecraft owns this file after it exists.
         NSString *options = [game stringByAppendingPathComponent:@"options.txt"];
-        NSData *worldDefaults = [@"renderDistance:8\nsimulationDistance:5\nmaxFps:30\n"
+                NSData *worldDefaults = [@"renderDistance:8\nsimulationDistance:5\nmaxFps:60\n"
+                                 @"graphicsMode:1\nclouds:false\nentityShadows:false\n"
+                                 @"particles:2\nbiomeBlendRadius:0\nao:false\n"
+                                 @"mipmapLevels:4\nenableVsync:false\n"
                                  dataUsingEncoding:NSUTF8StringEncoding];
         [worldDefaults writeToFile:options options:NSDataWritingWithoutOverwriting error:nil];
 #endif
@@ -394,7 +408,8 @@ static void FAOTProbeReservations(FILE *logFile) {
             @"-Dorg.lwjgl.system.allocator=system",
 #if TARGET_OS_SIMULATOR || defined(FAOT_DEVICE_WORLD)
             // 26.1.2 allocates 416 MiB of terrain heaps before drawing the first chunk.
-            @"-Dfabricaot.metal.resourceBudgetMiB=768",
+            [NSString stringWithFormat:@"-Dfabricaot.metal.resourceBudgetMiB=%ld",
+                (long)FAOTMetalBudgetMiB()],
 #endif
             @"--username", [NSUserDefaults.standardUserDefaults stringForKey:@"FAOTPlayerName"] ?: @"Dev", @"--version", @"26.1.2",
             @"--gameDir", game, @"--assetsDir", assets, @"--assetIndex", @"30",

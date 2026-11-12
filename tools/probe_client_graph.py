@@ -302,7 +302,7 @@ def main(argv=None):
         # rather than referenced from compiler/ where it is maintained.
         reflection_config = work / "reflection-config.json"
         shutil.copy2(ROOT / "compiler/reflection-config.json", reflection_config)
-        cmd=[*base,str(executable),"--no-fallback","-O1",f"--parallelism={args.parallelism}",f"-J-Xmx{args.heap_gib}g","-J-XX:-UsePerfData",
+        cmd=[*base,str(executable),"--no-fallback",os.environ.get("MCFAO_OPT_LEVEL","-O2"),f"--parallelism={args.parallelism}",f"-J-Xmx{args.heap_gib}g","-J-XX:-UsePerfData",
              "-J-Duser.home="+str(work/"home"),"-J-Djava.io.tmpdir="+str(work/"tmp"),"-H:+UnlockExperimentalVMOptions",
              "--shared","--verbose","--diagnostics-mode","-H:+PrintAnalysisStatistics",
              "-H:BuildOutputJSONFile="+str(work/"build-output.json"),
