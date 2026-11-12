@@ -86,10 +86,12 @@ jobs:
           # macOS has no coreutils `timeout`; perl's alarm is always present.
           guard() { local seconds="$1"; shift; perl -e 'alarm shift; exec @ARGV' "$seconds" "$@"; }
 
-          UDID=$(guard 60 xcrun simctl create FabricAOTShot com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro com.apple.CoreSimulator.SimRuntime.iOS-18-5)
+          RUNTIME=$(guard 240 xcrun simctl list runtimes available -j | python3 -c 'import json,sys; r=[x["identifier"] for x in json.load(sys.stdin)["runtimes"] if x.get("isAvailable") and "iOS" in x["identifier"]]; print(r[-1] if r else "")')
+          test -n "$RUNTIME"
+          UDID=$(guard 240 xcrun simctl create FabricAOTShot com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro "$RUNTIME")
           echo "UDID=$UDID" >> "$GITHUB_ENV"
-          guard 60 xcrun simctl boot "$UDID" || true
-          guard 240 xcrun simctl bootstatus "$UDID" -b || true
+          guard 120 xcrun simctl boot "$UDID" || true
+          guard 360 xcrun simctl bootstatus "$UDID" -b || true
           xcrun simctl list devices | grep -i fabricaot || true
           guard 120 xcrun simctl install "$UDID" "$PWD/build/FabricAOT.app"
 
