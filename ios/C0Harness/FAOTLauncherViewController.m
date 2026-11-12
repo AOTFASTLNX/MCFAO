@@ -156,14 +156,26 @@ NSString *FAOTPojavDefaultLayoutJSON(void) {
         [self.card addSubview:view];
     }
     self.card.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.view addSubview:self.card];
+    /* A landscape iPhone leaves about 375 pt of height while the card needs more than that, so the
+       content scrolls instead of being compressed by Auto Layout. */
+    UIScrollView *scroll = [UIScrollView new];
+    scroll.translatesAutoresizingMaskIntoConstraints = NO;
+    scroll.alwaysBounceVertical = YES;
+    scroll.showsVerticalScrollIndicator = YES;
+    [self.view addSubview:scroll];
+    [scroll addSubview:self.card];
 
     UILayoutGuide *safe = self.view.safeAreaLayoutGuide;
     [NSLayoutConstraint activateConstraints:@[
-        [self.card.topAnchor constraintEqualToAnchor:safe.topAnchor constant:16],
-        [self.card.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:16],
-        [self.card.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-16],
-        [self.card.bottomAnchor constraintLessThanOrEqualToAnchor:safe.bottomAnchor constant:-16],
+        [scroll.topAnchor constraintEqualToAnchor:safe.topAnchor],
+        [scroll.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor],
+        [scroll.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor],
+        [scroll.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor],
+        [self.card.topAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.topAnchor constant:16],
+        [self.card.leadingAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.leadingAnchor constant:16],
+        [self.card.trailingAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.trailingAnchor constant:-16],
+        [self.card.bottomAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.bottomAnchor constant:-16],
+        [self.card.widthAnchor constraintEqualToAnchor:scroll.frameLayoutGuide.widthAnchor constant:-32],
 
         [title.topAnchor constraintEqualToAnchor:self.card.topAnchor constant:20],
         [title.leadingAnchor constraintEqualToAnchor:self.card.leadingAnchor constant:18],
