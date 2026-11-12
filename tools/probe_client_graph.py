@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Analyze the real locally owned client entry graph; this is not a game runtime or C0 acceptance."""
-import os
 from __future__ import annotations
+import os
 
 import argparse
 import json
