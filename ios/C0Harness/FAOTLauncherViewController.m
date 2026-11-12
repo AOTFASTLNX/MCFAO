@@ -64,6 +64,7 @@ NSString *FAOTPojavDefaultLayoutJSON(void) {
 @property (nonatomic, strong) UILabel *statusLabel;
 @property (nonatomic, strong) UIButton *launchButton;
 @property (nonatomic, assign) BOOL launchedInThisProcess;
+@property (nonatomic, copy) NSArray<NSNumber *> *memoryOptions;
 @property (nonatomic, strong) UIView *card;
 @property (nonatomic, copy) NSString *layoutName;
 @end
@@ -81,6 +82,24 @@ NSString *FAOTPojavDefaultLayoutJSON(void) {
         [layout saveNamed:name error:nil];
     }
     return layout;
+}
+
+
++ (NSArray<NSNumber *> *)memoryOptionsForDevice {
+    double physicalGiB = (double)NSProcessInfo.processInfo.physicalMemory / 1073741824.0;
+    NSInteger maxGiB = (NSInteger)floor(physicalGiB * 0.55);
+    if (maxGiB < 1) maxGiB = 1;
+    if (maxGiB > 8) maxGiB = 8;
+    NSMutableArray<NSNumber *> *options = [NSMutableArray array];
+    for (NSInteger value = 1; value <= maxGiB; value++) {
+        [options addObject:@(value)];
+    }
+    return options;
+}
+
++ (NSString *)deviceMemoryCaption {
+    double physicalGiB = (double)NSProcessInfo.processInfo.physicalMemory / 1073741824.0;
+    return [NSString stringWithFormat:@"Reserved address space (device %.0f GB)", physicalGiB];
 }
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -130,11 +149,18 @@ NSString *FAOTPojavDefaultLayoutJSON(void) {
     self.nameField.placeholder = @"Player name";
 
     UILabel *memoryCaption = [UILabel new];
-    memoryCaption.text = @"Reserved address space";
+    memoryCaption.text = [FAOTLauncherViewController deviceMemoryCaption];
     memoryCaption.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
     memoryCaption.textColor = [UIColor colorWithWhite:1.0 alpha:0.55];
 
-    self.memoryPicker = [[UISegmentedControl alloc] initWithItems:@[@"1G", @"2G", @"3G"]];
+    /* Only offer what this device can actually back: iOS counts the app, Metal and the native
+       image against the same physical RAM, so leave a little more than half for the Java heap. */
+    self.memoryOptions = [FAOTLauncherViewController memoryOptionsForDevice];
+    NSMutableArray<NSString *> *titles = [NSMutableArray arrayWithCapacity:self.memoryOptions.count];
+    for (NSNumber *value in self.memoryOptions) {
+        [titles addObject:[NSString stringWithFormat:@"%@G", value]];
+    }
+    self.memoryPicker = [[UISegmentedControl alloc] initWithItems:titles];
     self.memoryPicker.selectedSegmentIndex = MIN(1, self.memoryPicker.numberOfSegments - 1);
     self.memoryPicker.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.08];
 
@@ -257,7 +283,11 @@ NSString *FAOTPojavDefaultLayoutJSON(void) {
     self.nameField.text = name.length ? name : @"Dev";
     NSInteger memory = [defaults integerForKey:FAOTMemoryGiBDefaultsKey];
     if (memory <= 0) memory = 2;
-    self.memoryPicker.selectedSegmentIndex = (memory <= 1) ? 0 : (memory == 2) ? 1 : 2;
+    NSUInteger restoreIndex = 0;
+    for (NSUInteger i = 0; i < self.memoryOptions.count; i++) {
+        if (self.memoryOptions[i].integerValue <= memory) restoreIndex = i;
+    }
+    self.memoryPicker.selectedSegmentIndex = (NSInteger)restoreIndex;
     self.layoutName = [defaults stringForKey:FAOTControlLayoutDefaultsKey];
     if (self.layoutName.length == 0) self.layoutName = @"default";
     FAOTControlLayout *layout = [FAOTLauncherViewController activeLayout];
@@ -266,10 +296,10 @@ NSString *FAOTPojavDefaultLayoutJSON(void) {
 }
 
 - (NSInteger)selectedMemoryGiB {
-    static const NSInteger values[] = {1, 2, 3};
+    if (self.memoryOptions.count == 0) self.memoryOptions = [FAOTLauncherViewController memoryOptionsForDevice];
     NSInteger index = self.memoryPicker.selectedSegmentIndex;
-    if (index < 0 || index > 2) index = 1;
-    return values[index];
+    if (index < 0 || index >= (NSInteger)self.memoryOptions.count) index = 0;
+    return self.memoryOptions[(NSUInteger)index].integerValue;
 }
 
 - (void)persistSettings {

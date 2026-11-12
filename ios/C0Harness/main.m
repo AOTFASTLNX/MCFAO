@@ -44,7 +44,10 @@ static long FAOTSelectedHeapGiB(void) {
     if (gib <= 0) gib = [NSUserDefaults.standardUserDefaults integerForKey:@"reservedGiB"];
     if (gib <= 0) gib = 2;
     if (gib < 1) gib = 1;
-    if (gib > 3) gib = 3;
+    double physicalGiB = (double)NSProcessInfo.processInfo.physicalMemory / 1073741824.0;
+    NSInteger cap = (NSInteger)floor(physicalGiB * 0.55);
+    if (cap < 1) cap = 1;
+    if (gib > cap) gib = cap;
     return (long)gib;
 }
 static NSString *FAOTDocuments(void) {
