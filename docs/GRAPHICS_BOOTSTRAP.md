@@ -122,3 +122,26 @@ iPhoneOS 使用相同入口，将三个原生构建器的 `--sdk` 改为 `iphone
 ## 真机 GUI 缓冲区修复（2026-11-10）
 
 用户在真机运行 WorldDevice 时，原版 GUI 的索引绘制触发 Metal 断言。片元缓冲区槽 1 只有 40 字节，着色器需要 48 字节。Metal bridge 将缓冲区物理分配向上对齐到 16 字节，保留游戏侧的逻辑大小。开启 Metal API Validation 的模拟器中，原版 `gui_text` 管线用 40 字节 Fog 数据通过 GPU 像素检查，日志含 `METAL_GUI_TEXT_FOG_PASS`，入口返回 0。WorldDevice 新库已通过设备构建及签名检查，真机复测待完成。[模拟器日志](../artifacts/graphics/draw-simulator-fog-01/run-1794265317247.log)
+
+## 不支持的管线必须在绘制处变成空操作（2026-11-12，pack-85 → 86）
+
+门禁只拦注册（`RenderPipelines.register → BundledPipelines.register`）是不够的：Mod 自己持有 `RenderPipeline` 对象，会在自己的通道里直接 `setPipeline` 再画。`MetalRenderPass.setPipeline` 原来直接 `precompilePipeline`，于是抛 `UnsupportedOperationException`；异常被 Mod 的绘制循环吞掉，vanilla 的 `try`/`finally` 也不再收尾，`device.activePass` 留在原地，下一帧 `CommandEncoder.clearColorAndDepthTextures` 的第一条 `backend.isInRenderPass()` 就把整个客户端打死（`Close the existing render pass before creating a new one!`）。
+
+两条约定从这一轮起固定下来：
+
+- **`setPipeline` 先问门禁**：`BundledPipelines.supports(pipeline)` 为假时把这条通道标成 `skipped`，`draw`/`drawIndexed` 直接返回，只打一次 `[MCFAO_SHADER] skipping draws for unsupported pipeline <location>`。Mod 的绘制按设计被丢弃，通道本身继续走完。
+- **`close()` 无条件释放槽位**：先 `closed=true`、清 `device.activePass`、成对收掉 debug group、再 `endPass`。设备此前报错或通道被重复关闭都不再抛，避免一个被吞掉的异常把全局唯一的通道槽位钉死。
+
+判据：`game.log` 里同一轮既有 `skipping draws for unsupported pipeline`，又没有 `Draw Exception` 和 `Close the existing render pass`。`libfaot_metal.dylib` 不变（改动全在 Java 侧），图形输入可继续复用同一份 staged 目录。
+
+## 轮询查询必须与事件回调共享同一份状态（2026-11-12，pack-88 → 89）
+
+功能探针（`WorldUITests/testFabricModFunctions`）第一次真实交互就撞出了新崩溃：malilib 的 `KeybindMulti.reCheckPressedKeys` 每 tick 轮询 `glfwGetMouseButton`，而 GLFW-lite 只实现了事件回调（`FAOT_EVENT_BUTTON` → `GLFWmousebuttonfun`），轮询 API 被 Overlay 替换成 `UnsupportedOperationException`。冒烟跑了 88 轮没暴露——冒烟不交互，没有 mod 轮询鼠标状态；**交互一开始，轮询和回调的差异就藏不住**。
+
+修法与 `glfwGetKey` 对齐（它一直有 `w->keys[349]` 状态表）：
+
+- `GLFWwindow` 增加 `mouseButtons[8]`（GLFW_MOUSE_BUTTON_LAST=7），`FAOT_EVENT_BUTTON` 事件同时更新状态并调用回调（注意 `uikit_surface.m` 的入参约定：action 在 `e.b`，不是 `e.c`）；
+- 失焦时按键清零的同一分支里把按钮状态也清零；
+- `glfwGetMouseButton` 按钮越界/窗口无效返回 0（RELEASE）。
+
+约定：**凡是事件回调里能发生的状态，轮询 API 必须能读到同一份真相**。`interop/graphics/glfw_state_test.c` 增加「按下 → 轮询为 1 → 释放 → 轮询为 0 → 失焦清零」断言，`GLFW_STATE_PASS` 覆盖。重建链：glfw（sim+device）→ lwjgl-lite overlay（supported 由 native `nm -gUj` 自动派生，新增导出即变为真实 FFM 调用）→ metal 后端 → `mcfao build`。模拟器 staged 输入用 `world-simulator-input-05`（glfw-sim-10 / lwjgl-sim-14 / metal-sim-27 拼装，来源哈希记录在其 result.json）。

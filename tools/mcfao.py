@@ -24,6 +24,18 @@ from stage_game_assets import verified_assets
 
 VERSION = "26.1.2"
 TARGET = "ios-arm64"
+# The Xcode project deliberately ships `DEVELOPMENT_TEAM = ""` so the repository carries no
+# personal team identifier. `xcodebuild` normally resolves the team from the signed-in Xcode
+# account, but that implicit resolution is not a build input: it disappeared between two
+# otherwise identical builds and made packaging fail with "requires a development team".
+# Resolve it explicitly from local assets instead (env override, then an installed profile
+# that matches the app bundle identifier) and pass it on the command line.
+BUNDLE_IDENTIFIER = "org.fabricaot.research.c0.kexin"
+PROFILE_DIRECTORIES = (
+    "~/Library/Developer/Xcode/UserData/Provisioning Profiles",
+    "~/Library/MobileDevice/Provisioning Profiles",
+)
+TEAM_ENVIRONMENT = "MCFAO_DEVELOPMENT_TEAM"
 CONFIG_PATHS = (
     "prepared", "caps", "bootstrapRuntime", "splitter", "versionMetadata",
     "assets", "glfw", "lwjgl", "metal", "openal", "shaders", "b1Evidence",
@@ -34,6 +46,7 @@ BACKEND_TOOLS = (
     "build_ios_runtime", "link_c0_ios", "stage_device_xcode", "graphics_common",
     "stage_game_assets", "run_b0_reference", "capture", "inspect_ios_candidate",
     "build_c0_harness", "client_graph_diagnostics", "lwjgl_codegen",
+    "config_reflection",
 )
 
 
@@ -265,10 +278,14 @@ def script(name, *args):
 def loader_client(pipeline, args, config, client, inputs):
     if args.loader == "vanilla":
         return client, None
+    # Every incompatible class makes the driver run Knot again without the offending Mod, so a
+    # pack whose exclusions are only discovered by the class audit needs two full passes. pack-70
+    # needed ~4 min + ~6 min and was killed by the old 10-minute default right after writing its
+    # final client.jar; the budget now covers two Knot passes with headroom.
     prepared = pipeline.step("fabric", script(
         "prepare_fabric_aot", "--prepared", config["prepared"], "--client", client,
         "--mods", args.mods.resolve(), "--output", "{product}",
-        "--audited-mods" if args.audited_mods else "--inspect"))
+        "--audited-mods" if args.audited_mods else "--inspect"), timeout=1800)
     report = prepared / "result.json"
     facts = read_json(report)
     if facts["modSHA256"] != inputs["modsSHA256"]:
@@ -352,12 +369,77 @@ def validate_package(app, staged, asset_hashes):
             raise ValueError(f"Embedded image UUID differs: {library.name}")
 
 
-def device_xcode(staged: Path, assets: Path) -> list:
+def read_provisioning_profile(path: Path) -> dict | None:
+    """Decode a `.mobileprovision` CMS blob into the few facts packaging needs."""
+    try:
+        decoded = subprocess.run(["/usr/bin/security", "cms", "-D", "-i", str(path)],
+                                 check=True, capture_output=True, timeout=60).stdout
+        payload = plistlib.loads(decoded)
+    except (subprocess.SubprocessError, plistlib.InvalidFileException, ValueError, OSError):
+        return None
+    entitlements = payload.get("Entitlements") or {}
+    identifier = str(entitlements.get("application-identifier", ""))
+    teams = payload.get("TeamIdentifier") or []
+    if not identifier or not teams:
+        return None
+    return {
+        "name": str(payload.get("Name", path.name)),
+        "team": str(teams[0]),
+        "application": identifier.split(".", 1)[1] if "." in identifier else identifier,
+        "expires": payload.get("ExpirationDate"),
+    }
+
+
+def installed_provisioning_profiles(directories=PROFILE_DIRECTORIES) -> list:
+    profiles = []
+    for directory in directories:
+        for path in sorted(Path(directory).expanduser().glob("*.mobileprovision")):
+            profile = read_provisioning_profile(path)
+            if profile:
+                profiles.append(profile)
+    return profiles
+
+
+def select_development_team(profiles, bundle_identifier: str, now: datetime) -> str | None:
+    """Pick the team whose installed profile actually covers this bundle identifier."""
+    usable = [
+        profile for profile in profiles
+        if profile.get("team")
+        and profile.get("application") in (bundle_identifier, "*")
+        and (profile.get("expires") is None
+             or profile["expires"].replace(tzinfo=timezone.utc) > now)
+    ]
+    if not usable:
+        return None
+    usable.sort(key=lambda profile: (profile["expires"] or datetime.min.replace(tzinfo=timezone.utc),
+                                     profile["team"], profile["name"]))
+    return usable[-1]["team"]
+
+
+def resolve_development_team(bundle_identifier: str = BUNDLE_IDENTIFIER,
+                             profiles=None) -> str:
+    """Resolve the signing team without relying on Xcode's implicit account state."""
+    override = os.environ.get(TEAM_ENVIRONMENT, "").strip()
+    if override:
+        if not re.fullmatch(r"[A-Z0-9]{10}", override):
+            raise ValueError(f"{TEAM_ENVIRONMENT} must be a 10-character Apple team identifier")
+        return override
+    source = installed_provisioning_profiles() if profiles is None else profiles
+    team = select_development_team(source, bundle_identifier, datetime.now(timezone.utc))
+    if not team:
+        raise ValueError(
+            f"No installed provisioning profile covers {bundle_identifier}. Sign in to Xcode and "
+            f"install a development profile, or set {TEAM_ENVIRONMENT} to your team identifier.")
+    return team
+
+
+def device_xcode(staged: Path, assets: Path, team: str | None = None) -> list:
+    team = resolve_development_team() if team is None else team
     return [
         "/usr/bin/xcodebuild", "-project", ROOT / "ios/C0Harness/C0Harness.xcodeproj",
         "-scheme", "WorldDevice", "-destination", "generic/platform=iOS",
         f"FAOT_GRAPHICS_NATIVE_DIR={staged}", f"FAOT_CLIENT_LIBRARY={staged / 'client-graph.dylib'}",
-        f"FAOT_GAME_ASSETS_DIR={assets}",
+        f"FAOT_GAME_ASSETS_DIR={assets}", f"DEVELOPMENT_TEAM={team}",
     ]
 
 
@@ -485,7 +567,16 @@ def build(args, config):
             "--caps", config["caps"], "--b1-evidence", config["b1Evidence"],
             "--client-jar", injected / "client-26.1.2-metal.jar", "--graphics-bridge", config["lwjgl"],
             "--metal-bootstrap", config["metal"], "--full-build", "--relocatable",
-            "--include-game-resources", "--simulator-thread-dumps", "--output", "{product}"),
+            # pack-60 restored Sodium's real config registration path (9 previously stubbed
+            # methods became reachable) and the 7 GiB image builder heap OOMed with 5117M live
+            # old-gen against a 5438M old-gen capacity. 8 GiB carried packs 61-68 (live set
+            # ~4.96 GB after a full GC). pack-69, the first pack without Iris, reached 7087M
+            # live against a 7337M capacity and sat in full-GC thrash (->7087M, nothing
+            # reclaimed), so the reachable image heap is now above what 8 GiB can hold.
+            # 9 GiB is the largest setting the 50%-of-physical-memory ceiling allows on this
+            # 18 GiB host; probe_client_graph.py rejects anything larger before analysis starts.
+            "--include-game-resources", "--heap-gib", "9", "--simulator-thread-dumps",
+            "--output", "{product}"),
             timeout=3800)
         image = read_json(aot / "result.json")
         image_object = Path(image["imageObject"]["path"])

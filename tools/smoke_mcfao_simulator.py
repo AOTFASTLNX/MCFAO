@@ -18,6 +18,34 @@ FABRIC_MARKERS = (
 )
 
 
+def required_markers(build, expected, overrides=None):
+    mode = build.get("loader", "vanilla")
+    if expected != mode:
+        raise ValueError(f"Expected {expected} AOT image, got {mode}")
+    if overrides:
+        return tuple(overrides)
+    if mode == "vanilla":
+        return ()
+    report = read_json(Path(build["loaderReport"]))
+    if not any(mod.get("id") == "mcfao_fixture" for mod in report["mods"]):
+        raise ValueError("Default Fabric smoke requires mcfao_fixture in the built image; "
+                         "add the first-party verification fixture to a copy of the pack, "
+                         "or supply --require-marker for a separate diagnostic run")
+    return FABRIC_MARKERS
+
+
+def world_ready(text, mode, markers):
+    if any(fatal in text for fatal in ("[FAOT] run_main returned",
+                                       "---- Minecraft Crash Report ----",
+                                       "#@!@# Game crashed!")):
+        raise RuntimeError("Game exited or crashed before world validation")
+    if "Dev joined the game" not in text or not all(marker in text for marker in markers):
+        return False
+    if mode == "vanilla" and any(marker in text for marker in FABRIC_MARKERS):
+        raise ValueError("Vanilla image emitted a Fabric fixture marker")
+    return True
+
+
 def run(args):
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
@@ -32,9 +60,7 @@ def run(args):
     build = read_json(args.build / "result.json")
     aot = Path(build["aotCommand"]).parents[1]
     mode = build.get("loader", "vanilla")
-    if args.expect != mode:
-        raise ValueError(f"Expected {args.expect} AOT image, got {mode}")
-    markers = args.require_marker or (FABRIC_MARKERS if mode == "fabric" else ())
+    markers = required_markers(build, args.expect, args.require_marker)
     link = output / "link-product"
     step("link", script("link_c0_ios", "--sdk", "iphonesimulator", "--image", aot,
                         "--runtime", args.runtime.resolve(), "--output", link,
@@ -80,8 +106,11 @@ def run(args):
     log_dir = documents / "c0-logs"
     old_logs = set(log_dir.glob("run-*.log"))
     try:
-        # simctl passes only SIMCTL_CHILD-prefixed environment variables to the app.
+        # simctl passes only SIMCTL_CHILD-prefixed environment variables to the app. The empty
+        # EXTRA_ARGS clears a Quick Play argument a manual multiplayer run left in the app's
+        # persisted settings - it would otherwise conflict with the single-player option below.
         step("launch", ["/usr/bin/env", f"SIMCTL_CHILD_FABRICAOT_SIMULATOR_QUICK_WORLD={world.name}",
+                        "SIMCTL_CHILD_FABRICAOT_SIMULATOR_EXTRA_ARGS=",
                         *simctl, "launch", args.simulator, bundle])
         deadline = time.monotonic() + 160
         while time.monotonic() < deadline:
@@ -89,15 +118,16 @@ def run(args):
             if new_logs:
                 text = new_logs[-1].read_text(errors="replace")
                 (output / "game.log").write_text(text)
-                if "[FAOT] run_main returned" in text:
-                    raise RuntimeError(f"Game exited before world validation. See {output / 'game.log'}")
-                if "Dev joined the game" in text and all(marker in text for marker in markers):
-                    if mode == "vanilla" and any(marker in text for marker in FABRIC_MARKERS):
-                        raise ValueError("Vanilla image emitted a Fabric fixture marker")
+                if world_ready(text, mode, markers):
                     time.sleep(3)
+                    settled = new_logs[-1].read_text(errors="replace")
+                    (output / "game.log").write_text(settled)
+                    if not world_ready(settled, mode, markers):
+                        raise RuntimeError("World evidence disappeared during validation")
                     step("screenshot", [*simctl, "io", args.simulator, "screenshot", output / "world.png"])
                     write_json(output / "result.json", {
-                        "status": "SIMULATOR_WORLD_SMOKE_PASS", "loader": mode,
+                        "status": "SIMULATOR_WORLD_DIAGNOSTIC_PASS" if args.require_marker
+                        else "SIMULATOR_WORLD_SMOKE_PASS", "loader": mode,
                         "simulator": args.simulator, "deviceRun": "NOT RUN",
                         "fabricMarkers": list(markers) if mode == "fabric" else [],
                         "runtimeMixinTarget": "Minecraft#setLevel"

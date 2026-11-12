@@ -39,7 +39,13 @@ def validate_runtime(report: dict, sdk: str) -> str:
 def link_command(target: str, objects: list[Path], archives: list[Path], output: Path,
                  sdk: str, install_name: str) -> list[str]:
     command = ["xcrun", "--sdk", sdk, "clang", "-target", target, "-dynamiclib",
-               "-Wl,-dead_strip", "-Wl,-install_name," + install_name, "-o", str(output)]
+               # No -dead_strip. The relocatable image keeps each Java method as a local symbol,
+               # and the references between them live in GraalVM's own tables rather than in
+               # Mach-O relocations. The linker therefore sees methods that are only reached from
+               # Mixin-generated call sites, or only from a catch block, as unreferenced and
+               # removes them; the image then links, starts, and dies with NoSuchMethodError the
+               # first time such a method runs. Shipping the dead code is the correct trade.
+               "-Wl,-install_name," + install_name, "-o", str(output)]
     command += [str(p) for p in objects]
     command += [str(p) for p in archives]
     for framework in FRAMEWORKS:

@@ -82,9 +82,23 @@ final class MetalDevice implements GpuDeviceBackend {
         MetalPipeline.Key key=MetalPipeline.Key.of(pipeline);cached=pipelines.get(key);
         if(cached!=null&&cached.isValid()){if(source!=null)shaderIndex.program(pipeline,source,false);pipelineInstances.put(pipeline,cached);return cached;}
         if(shaderIndex==null)shaderIndex=new ShaderIndex();
+        // Diagnostics: a fresh compile of a pipeline the splash is drawing is exactly the
+        // situation the preload contract exists to prevent, so name the pipeline and where the
+        // source came from. The bundle is read-only, so this stays a stderr line.
+        System.err.println("[MCFAO_SHADER] compile "+pipeline.getLocation()+" src="+(source!=null?"explicit":(defaultShaderSource!=null?"default":"none")));
         MetalPipeline compiled=track(new MetalPipeline(this,pipeline,shaderIndex.program(pipeline,source==null?defaultShaderSource:source,source==null)));pipelines.put(key,compiled);pipelineInstances.put(pipeline,compiled);return compiled;
     }
-    public void clearPipelineCache(){outsidePass();for(MetalPipeline pipeline:List.copyOf(pipelines.values()))pipeline.close();pipelines.clear();pipelineInstances.clear();if(shaderIndex!=null)shaderIndex.clearSourceValidation();}
+    public void clearPipelineCache(){outsidePass();System.err.println("[MCFAO_SHADER] clearPipelineCache from "+caller());for(MetalPipeline pipeline:List.copyOf(pipelines.values()))pipeline.close();pipelines.clear();pipelineInstances.clear();if(shaderIndex!=null)shaderIndex.clearSourceValidation();}
+    private static String caller(){
+        StackTraceElement[] trace=new Throwable().getStackTrace();
+        StringBuilder text=new StringBuilder();
+        for(int index=1;index<trace.length&&index<5;index++){
+            if(text.length()!=0)text.append(" < ");
+            text.append(trace[index].getClassName()).append('#').append(trace[index].getMethodName())
+                .append(':').append(trace[index].getLineNumber());
+        }
+        return text.toString();
+    }
     public List<String> getEnabledExtensions(){return List.of();}
     public int getMaxSupportedAnisotropy(){return 16;}
     public void setVsync(boolean enabled){alive();if(!enabled)throw unsupported("disable display synchronization on iOS");}

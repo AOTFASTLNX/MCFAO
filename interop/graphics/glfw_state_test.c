@@ -8,7 +8,9 @@
 static int sizes, pixels, focused, chars, destroyed;
 static GLFWwindow *window;
 static int keyDown,keyUp;static double cursorX,cursorY;
+static int buttonDown,buttonUp;
 static void key(GLFWwindow *w,int k,int scan,int action,int mods){(void)scan;(void)mods;assert(w==window&&k=='W');if(action)keyDown++;else keyUp++;}
+static void mouseButton(GLFWwindow *w,int button,int action,int mods){(void)mods;assert(w==window&&button==0);if(action)buttonDown++;else buttonUp++;}
 static void cursor(GLFWwindow *w,double x,double y){assert(w==window);cursorX=x;cursorY=y;}
 void *faot_surface_create(GLFWwindow *w,int *a,int *b,int *c,int *d){(void)w;*a=390;*b=844;*c=1170;*d=2532;return malloc(1);}
 void faot_surface_destroy(void *p){free(p);destroyed++;}
@@ -54,8 +56,16 @@ int main(void){
     faot_glfw_enqueue(window,FAOT_EVENT_CURSOR_DELTA,4,-6,0,0);
     faot_glfw_enqueue(window,FAOT_EVENT_KEY,'W',0x1a,1,0);glfwPollEvents();
     assert(cursorX==24&&cursorY==24&&glfwGetKey(window,'W')&&keyDown==1);
+    glfwSetMouseButtonCallback(window,mouseButton);
+    faot_glfw_enqueue(window,FAOT_EVENT_BUTTON,0,1,0,0);glfwPollEvents();
+    assert(glfwGetMouseButton(window,0)&&buttonDown==1); /* malilib polls this every tick. */
+    assert(!glfwGetMouseButton(window,7)&&!glfwGetMouseButton(window,-1)&&!glfwGetMouseButton(window,8));
+    faot_glfw_enqueue(window,FAOT_EVENT_BUTTON,0,0,0,0);glfwPollEvents();
+    assert(!glfwGetMouseButton(window,0)&&buttonUp==1);
+    faot_glfw_enqueue(window,FAOT_EVENT_KEY,'W',0x1a,1,0);
     faot_glfw_enqueue(window,FAOT_EVENT_FOCUS,0,0,0,0);glfwPollEvents();
     assert(!glfwGetKey(window,'W')&&keyUp==1);
+    assert(!glfwGetMouseButton(window,0)); /* Losing focus also releases polled buttons. */
     glfwSetWindowSizeCallback(window,destroyOnResize);
     faot_glfw_enqueue(window,FAOT_EVENT_RESIZE,0,0,0,0);glfwPollEvents();
     assert(destroyed==1&&glfwGetCurrentContext()==NULL);
