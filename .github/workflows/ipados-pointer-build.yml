@@ -22,20 +22,30 @@ jobs:
       - name: Host GLFW event state regression
         run: |
           clang -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined \
-            -Iios/glfw-lite ios/glfw-lite/glfw_lite.c \
+            -Iios/glfw-lite ios/glfw-lite/glfw_lite.c ios/glfw-lite/pointer_state.c \
             interop/graphics/glfw_state_test.c -o out/glfw-state-test
           out/glfw-state-test | tee out/glfw-state-test.log
-      - name: Pointer source checks
+      - name: Host pointer policy state regression
+        run: |
+          clang -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined \
+            -Iios/glfw-lite ios/glfw-lite/pointer_state.c \
+            interop/graphics/pointer_state_test.c -o out/pointer-state-test
+          out/pointer-state-test | tee out/pointer-state-test.log
+          grep -q POINTER_STATE_PASS out/pointer-state-test.log
+      - name: Pointer source and iPad bundle checks
         run: |
           python3 -m unittest discover -s tests -p test_pointer_input_source.py -v \
             2>&1 | tee out/pointer-tests.log
           python3 -m unittest discover -s tests -p test_worlddevice_ci_inputs.py -v
+          python3 -m unittest discover -s tests -p test_ipad_native_contract.py -v \
+            2>&1 | tee out/ipad-native-tests.log
       - name: Compile iPhoneOS ARM64 input bridge
         run: |
           xcrun --sdk iphoneos clang -target arm64-apple-ios17.0 \
             -std=c11 -fobjc-arc -O2 -Wall -Wextra -Werror \
             -Wno-deprecated-declarations -dynamiclib \
-            ios/glfw-lite/glfw_lite.c ios/glfw-lite/uikit_surface.m \
+            ios/glfw-lite/glfw_lite.c ios/glfw-lite/pointer_state.c \
+            ios/glfw-lite/uikit_surface.m \
             -framework UIKit -framework QuartzCore -framework CoreGraphics \
             -framework Metal -framework GameController \
             -install_name @rpath/libglfw.dylib -o out/libglfw.dylib \
@@ -90,7 +100,8 @@ jobs:
         run: |
           xcrun --sdk iphoneos clang -target arm64-apple-ios17.0 \
             -std=c11 -fobjc-arc -O2 -Wall -Wextra -Werror -Wno-deprecated-declarations \
-            -dynamiclib ios/glfw-lite/glfw_lite.c ios/glfw-lite/uikit_surface.m \
+            -dynamiclib ios/glfw-lite/glfw_lite.c ios/glfw-lite/pointer_state.c \
+            ios/glfw-lite/uikit_surface.m \
             -framework UIKit -framework QuartzCore -framework CoreGraphics -framework Metal \
             -framework GameController -install_name @rpath/libglfw.dylib \
             -o artifacts/graphics/world-device-input-02/libglfw.dylib
@@ -100,9 +111,16 @@ jobs:
           xcodebuild -project ios/C0Harness/C0Harness.xcodeproj \
             -scheme WorldDevice -configuration 'World Device' -destination 'generic/platform=iOS' \
             -derivedDataPath "$PWD/out/DerivedData" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            -showBuildSettings 2>/dev/null | tee out/worlddevice-settings.log
+          grep -Eq 'TARGETED_DEVICE_FAMILY = 1,2' out/worlddevice-settings.log
+          xcodebuild -project ios/C0Harness/C0Harness.xcodeproj \
+            -scheme WorldDevice -configuration 'World Device' -destination 'generic/platform=iOS' \
+            -derivedDataPath "$PWD/out/DerivedData" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
             build 2>&1 | tee out/worlddevice-build.log
           app="$(find "$PWD/out/DerivedData/Build/Products" -name C0Harness.app -type d -print -quit)"
           test -n "$app"
+          python3 tools/verify_ipad_bundle.py --app "$app" --json | tee out/ipad-bundle-contract.json
+          /usr/libexec/PlistBuddy -c 'Print :UIDeviceFamily' "$app/Info.plist" | tee out/uid-family.txt
           test -s "$app/Frameworks/client-graph.dylib"
           test -s "$app/Frameworks/libglfw.dylib"
           test -s "$app/assets/indexes/30.json"
@@ -116,5 +134,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: worlddevice-build-logs
-          path: out/*.log
+          path: |
+            out/*.log
+            out/*.json
+            out/uid-family.txt
           if-no-files-found: warn

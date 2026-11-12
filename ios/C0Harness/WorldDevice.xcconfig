@@ -1,4 +1,4 @@
-// Local inputs prepared for the iPhone world test. See docs/BUILDING.md.
+// Local inputs prepared for the iPhone/iPad world test. See docs/BUILDING.md.
 FAOT_GRAPHICS_NATIVE_DIR = $(SRCROOT)/../../artifacts/graphics/world-device-input-02
 FAOT_CLIENT_LIBRARY = $(FAOT_GRAPHICS_NATIVE_DIR)/client-graph.dylib
 FAOT_GAME_ASSETS_DIR = $(SRCROOT)/../../artifacts/graphics/game-assets-01/assets
@@ -6,3 +6,7 @@ GCC_PREPROCESSOR_DEFINITIONS = $(inherited) FAOT_DEVICE_WORLD=1
 SDKROOT = iphoneos
 SUPPORTED_PLATFORMS = iphoneos
 INFOPLIST_FILE = Info.WorldSimulator.plist
+// The final app is a native iPad + iPhone bundle. Without 2 in this setting the
+// system runs the app in iPhone compatibility mode and iPad pointer lock is
+// unavailable. verify_ipad_bundle.sh checks the processed Info.plist too.
+TARGETED_DEVICE_FAMILY = 1,2
