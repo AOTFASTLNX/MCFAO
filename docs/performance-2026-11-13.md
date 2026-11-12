@@ -22,3 +22,13 @@ milliseconds per presented frame unless they are binding counts. The initial win
 loading; compare warmed-up windows in the same world/settings. Final-command GPU timing is
 not total GPU workload, and presentation interval includes pacing/GC and background pauses.
 These counters make bottlenecks inspectable without asking the user to transcribe F3 numbers.
+
+## Completed validation and delivery
+
+- Native code at b28d508 passes device/simulator compilation, the Metal GPU snapshot lifetime regression, and existing graphics/input/C0 tests. Launcher/editor simulator screenshots were captured and inspected; the landscape layout now keeps the launch action and settings visible together.
+- Checks: https://github.com/AOTFASTLNX/MCFAO/actions/runs/43265692059
+- Full AOT game build succeeded in CircleCI job 71 from source 66a1f09. Native libraries were byte-for-byte preserved while the UIKit launcher was refreshed from 805dd53 in the private signing pipeline. The refresh guard rejects changes outside launcher/CI/docs before reusing an AOT image.
+- Private refresh/sign run: https://github.com/zhangrongxue/mc-aot-sign/actions/runs/43266944897
+- v8 installed successfully over the same app on the USB-connected iPhone. All 37 backed-up world files retain their SHA-256 hashes after installation. The existing Documents asset index remains available.
+- Self-signable full-resource local deliverable: FabricAOT-game-unsigned-v8.ipa, 459653072 bytes, SHA-256 6e90a5883faa65d3cf113ea90f501b5ee112b2aee7e23247ca4760994562e1d6. All 4752 distinct indexed asset objects passed size/SHA-1 checks; ZIP integrity passed. Game binaries/assets are not committed here.
+- New device gameplay/FPS/thermal tests remain NOT RUN: the device returned a black screenshot and the developer launch request timed out. Host GPU correctness does not establish a game FPS improvement.
