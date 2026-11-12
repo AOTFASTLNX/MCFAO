@@ -41,7 +41,6 @@ typedef int (*faot_tear_down_t)(void *thread);
 /* Clamped so a 4 GiB phone keeps its native/Metal headroom. */
 static long FAOTSelectedHeapGiB(void) {
     NSInteger gib = [NSUserDefaults.standardUserDefaults integerForKey:@"FAOTMemoryGiB"];
-    if (gib <= 0) gib = [NSUserDefaults.standardUserDefaults integerForKey:@"reservedGiB"];
     if (gib <= 0) gib = 2;
     if (gib < 1) gib = 1;
     double physicalGiB = (double)NSProcessInfo.processInfo.physicalMemory / 1073741824.0;
@@ -49,6 +48,13 @@ static long FAOTSelectedHeapGiB(void) {
     if (cap < 1) cap = 1;
     if (gib > cap) gib = cap;
     return (long)gib;
+}
+
+/* GraalVM refuses a heap larger than the reserved address space, so reserve the heap plus one
+   GiB of headroom and take both numbers from this single place. */
+static unsigned long long FAOTReservedAddressSpaceBytes(void) {
+    unsigned long long heap = (unsigned long long)FAOTSelectedHeapGiB() * (1ULL << 30);
+    return heap + (1ULL << 30);
 }
 static NSString *FAOTDocuments(void) {
     return NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
@@ -204,17 +210,7 @@ static void FAOTInstallCrashHandlers(int fd) {
 }
 
 - (unsigned long long)reservedBytes {
-#if TARGET_OS_SIMULATOR
-    // An explicit test override does not persist into the user's settings.
-    NSString *requested = NSProcessInfo.processInfo.environment[@"FABRICAOT_SIMULATOR_HEAP_GIB"];
-    if ([@[@"1", @"2", @"4", @"6"] containsObject:requested ?: @""]) {
-        return requested.longLongValue * 1024ULL * 1024 * 1024;
-    }
-#endif
-    NSInteger index = self.spacePicker.selectedSegmentIndex;
-    NSInteger gib = index == 0 ? 1 : index == 1 ? 2 : index == 2 ? 4 : 6;
-    [NSUserDefaults.standardUserDefaults setInteger:gib forKey:@"reservedGiB"];
-    return (unsigned long long)gib * 1024 * 1024 * 1024;
+    return FAOTReservedAddressSpaceBytes();
 }
 
 - (void)refreshStatus {

@@ -99,7 +99,7 @@ NSString *FAOTPojavDefaultLayoutJSON(void) {
 
 + (NSString *)deviceMemoryCaption {
     double physicalGiB = (double)NSProcessInfo.processInfo.physicalMemory / 1073741824.0;
-    return [NSString stringWithFormat:@"Reserved address space (device %.0f GB)", physicalGiB];
+    return [NSString stringWithFormat:@"Java heap (device %.0f GB, reserve %.0f GB)", physicalGiB, MAX(1.0, floor(physicalGiB * 0.55))];
 }
 
 - (void)viewWillAppear:(BOOL)animated {
