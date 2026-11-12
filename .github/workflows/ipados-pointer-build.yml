@@ -1,9 +1,10 @@
-name: iPadOS mouse/trackpad bridge and IPA attempt
+name: iPadOS pointer checks and WorldDevice IPA verification
 
 on:
   push:
-    branches:
-      - fix/ipados-mouse-trackpad-look
+    branches: [main, fix/ipados-mouse-trackpad-look]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -11,32 +12,26 @@ permissions:
 
 jobs:
   verify-pointer-bridge:
+    name: Mouse and trackpad bridge tests
     runs-on: macos-15
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-
-      - name: Xcode toolchain
-        run: |
-          xcodebuild -version
-          xcrun --sdk iphoneos --show-sdk-version
-          mkdir -p out
-
+      - name: Prepare output directory
+        run: mkdir -p out
       - name: Host GLFW event state regression
         run: |
           clang -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined \
             -Iios/glfw-lite ios/glfw-lite/glfw_lite.c \
             interop/graphics/glfw_state_test.c -o out/glfw-state-test
           out/glfw-state-test | tee out/glfw-state-test.log
-
-      - name: Python pointer/source tests
+      - name: Pointer source checks
         run: |
           python3 -m unittest discover -s tests -p test_pointer_input_source.py -v \
             2>&1 | tee out/pointer-tests.log
-
-      - name: Build actual iPhoneOS ARM64 input bridge
+          python3 -m unittest discover -s tests -p test_worlddevice_ci_inputs.py -v
+      - name: Compile iPhoneOS ARM64 input bridge
         run: |
-          set -o pipefail
           xcrun --sdk iphoneos clang -target arm64-apple-ios17.0 \
             -std=c11 -fobjc-arc -O2 -Wall -Wextra -Werror \
             -Wno-deprecated-declarations -dynamiclib \
@@ -46,55 +41,80 @@ jobs:
             -install_name @rpath/libglfw.dylib -o out/libglfw.dylib \
             2>&1 | tee out/ios-glfw-build.log
           xcrun vtool -show-build out/libglfw.dylib | tee out/ios-glfw-platform.txt
-          file out/libglfw.dylib | tee out/ios-glfw-file.txt
-
-      - name: Attempt unsigned WorldDevice IPA from repository inputs
-        id: world
-        continue-on-error: true
-        run: |
-          set -o pipefail
-          echo "Attempting real WorldDevice build, NOT a dummy game." | tee out/ipa-status.txt
-          xcodebuild -project ios/C0Harness/C0Harness.xcodeproj \
-            -scheme WorldDevice -configuration "World Device" \
-            -destination 'generic/platform=iOS' \
-            -derivedDataPath "$PWD/out/DerivedData" \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
-            build 2>&1 | tee out/worlddevice-build.log
-          APP="$(find "$PWD/out/DerivedData/Build/Products" -name C0Harness.app -type d -print -quit)"
-          if [ -z "$APP" ]; then
-            echo "WorldDevice build returned no .app; full client assets/AOT libraries are not in repository." | tee -a out/ipa-status.txt
-            exit 1
-          fi
-          mkdir -p out/package/Payload
-          ditto "$APP" out/package/Payload/C0Harness.app
-          (cd out/package && zip -qr ../MCFAO-WorldDevice-unsigned.ipa Payload)
-          echo "IPA_CREATED_UNSIGNED (not installable without signing)" | tee -a out/ipa-status.txt
-
-      - name: Report IPA outcome
-        if: always()
-        run: |
-          if [ -f out/MCFAO-WorldDevice-unsigned.ipa ]; then
-            echo "Unsigned full WorldDevice IPA packaged successfully." >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "Full WorldDevice IPA NOT produced. See worlddevice-build.log: local AOT image, native graphics and licensed assets must be supplied before packaging." >> "$GITHUB_STEP_SUMMARY"
-            echo "IPA_NOT_PRODUCED" >> out/ipa-status.txt
-          fi
-
-      - name: Upload input bridge and logs
+      - name: Upload bridge evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ipados-pointer-build-evidence
-          path: |
-            out/*.log
-            out/*.txt
-            out/*.dylib
+          name: ipados-pointer-bridge-evidence
+          path: out/
           if-no-files-found: warn
 
-      - name: Upload unsigned WorldDevice IPA if actually built
-        if: steps.world.outcome == 'success'
+  worlddevice-inputs:
+    name: Check full IPA prerequisites
+    runs-on: macos-15
+    outputs:
+      available: ${{ steps.inputs.outputs.available }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: inputs
+        name: Identify missing local inputs
+        run: |
+          mkdir -p out
+          python3 tools/check_worlddevice_inputs.py | tee out/ipa-inputs.txt
+          if [ "$(head -n 1 out/ipa-inputs.txt)" = READY ]; then
+            echo 'available=true' >> "$GITHUB_OUTPUT"
+            echo 'Full IPA prerequisites are present; verification will run.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'available=false' >> "$GITHUB_OUTPUT"
+            echo 'SKIPPED: full IPA verification requires locally supplied game and AOT inputs.' >> "$GITHUB_STEP_SUMMARY"
+            cat out/ipa-inputs.txt >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: worlddevice-input-status
+          path: out/ipa-inputs.txt
+
+  verify-worlddevice-ipa:
+    name: Full WorldDevice IPA verification
+    needs: [verify-pointer-bridge, worlddevice-inputs]
+    if: needs.worlddevice-inputs.outputs.available == 'true'
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify inputs on this runner
+        run: |
+          python3 tools/check_worlddevice_inputs.py | tee ipa-inputs.txt
+          test "$(head -n 1 ipa-inputs.txt)" = READY
+      - name: Compile and embed current pointer bridge
+        run: |
+          xcrun --sdk iphoneos clang -target arm64-apple-ios17.0 \
+            -std=c11 -fobjc-arc -O2 -Wall -Wextra -Werror -Wno-deprecated-declarations \
+            -dynamiclib ios/glfw-lite/glfw_lite.c ios/glfw-lite/uikit_surface.m \
+            -framework UIKit -framework QuartzCore -framework CoreGraphics -framework Metal \
+            -framework GameController -install_name @rpath/libglfw.dylib \
+            -o artifacts/graphics/world-device-input-02/libglfw.dylib
+      - name: Build and verify unsigned WorldDevice IPA
+        run: |
+          mkdir -p out
+          xcodebuild -project ios/C0Harness/C0Harness.xcodeproj \
+            -scheme WorldDevice -configuration 'World Device' -destination 'generic/platform=iOS' \
+            -derivedDataPath "$PWD/out/DerivedData" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            build 2>&1 | tee out/worlddevice-build.log
+          app="$(find "$PWD/out/DerivedData/Build/Products" -name C0Harness.app -type d -print -quit)"
+          test -n "$app"
+          test -s "$app/Frameworks/client-graph.dylib"
+          test -s "$app/Frameworks/libglfw.dylib"
+          test -s "$app/assets/indexes/30.json"
+          mkdir -p out/package/Payload
+          ditto "$app" out/package/Payload/C0Harness.app
+          (cd out/package && zip -qr ../MCFAO-WorldDevice-unsigned.ipa Payload)
+          unzip -t out/MCFAO-WorldDevice-unsigned.ipa > out/ipa-zip-test.log
+          echo 'Unsigned WorldDevice IPA packaged; signing and device validation are still required.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload build logs
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: MCFAO-WorldDevice-unsigned-IPA
-          path: out/MCFAO-WorldDevice-unsigned.ipa
-          if-no-files-found: error
+          name: worlddevice-build-logs
+          path: out/*.log
+          if-no-files-found: warn
