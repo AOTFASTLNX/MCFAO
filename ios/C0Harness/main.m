@@ -46,7 +46,9 @@ static long FAOTMetalBudgetMiB(void) {
     double physicalGiB = (double)NSProcessInfo.processInfo.physicalMemory / 1073741824.0;
     double budget = physicalGiB * 0.15 * 1024.0;
     if (budget < 768) budget = 768;
-    if (budget > 1536) budget = 1536;
+    /* fabricaot.metal.ResourceBudget rejects anything outside 256..1024, and a rejected budget
+       aborts device creation before the first frame. */
+    if (budget > 1024) budget = 1024;
     return (long)budget;
 }
 
