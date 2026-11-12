@@ -94,6 +94,31 @@ static NSString *FAOTPhysicalMemoryText(void) {
     return [NSString stringWithFormat:@"%.1f GiB", bytes / 1073741824.0];
 }
 
+static NSString *FAOTSelectedLanguageCode(void) {
+    NSString *value = [NSUserDefaults.standardUserDefaults stringForKey:@"FAOTLanguage"];
+    if ([value isEqualToString:@"zh_cn"] || [value isEqualToString:@"ja_jp"] || [value isEqualToString:@"en_us"]) return value;
+    return @"en_us";
+}
+
+/* Minecraft persists the client language in options.txt. Update only that one key so the
+   original options, resource-pack choices and all vanilla UI assets remain untouched. */
+static void FAOTApplyLanguageToOptions(NSString *path, NSString *language) {
+    NSString *existing = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil] ?: @"";
+    NSArray<NSString *> *lines = [existing componentsSeparatedByString:@"\n"];
+    NSMutableArray<NSString *> *updated = [NSMutableArray arrayWithCapacity:lines.count + 1];
+    BOOL replaced = NO;
+    for (NSString *line in lines) {
+        if ([line hasPrefix:@"lang:"]) {
+            if (!replaced) { [updated addObject:[NSString stringWithFormat:@"lang:%@", language]]; replaced = YES; }
+        } else if (line.length > 0) {
+            [updated addObject:line];
+        }
+    }
+    if (!replaced) [updated addObject:[NSString stringWithFormat:@"lang:%@", language]];
+    NSString *result = [[updated componentsJoinedByString:@"\n"] stringByAppendingString:@"\n"];
+    [result writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil];
+}
+
 // ---------------------------------------------------------------------------------------------
 // Crash breadcrumbs. Graal installs its own handlers during isolate creation, so these may be
 // replaced; when they survive they tell us the signal instead of leaving a silent process death.
@@ -389,6 +414,8 @@ static void FAOTProbeReservations(FILE *logFile) {
         NSString *assets = [FAOTDocuments() stringByAppendingPathComponent:@"assets"];
 #endif
         [NSFileManager.defaultManager createDirectoryAtPath:game withIntermediateDirectories:YES attributes:nil error:nil];
+        NSString *language = FAOTSelectedLanguageCode();
+        FAOTApplyLanguageToOptions([game stringByAppendingPathComponent:@"options.txt"], language);
 #if TARGET_OS_SIMULATOR || defined(FAOT_DEVICE_WORLD)
         // Seed a modest profile on first launch. Minecraft owns this file after it exists.
         NSString *options = [game stringByAppendingPathComponent:@"options.txt"];
@@ -408,6 +435,8 @@ static void FAOTProbeReservations(FILE *logFile) {
             [NSString stringWithFormat:@"-Xmx%ldm", (long)(FAOTSelectedHeapGiB() * 1024)],
             [NSString stringWithFormat:@"-Dorg.lwjgl.librarypath=%@", frameworks],
             @"-Dorg.lwjgl.system.allocator=system",
+            [NSString stringWithFormat:@"-Duser.language=%@", [language substringToIndex:2]],
+            [NSString stringWithFormat:@"-Duser.country=%@", [language substringFromIndex:3].uppercaseString],
 #if TARGET_OS_SIMULATOR || defined(FAOT_DEVICE_WORLD)
             // 26.1.2 allocates 416 MiB of terrain heaps before drawing the first chunk.
             [NSString stringWithFormat:@"-Dfabricaot.metal.resourceBudgetMiB=%ld",
@@ -500,12 +529,13 @@ static void FAOTProbeReservations(FILE *logFile) {
     self.window = [[UIWindow alloc] initWithWindowScene:(UIWindowScene *)scene];
     FAOTLauncherViewController *launcher = [FAOTLauncherViewController new];
     __weak FAOTLauncherViewController *weakLauncher = launcher;
-    launcher.onLaunch = ^(NSString *playerName, NSInteger memoryGiB, NSString *layoutName) {
+    launcher.onLaunch = ^(NSString *playerName, NSInteger memoryGiB, NSString *layoutName, NSString *languageCode) {
         NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
         [defaults setObject:playerName forKey:@"FAOTPlayerName"];
         [defaults setInteger:memoryGiB forKey:@"FAOTMemoryGiB"];
         [defaults setInteger:memoryGiB forKey:@"reservedGiB"];  // the harness picker reads this
         [defaults setObject:layoutName forKey:@"FAOTControlLayout"];
+        [defaults setObject:languageCode forKey:@"FAOTLanguage"];
         FAOTHarnessController *harness = [FAOTHarnessController new];
         harness.modalPresentationStyle = UIModalPresentationFullScreen;
         [weakLauncher presentViewController:harness animated:YES completion:nil];

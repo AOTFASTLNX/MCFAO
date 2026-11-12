@@ -9,6 +9,7 @@
 NSString *const FAOTPlayerNameDefaultsKey = @"FAOTPlayerName";
 NSString *const FAOTMemoryGiBDefaultsKey = @"FAOTMemoryGiB";
 NSString *const FAOTControlLayoutDefaultsKey = @"FAOTControlLayout";
+NSString *const FAOTLanguageDefaultsKey = @"FAOTLanguage";
 
 #pragma mark - Pojav default layout
 
@@ -61,6 +62,7 @@ NSString *FAOTPojavDefaultLayoutJSON(void) {
 @interface FAOTLauncherViewController () <UITextFieldDelegate>
 @property (nonatomic, strong) UITextField *nameField;
 @property (nonatomic, strong) UISegmentedControl *memoryPicker;
+@property (nonatomic, strong) UISegmentedControl *languagePicker;
 @property (nonatomic, strong) UILabel *layoutLabel;
 @property (nonatomic, strong) UILabel *statusLabel;
 @property (nonatomic, strong) UIButton *launchButton;
@@ -193,6 +195,16 @@ NSString *FAOTPojavDefaultLayoutJSON(void) {
     [self.memoryPicker setTitleTextAttributes:@{NSForegroundColorAttributeName:UIColor.whiteColor} forState:UIControlStateNormal];
     [self.memoryPicker setTitleTextAttributes:@{NSForegroundColorAttributeName:UIColor.blackColor} forState:UIControlStateSelected];
 
+    UILabel *languageCaption = [UILabel new];
+    languageCaption.text = @"游戏语言";
+    languageCaption.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
+    languageCaption.textColor = [UIColor colorWithWhite:1.0 alpha:0.55];
+    self.languagePicker = [[UISegmentedControl alloc] initWithItems:@[@"简体中文", @"English", @"日本語"]];
+    self.languagePicker.selectedSegmentTintColor = [UIColor colorWithRed:0.6 green:0.95 blue:0.82 alpha:1];
+    self.languagePicker.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.08];
+    [self.languagePicker setTitleTextAttributes:@{NSForegroundColorAttributeName:UIColor.whiteColor} forState:UIControlStateNormal];
+    [self.languagePicker setTitleTextAttributes:@{NSForegroundColorAttributeName:UIColor.blackColor} forState:UIControlStateSelected];
+
     self.layoutLabel = [UILabel new];
     self.layoutLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightMedium];
     self.layoutLabel.textColor = UIColor.whiteColor;
@@ -235,7 +247,7 @@ NSString *FAOTPojavDefaultLayoutJSON(void) {
     UIStackView *hero = [[UIStackView alloc] initWithArrangedSubviews:@[title,subtitle,launch]];
     hero.axis = UILayoutConstraintAxisVertical;
     hero.spacing = 16;
-    UIStackView *settings = [[UIStackView alloc] initWithArrangedSubviews:@[self.nameField,memoryCaption,self.memoryPicker,self.layoutLabel,actions,self.statusLabel,diagnostics]];
+    UIStackView *settings = [[UIStackView alloc] initWithArrangedSubviews:@[self.nameField,memoryCaption,self.memoryPicker,languageCaption,self.languagePicker,self.layoutLabel,actions,self.statusLabel,diagnostics]];
     settings.axis = UILayoutConstraintAxisVertical;
     settings.spacing = 8;
     self.contentStack = [[UIStackView alloc] initWithArrangedSubviews:@[hero,settings]];
@@ -295,6 +307,10 @@ NSString *FAOTPojavDefaultLayoutJSON(void) {
         if (self.memoryOptions[i].integerValue <= memory) restoreIndex = i;
     }
     self.memoryPicker.selectedSegmentIndex = (NSInteger)restoreIndex;
+    NSString *language = [defaults stringForKey:FAOTLanguageDefaultsKey];
+    if ([language isEqualToString:@"zh_cn"]) self.languagePicker.selectedSegmentIndex = 0;
+    else if ([language isEqualToString:@"ja_jp"]) self.languagePicker.selectedSegmentIndex = 2;
+    else self.languagePicker.selectedSegmentIndex = 1;
     self.layoutName = [defaults stringForKey:FAOTControlLayoutDefaultsKey];
     if (self.layoutName.length == 0) self.layoutName = @"default";
     FAOTControlLayout *layout = [FAOTLauncherViewController activeLayout];
@@ -315,6 +331,8 @@ NSString *FAOTPojavDefaultLayoutJSON(void) {
     NSInteger memory = [self selectedMemoryGiB];
     [defaults setInteger:memory forKey:FAOTMemoryGiBDefaultsKey];
     [defaults setObject:self.layoutName forKey:FAOTControlLayoutDefaultsKey];
+    NSString *language = @[@"zh_cn", @"en_us", @"ja_jp"][(NSUInteger)MAX(0, self.languagePicker.selectedSegmentIndex)];
+    [defaults setObject:language forKey:FAOTLanguageDefaultsKey];
 }
 
 #pragma mark Actions
@@ -395,8 +413,9 @@ NSString *FAOTPojavDefaultLayoutJSON(void) {
     }
     if (self.onLaunch) {
         self.launchedInThisProcess = YES;
+        NSString *language = @[@"zh_cn", @"en_us", @"ja_jp"][(NSUInteger)MAX(0, self.languagePicker.selectedSegmentIndex)];
         self.onLaunch(self.nameField.text.length ? self.nameField.text : @"Dev",
-                      [self selectedMemoryGiB], self.layoutName);
+                      [self selectedMemoryGiB], self.layoutName, language);
     } else {
         self.statusLabel.text = @"No runtime host attached: main.m must set onLaunch.";
     }

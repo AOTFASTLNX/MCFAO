@@ -29,6 +29,9 @@
 
 @property(nonatomic,strong) id<MTLCommandBuffer> pending;
 @property(nonatomic,strong) id<MTLCommandBuffer> lastCommitted;
+// Keep a bounded two-frame pipeline. This removes the per-frame GPU completion stall while
+// preventing unbounded command-buffer growth and drawable starvation on slower devices.
+@property(nonatomic) dispatch_semaphore_t presentationSlots;
 @property(nonatomic,strong) id<MTLRenderCommandEncoder> renderEncoder;
 @property(nonatomic,strong) id<MTLTexture> activeColor;
 @property(nonatomic,strong) id<MTLTexture> activeDepth;
@@ -93,6 +96,7 @@ JNIEXPORT jlong JNICALL Java_fabricaot_metal_MetalNative_create(JNIEnv *env,jcla
         if(!layer||!layer.device){failure(env,"Window has no CAMetalLayer/MTLDevice");return 0;}
         FAOTMetalContext *ctx=[FAOTMetalContext new];ctx.sampleStarted=CACurrentMediaTime();ctx.layer=layer;ctx.device=layer.device;ctx.queue=[ctx.device newCommandQueue];
         if(!ctx.queue){failure(env,"MTLCommandQueue allocation failed");return 0;}
+        ctx.presentationSlots=dispatch_semaphore_create(2);
         return keep(ctx);
     }
 }
@@ -300,15 +304,31 @@ JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_presentFrame(JNIEnv *env
             MTLRenderPipelineDescriptor *desc=[MTLRenderPipelineDescriptor new];desc.vertexFunction=[library newFunctionWithName:@"faot_present_vertex"];desc.fragmentFunction=[library newFunctionWithName:@"faot_present_fragment"];desc.colorAttachments[0].pixelFormat=ctx.layer.pixelFormat;
             ctx.presentationPipeline=[ctx.device newRenderPipelineStateWithDescriptor:desc error:&error];if(!ctx.presentationPipeline){failure(env,error.localizedDescription.UTF8String);return;}
         }
+        // Wait only for an available in-flight slot, not for the previous frame's GPU
+        // completion. The command buffer retains every encoded texture/resource until done.
+        double slotStart=CACurrentMediaTime();
+        dispatch_semaphore_wait(ctx.presentationSlots, DISPATCH_TIME_FOREVER);
+        ctx.syncWaitSeconds+=CACurrentMediaTime()-slotStart;
         double drawableStart=CACurrentMediaTime();
         id<CAMetalDrawable> drawable=[ctx.layer nextDrawable];
         ctx.drawableWaitSeconds+=CACurrentMediaTime()-drawableStart;
-        if(!drawable){failure(env,"No drawable available for texture presentation");return;}
+        if(!drawable){dispatch_semaphore_signal(ctx.presentationSlots);failure(env,"No drawable available for texture presentation");return;}
         id<MTLTexture> output=drawable.texture;NSUInteger width=output.width,height=output.height;
         MTLRenderPassDescriptor *pass=[MTLRenderPassDescriptor renderPassDescriptor];pass.colorAttachments[0].texture=output;pass.colorAttachments[0].loadAction=MTLLoadActionDontCare;pass.colorAttachments[0].storeAction=MTLStoreActionStore;
         id<MTLCommandBuffer> pending=commands(ctx);id<MTLRenderCommandEncoder> encoder=[pending renderCommandEncoderWithDescriptor:pass];
+        if(!encoder){dispatch_semaphore_signal(ctx.presentationSlots);failure(env,"Metal presentation encoder creation failed");return;}
         [encoder setRenderPipelineState:ctx.presentationPipeline];[encoder setFragmentTexture:ctx.presentationSource atIndex:0];[encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];[encoder endEncoding];
-        [pending presentDrawable:drawable];ctx.presentationSource=nil;if(!submitAndWait(env,ctx))return;
+        [pending presentDrawable:drawable];
+        ctx.presentationSource=nil;
+        ctx.lastCommitted=pending;
+        [pending addCompletedHandler:^(id<MTLCommandBuffer> completed) {
+            if (completed.status == MTLCommandBufferStatusError) {
+                fprintf(stderr, "[Metal] asynchronous frame failed: %s\n", completed.error.localizedDescription.UTF8String ?: "unknown error");
+            }
+            dispatch_semaphore_signal(ctx.presentationSlots);
+        }];
+        ctx.pending=nil;
+        [pending commit];
         ctx.sampleFrames++;
         if(pending.GPUEndTime>=pending.GPUStartTime && pending.GPUStartTime>0)
             ctx.finalGpuSeconds+=pending.GPUEndTime-pending.GPUStartTime;

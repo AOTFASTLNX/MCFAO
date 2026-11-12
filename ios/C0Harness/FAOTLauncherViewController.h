@@ -11,12 +11,13 @@ NS_ASSUME_NONNULL_BEGIN
 extern NSString *const FAOTPlayerNameDefaultsKey;   // NSString
 extern NSString *const FAOTMemoryGiBDefaultsKey;    // NSNumber
 extern NSString *const FAOTControlLayoutDefaultsKey; // NSString, layout name under Documents/controlmap
+extern NSString *const FAOTLanguageDefaultsKey;       // NSString, Minecraft locale (en_us/zh_cn/ja_jp)
 
 @interface FAOTLauncherViewController : UIViewController
 
 /// Invoked by the 启动游戏 button. main.m wires this to the AOT harness. Arguments are the
-/// player name, the reserved address space in GiB and the chosen control layout name.
-@property (nonatomic, copy, nullable) void (^onLaunch)(NSString *playerName, NSInteger memoryGiB, NSString *layoutName);
+/// player name, memory in GiB, control layout name and Minecraft locale.
+@property (nonatomic, copy, nullable) void (^onLaunch)(NSString *playerName, NSInteger memoryGiB, NSString *layoutName, NSString *languageCode);
 
 + (FAOTControlLayout *)activeLayout;
 
