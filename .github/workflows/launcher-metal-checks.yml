@@ -26,8 +26,91 @@ jobs:
               ios/C0Harness/FAOTLauncherViewController.m ios/C0Harness/FAOTControlEditorViewController.m \
               ios/metal-bridge/metal_bridge.m
           done
+      - name: Execute Metal snapshot lifetime regression
+        run: |
+          clang -fobjc-arc tests/metal_snapshot_test.m -framework Foundation -framework Metal -o /tmp/metal-snapshot
+          /tmp/metal-snapshot
       - name: Graphics and input regression tests
         run: |
           python3 -m unittest discover -s tests -p test_graphics_bridge.py -v
           python3 -m unittest discover -s tests -p test_pointer_input_source.py -v
           python3 -m unittest discover -s tests -p test_c0_harness.py -v
+
+  screenshots:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build a minimal UIKit host for the launcher
+        run: |
+          set -euo pipefail
+          SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
+          APP="$PWD/build/FabricAOT.app"
+          mkdir -p "$APP"
+          cat > "$APP/Info.plist" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>CFBundleExecutable</key><string>FabricAOT</string>
+            <key>CFBundleIdentifier</key><string>dev.fabricaot.launcher.smoke</string>
+            <key>CFBundleName</key><string>FabricAOT</string>
+            <key>CFBundleShortVersionString</key><string>0.1</string>
+            <key>CFBundleVersion</key><string>1</string>
+            <key>MinimumOSVersion</key><string>17.0</string>
+            <key>UILaunchScreen</key><dict/>
+            <key>UISupportedInterfaceOrientations</key>
+            <array>
+              <string>UIInterfaceOrientationLandscapeLeft</string>
+              <string>UIInterfaceOrientationLandscapeRight</string>
+            </array>
+            <key>UIApplicationSceneManifest</key>
+            <dict><key>UIApplicationSupportsMultipleScenes</key><false/></dict>
+          </dict></plist>
+          PLIST
+          xcrun --sdk iphonesimulator clang \
+            -target arm64-apple-ios17.0-simulator -isysroot "$SDK" \
+            -fobjc-arc -O1 -Wall \
+            -I ios/C0Harness \
+            ios/C0Harness/FAOTControlLayout.m ios/C0Harness/FAOTControlsOverlay.m \
+            ios/C0Harness/FAOTLauncherViewController.m ios/C0Harness/FAOTControlEditorViewController.m \
+            tests/launcher_smoke_main.m \
+            -framework UIKit -framework Foundation -framework CoreGraphics -framework QuartzCore \
+            -o "$APP/FabricAOT"
+          codesign --force --sign - "$APP"
+          ls -la "$APP"
+
+      - name: Boot simulator and capture the screenshots
+        timeout-minutes: 15
+        run: |
+          set -euxo pipefail
+          # macOS has no coreutils `timeout`; perl's alarm is always present.
+          guard() { local seconds="$1"; shift; perl -e 'alarm shift; exec @ARGV' "$seconds" "$@"; }
+
+          UDID=$(guard 60 xcrun simctl create FabricAOTShot com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro com.apple.CoreSimulator.SimRuntime.iOS-18-5)
+          echo "UDID=$UDID" >> "$GITHUB_ENV"
+          guard 60 xcrun simctl boot "$UDID" || true
+          guard 240 xcrun simctl bootstatus "$UDID" -b || true
+          xcrun simctl list devices | grep -i fabricaot || true
+          guard 120 xcrun simctl install "$UDID" "$PWD/build/FabricAOT.app"
+
+          echo "== launcher =="
+          guard 60 xcrun simctl launch "$UDID" dev.fabricaot.launcher.smoke
+          sleep 8
+          guard 60 xcrun simctl io "$UDID" screenshot launcher.png || true
+          xcrun simctl terminate "$UDID" dev.fabricaot.launcher.smoke || true
+
+          echo "== editor =="
+          SIMCTL_CHILD_FAOT_SMOKE_MODE=editor guard 60 xcrun simctl launch "$UDID" dev.fabricaot.launcher.smoke || true
+          sleep 8
+          guard 60 xcrun simctl io "$UDID" screenshot editor.png || true
+          ls -la *.png
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launcher-screenshots
+          path: |
+            launcher.png
+            editor.png
+          if-no-files-found: warn

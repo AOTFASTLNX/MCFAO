@@ -132,9 +132,13 @@
         case UIGestureRecognizerStateCancelled: {
             CGFloat scale = recognizer.scale;
             button.transform = CGAffineTransformIdentity;
-            CGFloat side = button.bounds.size.width * scale;
-            side = MIN(MAX(side, 28.0), 120.0);
-            button.bounds = CGRectMake(0, 0, side, side);
+            // Preserve rectangular imported buttons instead of forcing every pinch
+            // to a square. Use the same size range as the explicit size editor.
+            CGFloat width = MIN(MAX(button.bounds.size.width * scale, 28.0), MIN(240.0, safe.size.width));
+            CGFloat height = MIN(MAX(button.bounds.size.height * scale, 28.0), MIN(240.0, safe.size.height));
+            button.bounds = CGRectMake(0, 0, width, height);
+            button.frame = CGRectMake(MIN(MAX(CGRectGetMinX(button.frame), CGRectGetMinX(safe)), CGRectGetMaxX(safe)-width),
+                                      MIN(MAX(CGRectGetMinY(button.frame), CGRectGetMinY(safe)), CGRectGetMaxY(safe)-height), width, height);
             [self commitGeometryForButton:button inRect:safe];
             break;
         }
