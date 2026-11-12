@@ -1,5 +1,7 @@
 # 当前状态（2026-11-10）
 
+2026-11-12 末地修复：pack-92 真机日志在创建龙时因 `DragonHoverPhase(EnderDragon)` 反射查询失败退出。现已补齐 11 个阶段的精确构造注册，pack-93 最终 AOT 配置为 149 条、阶段覆盖 11/11；构建为 `SIGNED_DEVICE_APP`，签名导出为 `DEVELOPMENT_IPA_VERIFIED`。IPA：`artifacts/mcfao/fabric-pack-93-end-fix-signed-ipa/export/FabricAOT World.ipa`。助手按用户要求未运行测试、模拟器或手机；用户于 2026-11-12 安装复测后明确确认“确实修好了”，本次末地加载闪退按用户真机反馈记为已修复。完整战斗、复活及长时稳定性不由此推定通过。新复测日志确认末地已就绪并可见，随后出现后台 GPU 提交被拒绝的独立崩溃，前后台渲染生命周期问题仍 OPEN。调查与后续加固见 [末地加载崩溃](END_DIMENSION_CRASH_PLAN.md)。
+
 **EXPERIMENTAL。A0/A1/B0/B1 PASS。原版单人玩法已在模拟器验证，正式真机 C0 仍为 BLOCKED。**
 
 当前实现和复现见 [BUILDING](BUILDING.md)，工具链决策见 [ADR-001](evidence/ADR-001.md)，原始记录见 [证据索引](evidence/README.md)。
