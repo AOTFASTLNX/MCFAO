@@ -23,7 +23,7 @@ xcodebuild -project ios/C0Harness/C0Harness.xcodeproj -scheme WorldDevice \
   -configuration 'World Device' -destination 'generic/platform=iOS' \
   -derivedDataPath "$WORK/DerivedData" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
   FAOT_CLIENT_LIBRARY="$BASE/Frameworks/client-graph.dylib" \
-  FAOT_GRAPHICS_NATIVE_DIR="$BASE/Frameworks" build > "$WORK/xcodebuild.log" 2>&1 || { tail -80 "$WORK/xcodebuild.log"; exit 1; }
+  FAOT_GRAPHICS_NATIVE_DIR="$BASE/Frameworks" FAOT_GAME_ASSETS_DIR="" build > "$WORK/xcodebuild.log" 2>&1 || { tail -80 "$WORK/xcodebuild.log"; exit 1; }
 APP="$WORK/DerivedData/Build/Products/World Device-iphoneos/C0Harness.app"
 test -f "$APP/C0Harness"
 if [ -d "$BASE/assets" ]; then ditto "$BASE/assets" "$APP/assets"; fi
