@@ -15,6 +15,9 @@
 @property(nonatomic,strong) id<MTLCommandQueue> queue;
 @property(nonatomic,strong) id<MTLCommandQueue> texelUploadQueue;
 @property(nonatomic,strong) CAMetalLayer *layer;
+@property(nonatomic,strong) dispatch_semaphore_t inFlight;
+@property(nonatomic,strong) NSMutableArray<id<MTLCommandBuffer>> *inFlightBuffers;
+@property(nonatomic,strong) NSError *asyncError;
 @property(nonatomic,strong) id<MTLCommandBuffer> pending;
 @property(nonatomic,strong) id<MTLCommandBuffer> lastCommitted;
 @property(nonatomic,strong) id<MTLRenderCommandEncoder> renderEncoder;
@@ -52,8 +55,40 @@ static id<MTLLibrary> utilityLibrary(JNIEnv *env, FAOTMetalContext *ctx) {
     return ctx.utilityLibrary;
 }
 static BOOL outsidePass(JNIEnv *env,FAOTMetalContext *ctx){if(ctx.renderEncoder){failure(env,"Metal operation inside render pass");return NO;}return YES;}
+
+/* Frames ride the GPU queue without blocking the render thread: at most three are in flight,
+   and the CPU only waits when the queue is full. Errors surface on the next submission. */
+static void FAOTDrainInFlight(FAOTMetalContext *ctx){
+    if(!ctx.inFlightBuffers)return;
+    for(id<MTLCommandBuffer> buffer in ctx.inFlightBuffers){[buffer waitUntilCompleted];}
+    [ctx.inFlightBuffers removeAllObjects];
+}
+static BOOL submitAsync(JNIEnv *env,FAOTMetalContext *ctx){
+    if(ctx.asyncError){NSError *error=ctx.asyncError;ctx.asyncError=nil;
+        failure(env,error.localizedDescription.UTF8String ?: "Metal command buffer failed");return NO;}
+    id<MTLCommandBuffer> buffer=ctx.pending;
+    if(!buffer)return YES;
+    ctx.pending=nil;
+    if(!ctx.inFlight)ctx.inFlight=dispatch_semaphore_create(3);
+    if(!ctx.inFlightBuffers)ctx.inFlightBuffers=[NSMutableArray array];
+    dispatch_semaphore_wait(ctx.inFlight,DISPATCH_TIME_FOREVER);
+    __weak FAOTMetalContext *weakCtx=ctx;
+    [buffer addCompletedHandler:^(id<MTLCommandBuffer> completed){
+        FAOTMetalContext *strongCtx=weakCtx;
+        if(!strongCtx)return;
+        if(completed.status==MTLCommandBufferStatusError)strongCtx.asyncError=completed.error;
+        [strongCtx.inFlightBuffers removeObjectIdenticalTo:completed];
+        dispatch_semaphore_signal(strongCtx.inFlight);
+    }];
+    [ctx.inFlightBuffers addObject:buffer];
+    ctx.lastCommitted=buffer;
+    [buffer commit];
+    return YES;
+}
+
 static BOOL submitAndWait(JNIEnv *env,FAOTMetalContext *ctx){
     if(!outsidePass(env,ctx))return NO;
+    FAOTDrainInFlight(ctx);
     if(ctx.pending){ctx.lastCommitted=ctx.pending;ctx.pending=nil;[ctx.lastCommitted commit];}
     if(ctx.lastCommitted){[ctx.lastCommitted waitUntilCompleted];if(ctx.lastCommitted.status==MTLCommandBufferStatusError){failure(env,ctx.lastCommitted.error.localizedDescription.UTF8String);return NO;}}
     return YES;
@@ -75,6 +110,9 @@ JNIEXPORT jlong JNICALL Java_fabricaot_metal_MetalNative_create(JNIEnv *env,jcla
     (void)cls;
     @autoreleasepool {
         CAMetalLayer *layer=(__bridge CAMetalLayer *)faot_glfw_metal_layer((GLFWwindow *)(uintptr_t)window);
+        layer.maximumDrawableCount=3;
+        layer.framebufferOnly=YES;
+        layer.allowsNextDrawableTimeout=NO;
         if(!layer||!layer.device){failure(env,"Window has no CAMetalLayer/MTLDevice");return 0;}
         FAOTMetalContext *ctx=[FAOTMetalContext new];ctx.layer=layer;ctx.device=layer.device;ctx.queue=[ctx.device newCommandQueue];
         if(!ctx.queue){failure(env,"MTLCommandQueue allocation failed");return 0;}
@@ -223,7 +261,7 @@ JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_debugGroup(JNIEnv *env,j
     (void)cls;FAOTMetalContext *ctx=context(handle);if(!ctx.renderEncoder){failure(env,"No active Metal render pass");return;}
     if(push){const char *s=(*env)->GetStringUTFChars(env,label,NULL);if(!s)return;[ctx.renderEncoder pushDebugGroup:[NSString stringWithUTF8String:s]];(*env)->ReleaseStringUTFChars(env,label,s);}else[ctx.renderEncoder popDebugGroup];
 }
-JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_synchronize(JNIEnv *env,jclass cls,jlong handle){(void)cls;@autoreleasepool{submitAndWait(env,context(handle));}}
+JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_synchronize(JNIEnv *env,jclass cls,jlong handle){(void)cls;@autoreleasepool{FAOTMetalContext *ctx=context(handle);submitAndWait(env,ctx);FAOTDrainInFlight(ctx);}}
 JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_writeTexture(JNIEnv *env,jclass cls,jlong handle,jlong target,jint mip,jint layer,jint x,jint y,jint width,jint height,jlong data,jint sourceStride,jint components){
     (void)cls;@autoreleasepool {FAOTMetalContext *ctx=context(handle);if(!outsidePass(env,ctx))return;id<MTLTexture> destination=texture(target);
         NSUInteger bytes=pixelBytes(destination);
@@ -290,7 +328,7 @@ JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_presentFrame(JNIEnv *env
         MTLRenderPassDescriptor *pass=[MTLRenderPassDescriptor renderPassDescriptor];pass.colorAttachments[0].texture=output;pass.colorAttachments[0].loadAction=MTLLoadActionDontCare;pass.colorAttachments[0].storeAction=MTLStoreActionStore;
         id<MTLCommandBuffer> pending=commands(ctx);id<MTLRenderCommandEncoder> encoder=[pending renderCommandEncoderWithDescriptor:pass];
         [encoder setRenderPipelineState:ctx.presentationPipeline];[encoder setFragmentTexture:ctx.presentationSource atIndex:0];[encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];[encoder endEncoding];
-        [pending presentDrawable:drawable];ctx.presentationSource=nil;if(!submitAndWait(env,ctx))return;
+        [pending presentDrawable:drawable];ctx.presentationSource=nil;if(!submitAsync(env,ctx))return;
         if(!ctx.presentationLogged){ctx.presentationLogged=YES;fprintf(stderr,"[Metal] TEXTURE_FRAME_PRESENTED %lux%lu\n",(unsigned long)width,(unsigned long)height);}
     }
 }
