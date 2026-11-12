@@ -117,8 +117,8 @@ NSString *FAOTPojavDefaultLayoutJSON(void) {
     memoryCaption.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
     memoryCaption.textColor = [UIColor colorWithWhite:1.0 alpha:0.55];
 
-    self.memoryPicker = [[UISegmentedControl alloc] initWithItems:@[@"1G", @"2G", @"4G", @"6G"]];
-    self.memoryPicker.selectedSegmentIndex = 1;
+    self.memoryPicker = [[UISegmentedControl alloc] initWithItems:@[@"1G", @"2G", @"3G"]];
+    self.memoryPicker.selectedSegmentIndex = MIN(1, self.memoryPicker.numberOfSegments - 1);
     self.memoryPicker.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.08];
 
     self.layoutLabel = [UILabel new];
@@ -239,7 +239,7 @@ NSString *FAOTPojavDefaultLayoutJSON(void) {
     self.nameField.text = name.length ? name : @"Dev";
     NSInteger memory = [defaults integerForKey:FAOTMemoryGiBDefaultsKey];
     if (memory <= 0) memory = 2;
-    self.memoryPicker.selectedSegmentIndex = (memory == 1) ? 0 : (memory == 2) ? 1 : (memory == 4) ? 2 : 3;
+    self.memoryPicker.selectedSegmentIndex = (memory <= 1) ? 0 : (memory == 2) ? 1 : 2;
     self.layoutName = [defaults stringForKey:FAOTControlLayoutDefaultsKey];
     if (self.layoutName.length == 0) self.layoutName = @"default";
     FAOTControlLayout *layout = [FAOTLauncherViewController activeLayout];
@@ -248,9 +248,9 @@ NSString *FAOTPojavDefaultLayoutJSON(void) {
 }
 
 - (NSInteger)selectedMemoryGiB {
-    static const NSInteger values[] = {1, 2, 4, 6};
+    static const NSInteger values[] = {1, 2, 3};
     NSInteger index = self.memoryPicker.selectedSegmentIndex;
-    if (index < 0 || index > 3) index = 1;
+    if (index < 0 || index > 2) index = 1;
     return values[index];
 }
 

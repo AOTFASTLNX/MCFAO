@@ -441,7 +441,7 @@ static CGFloat FAOTEvaluateExpression(NSString *expression, NSDictionary<NSStrin
 
 - (CGRect)frameForControl:(FAOTControlModel *)control inRect:(CGRect)safeArea {
     CGFloat width = MAX(28.0, control.width * safeArea.size.width);
-    CGFloat height = MAX(28.0, control.height * safeArea.size.width);
+    CGFloat height = MAX(28.0, control.height * safeArea.size.height);
     CGFloat x = safeArea.origin.x + control.x * safeArea.size.width;
     CGFloat y = safeArea.origin.y + control.y * safeArea.size.height;
     // Keep a dragged button inside the safe area instead of letting it fall off-screen.

@@ -37,6 +37,16 @@ typedef int (*faot_create_isolate_t)(void *params, void **isolate, void **thread
 typedef int (*faot_run_main_t)(int argc, char **argv);
 typedef int (*faot_tear_down_t)(void *thread);
 
+
+/* Clamped so a 4 GiB phone keeps its native/Metal headroom. */
+static long FAOTSelectedHeapGiB(void) {
+    NSInteger gib = [NSUserDefaults.standardUserDefaults integerForKey:@"FAOTMemoryGiB"];
+    if (gib <= 0) gib = [NSUserDefaults.standardUserDefaults integerForKey:@"reservedGiB"];
+    if (gib <= 0) gib = 2;
+    if (gib < 1) gib = 1;
+    if (gib > 3) gib = 3;
+    return (long)gib;
+}
 static NSString *FAOTDocuments(void) {
     return NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
 }
@@ -378,6 +388,9 @@ static void FAOTProbeReservations(FILE *logFile) {
         NSMutableArray<NSString *> *argvList = [NSMutableArray arrayWithArray:@[
             @"fabricaot-c0",
             [NSString stringWithFormat:@"-XX:ReservedAddressSpaceSize=%llu", reserved],
+            /* The launcher's memory picker becomes the runtime heap cap. The image defaults to a
+               fixed maximum, so without this the picker had no effect at all. */
+            [NSString stringWithFormat:@"-Xmx%ldm", (long)(FAOTSelectedHeapGiB() * 1024)],
             [NSString stringWithFormat:@"-Dorg.lwjgl.librarypath=%@", frameworks],
             @"-Dorg.lwjgl.system.allocator=system",
 #if TARGET_OS_SIMULATOR || defined(FAOT_DEVICE_WORLD)
