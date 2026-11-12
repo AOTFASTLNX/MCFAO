@@ -1,6 +1,7 @@
 #import <Metal/Metal.h>
 #import <TargetConditionals.h>
 #import <QuartzCore/CAMetalLayer.h>
+#import <QuartzCore/QuartzCore.h>
 #include <jni.h>
 #import <objc/message.h>
 #include <stdint.h>
@@ -15,6 +16,9 @@
 @property(nonatomic,strong) id<MTLDevice> device;
 @property(nonatomic,strong) id<MTLCommandQueue> queue;
 @property(nonatomic,strong) id<MTLCommandQueue> texelUploadQueue;
+// Render-thread-owned counters; one log per 300 presented frames, never per draw.
+@property(nonatomic) NSUInteger sampleFrames, sharedTexelBindings, privateTexelBindings;
+@property(nonatomic) double sampleStarted, syncWaitSeconds, drawableWaitSeconds, uploadWaitSeconds, finalGpuSeconds;
 @property(nonatomic,strong) CAMetalLayer *layer;
 
 @property(nonatomic,strong) id<MTLCommandBuffer> pending;
@@ -58,7 +62,7 @@ static BOOL outsidePass(JNIEnv *env,FAOTMetalContext *ctx){if(ctx.renderEncoder)
 static BOOL submitAndWait(JNIEnv *env,FAOTMetalContext *ctx){
     if(!outsidePass(env,ctx))return NO;
     if(ctx.pending){ctx.lastCommitted=ctx.pending;ctx.pending=nil;[ctx.lastCommitted commit];}
-    if(ctx.lastCommitted){[ctx.lastCommitted waitUntilCompleted];if(ctx.lastCommitted.status==MTLCommandBufferStatusError){failure(env,ctx.lastCommitted.error.localizedDescription.UTF8String);return NO;}}
+    if(ctx.lastCommitted){double start=CACurrentMediaTime();[ctx.lastCommitted waitUntilCompleted];ctx.syncWaitSeconds+=CACurrentMediaTime()-start;if(ctx.lastCommitted.status==MTLCommandBufferStatusError){failure(env,ctx.lastCommitted.error.localizedDescription.UTF8String);return NO;}}
     return YES;
 }
 static NSUInteger pixelBytes(id<MTLTexture> value){switch(value.pixelFormat){case MTLPixelFormatRGBA8Unorm:case MTLPixelFormatDepth32Float:return 4;case MTLPixelFormatR8Unorm:case MTLPixelFormatR8Sint:return 1;default:return 0;}}
@@ -81,7 +85,7 @@ JNIEXPORT jlong JNICALL Java_fabricaot_metal_MetalNative_create(JNIEnv *env,jcla
         layer.maximumDrawableCount=3;
         layer.framebufferOnly=YES;
         if(!layer||!layer.device){failure(env,"Window has no CAMetalLayer/MTLDevice");return 0;}
-        FAOTMetalContext *ctx=[FAOTMetalContext new];ctx.layer=layer;ctx.device=layer.device;ctx.queue=[ctx.device newCommandQueue];
+        FAOTMetalContext *ctx=[FAOTMetalContext new];ctx.sampleStarted=CACurrentMediaTime();ctx.layer=layer;ctx.device=layer.device;ctx.queue=[ctx.device newCommandQueue];
         if(!ctx.queue){failure(env,"MTLCommandQueue allocation failed");return 0;}
         return keep(ctx);
     }
@@ -290,12 +294,27 @@ JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_presentFrame(JNIEnv *env
             MTLRenderPipelineDescriptor *desc=[MTLRenderPipelineDescriptor new];desc.vertexFunction=[library newFunctionWithName:@"faot_present_vertex"];desc.fragmentFunction=[library newFunctionWithName:@"faot_present_fragment"];desc.colorAttachments[0].pixelFormat=ctx.layer.pixelFormat;
             ctx.presentationPipeline=[ctx.device newRenderPipelineStateWithDescriptor:desc error:&error];if(!ctx.presentationPipeline){failure(env,error.localizedDescription.UTF8String);return;}
         }
-        id<CAMetalDrawable> drawable=[ctx.layer nextDrawable];if(!drawable){failure(env,"No drawable available for texture presentation");return;}
+        double drawableStart=CACurrentMediaTime();
+        id<CAMetalDrawable> drawable=[ctx.layer nextDrawable];
+        ctx.drawableWaitSeconds+=CACurrentMediaTime()-drawableStart;
+        if(!drawable){failure(env,"No drawable available for texture presentation");return;}
         id<MTLTexture> output=drawable.texture;NSUInteger width=output.width,height=output.height;
         MTLRenderPassDescriptor *pass=[MTLRenderPassDescriptor renderPassDescriptor];pass.colorAttachments[0].texture=output;pass.colorAttachments[0].loadAction=MTLLoadActionDontCare;pass.colorAttachments[0].storeAction=MTLStoreActionStore;
         id<MTLCommandBuffer> pending=commands(ctx);id<MTLRenderCommandEncoder> encoder=[pending renderCommandEncoderWithDescriptor:pass];
         [encoder setRenderPipelineState:ctx.presentationPipeline];[encoder setFragmentTexture:ctx.presentationSource atIndex:0];[encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];[encoder endEncoding];
         [pending presentDrawable:drawable];ctx.presentationSource=nil;if(!submitAndWait(env,ctx))return;
+        ctx.sampleFrames++;
+        if(pending.GPUEndTime>=pending.GPUStartTime && pending.GPUStartTime>0)
+            ctx.finalGpuSeconds+=pending.GPUEndTime-pending.GPUStartTime;
+        if(ctx.sampleFrames>=300){
+            double now=CACurrentMediaTime(), factor=1000.0/ctx.sampleFrames;
+            fprintf(stderr,"[MetalPerf] frames=%lu interval_ms=%.3f submit_wait_ms=%.3f drawable_wait_ms=%.3f final_command_gpu_ms=%.3f texel_shared=%.2f texel_private=%.2f texel_upload_wait_ms=%.3f\n",
+                (unsigned long)ctx.sampleFrames,(now-ctx.sampleStarted)*factor,ctx.syncWaitSeconds*factor,
+                ctx.drawableWaitSeconds*factor,ctx.finalGpuSeconds*factor,
+                (double)ctx.sharedTexelBindings/ctx.sampleFrames,(double)ctx.privateTexelBindings/ctx.sampleFrames,ctx.uploadWaitSeconds*factor);
+            ctx.sampleFrames=0;ctx.sharedTexelBindings=0;ctx.privateTexelBindings=0;
+            ctx.syncWaitSeconds=0;ctx.drawableWaitSeconds=0;ctx.uploadWaitSeconds=0;ctx.finalGpuSeconds=0;ctx.sampleStarted=now;
+        }
         if(!ctx.presentationLogged){ctx.presentationLogged=YES;fprintf(stderr,"[Metal] TEXTURE_FRAME_PRESENTED %lux%lu\n",(unsigned long)width,(unsigned long)height);}
     }
 }
@@ -421,7 +440,9 @@ JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_bindTexelBuffer(JNIEnv *
         desc.storageMode=MTLStorageModeShared;
         view=[staging newTextureWithDescriptor:desc offset:0 bytesPerRow:stride];
 #endif
+        if(view)ctx.sharedTexelBindings++;
         if(!view){
+            ctx.privateTexelBindings++;
             // Simulator and devices without shared texture-buffer views retain the
             // proven private upload path. Never wait on UIKit's main queue here.
             id<MTLBuffer> snapshot=[ctx.device newBufferWithLength:stride options:MTLResourceStorageModePrivate];
@@ -433,7 +454,7 @@ JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_bindTexelBuffer(JNIEnv *
             id<MTLCommandBuffer> upload=[ctx.texelUploadQueue commandBuffer];id<MTLBlitCommandEncoder> transfer=[upload blitCommandEncoder];
             if(!transfer){failure(env,"Metal texel buffer upload encoder allocation failed");return;}
             [transfer copyFromBuffer:staging sourceOffset:0 toBuffer:snapshot destinationOffset:0 size:stride];
-            [transfer endEncoding];[upload commit];[upload waitUntilCompleted];
+            [transfer endEncoding];[upload commit];double uploadStart=CACurrentMediaTime();[upload waitUntilCompleted];ctx.uploadWaitSeconds+=CACurrentMediaTime()-uploadStart;
             if(upload.status!=MTLCommandBufferStatusCompleted){failure(env,"Metal texel buffer upload failed");return;}
         }
         if(stage==0)[ctx.renderEncoder setVertexTexture:view atIndex:index];else[ctx.renderEncoder setFragmentTexture:view atIndex:index];

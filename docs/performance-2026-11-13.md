@@ -12,3 +12,13 @@ Validation: Windows cannot compile UIKit/Metal. A macOS workflow checks both dev
 Apple references:
 - https://developer.apple.com/library/archive/documentation/Miscellaneous/Conceptual/MetalProgrammingGuide/Cmd-Submiss/Cmd-Submiss.html
 - https://developer.apple.com/documentation/metal/mtlbuffer/maketexture(descriptor:offset:bytesperrow:)
+
+## Native timing telemetry
+
+Every 300 successfully presented frames, `[MetalPerf]` reports mean presentation interval,
+CPU submit-wait, drawable acquisition wait, GPU time for the final graphics command buffer,
+shared/private texel bindings per frame, and CPU time blocked on fallback uploads. Values are
+milliseconds per presented frame unless they are binding counts. The initial window includes
+loading; compare warmed-up windows in the same world/settings. Final-command GPU timing is
+not total GPU workload, and presentation interval includes pacing/GC and background pauses.
+These counters make bottlenecks inspectable without asking the user to transcribe F3 numbers.
