@@ -26,6 +26,7 @@
 #import <sys/sysctl.h>
 #import <unistd.h>
 #include "log_file.h"
+#import "FAOTLauncherViewController.h"
 
 // A single process can only ever host one Graal isolate; later attempts return an error.
 // The reservation must be bounded because Graal otherwise asks for at least 32 GiB, which
@@ -383,7 +384,7 @@ static void FAOTProbeReservations(FILE *logFile) {
             // 26.1.2 allocates 416 MiB of terrain heaps before drawing the first chunk.
             @"-Dfabricaot.metal.resourceBudgetMiB=768",
 #endif
-            @"--username", @"Dev", @"--version", @"26.1.2",
+            @"--username", [NSUserDefaults.standardUserDefaults stringForKey:@"FAOTPlayerName"] ?: @"Dev", @"--version", @"26.1.2",
             @"--gameDir", game, @"--assetsDir", assets, @"--assetIndex", @"30",
             @"--uuid", @"00000000000000000000000000000000",
             @"--accessToken", @"0", @"--userType", @"legacy", @"--versionType", @"release",
@@ -468,7 +469,19 @@ static void FAOTProbeReservations(FILE *logFile) {
       options:(UISceneConnectionOptions *)options {
     if (![scene isKindOfClass:UIWindowScene.class]) return;
     self.window = [[UIWindow alloc] initWithWindowScene:(UIWindowScene *)scene];
-    self.window.rootViewController = [FAOTHarnessController new];
+    FAOTLauncherViewController *launcher = [FAOTLauncherViewController new];
+    __weak FAOTLauncherViewController *weakLauncher = launcher;
+    launcher.onLaunch = ^(NSString *playerName, NSInteger memoryGiB, NSString *layoutName) {
+        NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+        [defaults setObject:playerName forKey:@"FAOTPlayerName"];
+        [defaults setInteger:memoryGiB forKey:@"FAOTMemoryGiB"];
+        [defaults setInteger:memoryGiB forKey:@"reservedGiB"];  // the harness picker reads this
+        [defaults setObject:layoutName forKey:@"FAOTControlLayout"];
+        FAOTHarnessController *harness = [FAOTHarnessController new];
+        harness.modalPresentationStyle = UIModalPresentationFullScreen;
+        [weakLauncher presentViewController:harness animated:YES completion:nil];
+    };
+    self.window.rootViewController = launcher;
     [self.window makeKeyAndVisible];
 }
 @end

@@ -274,6 +274,7 @@ JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_presentTexture(JNIEnv *e
     if(source.pixelFormat!=MTLPixelFormatRGBA8Unorm||source.textureType!=MTLTextureType2D){failure(env,"Presentation requires an RGBA8 2D texture view");return;}
     ctx.presentationSource=source;
 }
+JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_setDisplaySync(JNIEnv *env,jclass cls,jlong handle,jboolean enabled){(void)env;(void)cls;FAOTMetalContext *ctx=context(handle);if(!ctx.layer)return;@autoreleasepool{if([ctx.layer respondsToSelector:@selector(setDisplaySyncEnabled:)])[(id)ctx.layer setDisplaySyncEnabled:(enabled==JNI_TRUE)];else ctx.layer.pixelsPerSecond=(enabled==JNI_TRUE?60:1000)*1000*1000;}}
 JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_presentFrame(JNIEnv *env,jclass cls,jlong handle){
     (void)cls;@autoreleasepool {FAOTMetalContext *ctx=context(handle);if(!outsidePass(env,ctx))return;
         if(!ctx.presentationSource){failure(env,"No texture was queued for Metal presentation");return;}

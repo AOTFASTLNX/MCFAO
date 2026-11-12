@@ -87,7 +87,8 @@ final class MetalDevice implements GpuDeviceBackend {
     public void clearPipelineCache(){outsidePass();for(MetalPipeline pipeline:List.copyOf(pipelines.values()))pipeline.close();pipelines.clear();pipelineInstances.clear();if(shaderIndex!=null)shaderIndex.clearSourceValidation();}
     public List<String> getEnabledExtensions(){return List.of();}
     public int getMaxSupportedAnisotropy(){return 16;}
-    public void setVsync(boolean enabled){alive();if(!enabled)throw unsupported("disable display synchronization on iOS");}
+    public void setVsync(boolean enabled){alive();vsync=enabled;MetalNative.setDisplaySync(context,enabled);}
+    private boolean vsync=true;
     public void presentFrame(){outsidePass();MetalNative.presentFrame(context);}
     public boolean isZZeroToOne(){return true;}
     public void close(){

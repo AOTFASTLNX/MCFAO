@@ -31,6 +31,7 @@ final class MetalNative {
     static native boolean awaitFence(long fence,long timeoutNanos);
     static native void presentTexture(long context,long view);
     static native void presentFrame(long context);
+    static native void setDisplaySync(long context, boolean enabled);
     static native void clearDiagnosticFrame(long context,float r,float g,float b,float a);
     static native void release(long object);
 }

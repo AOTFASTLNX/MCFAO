@@ -30,7 +30,7 @@ def main(argv=None):
     binary=output/"libglfw.dylib"
     cmd=["xcrun","--sdk",args.sdk,"clang","-target",target,"-std=c11","-fobjc-arc","-O2",
          "-Wall","-Wextra","-Werror","-Wno-deprecated-declarations","-dynamiclib",
-         str(source/"glfw_lite.c"),str(source/"uikit_surface.m"),"-framework","UIKit",
+         str(source/"glfw_lite.c"),str(source/"uikit_surface.m"),"-framework","UIKit","-framework","Foundation",
          "-framework","QuartzCore","-framework","CoreGraphics","-framework","Metal","-framework","GameController","-install_name","@rpath/libglfw.dylib","-o",str(binary)]
     result={"status":"BLOCKED","gateC0":"BLOCKED","target":target,
             "scope":"GLFW native subset only; no Java bridge or Minecraft renderer acceptance",

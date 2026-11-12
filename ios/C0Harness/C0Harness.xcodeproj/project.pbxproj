@@ -7,6 +7,14 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A2000000000000000000090E /* FAOTControlEditorViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000090C /* FAOTControlEditorViewController.m */; };
+		A2000000000000000000090D /* FAOTControlEditorViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000090C /* FAOTControlEditorViewController.m */; };
+		A2000000000000000000090B /* FAOTLauncherViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000909 /* FAOTLauncherViewController.m */; };
+		A2000000000000000000090A /* FAOTLauncherViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000909 /* FAOTLauncherViewController.m */; };
+		A20000000000000000000907 /* FAOTControlsOverlay.m in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000905 /* FAOTControlsOverlay.m */; };
+		A20000000000000000000906 /* FAOTControlsOverlay.m in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000905 /* FAOTControlsOverlay.m */; };
+		A20000000000000000000903 /* FAOTControlLayout.m in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000901 /* FAOTControlLayout.m */; };
+		A20000000000000000000902 /* FAOTControlLayout.m in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000901 /* FAOTControlLayout.m */; };
 		A20000000000000000000001 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* main.m */; };
 		A200000000000000000000A7 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* main.m */; };
 		A20000000000000000000004 /* client-graph.dylib in Embed Native Runtime */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013 /* client-graph.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
@@ -50,6 +58,13 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		A2000000000000000000090C /* FAOTControlEditorViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FAOTControlEditorViewController.m; sourceTree = "<group>"; };
+		A20000000000000000000909 /* FAOTLauncherViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FAOTLauncherViewController.m; sourceTree = "<group>"; };
+		A20000000000000000000908 /* FAOTLauncherViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FAOTLauncherViewController.h; sourceTree = "<group>"; };
+		A20000000000000000000905 /* FAOTControlsOverlay.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FAOTControlsOverlay.m; sourceTree = "<group>"; };
+		A20000000000000000000904 /* FAOTControlsOverlay.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FAOTControlsOverlay.h; sourceTree = "<group>"; };
+		A20000000000000000000901 /* FAOTControlLayout.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FAOTControlLayout.m; sourceTree = "<group>"; };
+		A20000000000000000000900 /* FAOTControlLayout.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FAOTControlLayout.h; sourceTree = "<group>"; };
 		A20000000000000000000011 /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
 		A20000000000000000000013 /* client-graph.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = "client-graph.dylib"; path = "$(FAOT_CLIENT_LIBRARY)"; sourceTree = "<absolute>"; };
 		A20000000000000000000014 /* C0Harness.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = C0Harness.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -78,6 +93,13 @@
 			isa = PBXGroup;
 			children = (
 				A20000000000000000000011 /* main.m */,
+				A20000000000000000000900 /* FAOTControlLayout.h */,
+				A20000000000000000000901 /* FAOTControlLayout.m */,
+				A20000000000000000000904 /* FAOTControlsOverlay.h */,
+				A20000000000000000000905 /* FAOTControlsOverlay.m */,
+				A20000000000000000000908 /* FAOTLauncherViewController.h */,
+				A20000000000000000000909 /* FAOTLauncherViewController.m */,
+				A2000000000000000000090C /* FAOTControlEditorViewController.m */,
 				A20000000000000000000082 /* WorldUITests.m */,
 				A20000000000000000000090 /* WorldSimulator.xcconfig */,
 				A20000000000000000000093 /* Info.WorldSimulator.plist */,
@@ -241,6 +263,10 @@
 			buildActionMask = 2147483647;
 			files = (
 				A20000000000000000000001 /* main.m in Sources */,
+				A20000000000000000000902 /* FAOTControlLayout.m in Sources */,
+				A20000000000000000000906 /* FAOTControlsOverlay.m in Sources */,
+				A2000000000000000000090A /* FAOTLauncherViewController.m in Sources */,
+				A2000000000000000000090D /* FAOTControlEditorViewController.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -249,6 +275,10 @@
 			buildActionMask = 2147483647;
 			files = (
 				A200000000000000000000A7 /* main.m in Sources */,
+				A20000000000000000000903 /* FAOTControlLayout.m in Sources */,
+				A20000000000000000000907 /* FAOTControlsOverlay.m in Sources */,
+				A2000000000000000000090B /* FAOTLauncherViewController.m in Sources */,
+				A2000000000000000000090E /* FAOTControlEditorViewController.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
