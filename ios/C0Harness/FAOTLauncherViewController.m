@@ -3,6 +3,7 @@
 //
 #import "FAOTLauncherViewController.h"
 #import "FAOTControlsOverlay.h"
+#include <unistd.h>
 
 NSString *const FAOTPlayerNameDefaultsKey = @"FAOTPlayerName";
 NSString *const FAOTMemoryGiBDefaultsKey = @"FAOTMemoryGiB";
@@ -61,6 +62,8 @@ NSString *FAOTPojavDefaultLayoutJSON(void) {
 @property (nonatomic, strong) UISegmentedControl *memoryPicker;
 @property (nonatomic, strong) UILabel *layoutLabel;
 @property (nonatomic, strong) UILabel *statusLabel;
+@property (nonatomic, strong) UIButton *launchButton;
+@property (nonatomic, assign) BOOL launchedInThisProcess;
 @property (nonatomic, strong) UIView *card;
 @property (nonatomic, copy) NSString *layoutName;
 @end
@@ -78,6 +81,20 @@ NSString *FAOTPojavDefaultLayoutJSON(void) {
         [layout saveNamed:name error:nil];
     }
     return layout;
+}
+
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    [self refreshLaunchButton];
+}
+
+- (void)refreshLaunchButton {
+    if (self.launchedInThisProcess) {
+        [self.launchButton setTitle:@"Restart App" forState:UIControlStateNormal];
+        self.launchButton.backgroundColor = [UIColor systemOrangeColor];
+    } else {
+        [self.launchButton setTitle:@"Launch Minecraft" forState:UIControlStateNormal];
+    }
 }
 
 - (void)viewDidLoad {
@@ -131,6 +148,7 @@ NSString *FAOTPojavDefaultLayoutJSON(void) {
 
     UIButton *launch = [UIButton buttonWithType:UIButtonTypeSystem];
     [launch setTitle:@"Launch Minecraft" forState:UIControlStateNormal];
+    self.launchButton = launch;
     [launch setTitleColor:UIColor.blackColor forState:UIControlStateNormal];
     launch.titleLabel.font = [UIFont systemFontOfSize:19 weight:UIFontWeightBold];
     launch.backgroundColor = UIColor.systemGreenColor;
@@ -332,7 +350,14 @@ NSString *FAOTPojavDefaultLayoutJSON(void) {
 - (void)launchTapped {
     [self.view endEditing:YES];
     [self persistSettings];
+    /* A Graal isolate lives for the whole process, so a second run_main in the same process can
+       never succeed. Offer the only action that actually works: start over. */
+    if (self.launchedInThisProcess) {
+        self.statusLabel.text = @"Restarting so the game gets a fresh isolate...";
+        exit(0);
+    }
     if (self.onLaunch) {
+        self.launchedInThisProcess = YES;
         self.onLaunch(self.nameField.text.length ? self.nameField.text : @"Dev",
                       [self selectedMemoryGiB], self.layoutName);
     } else {
