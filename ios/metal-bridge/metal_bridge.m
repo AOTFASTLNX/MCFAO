@@ -1,4 +1,5 @@
 #import <Metal/Metal.h>
+#import <TargetConditionals.h>
 #import <QuartzCore/CAMetalLayer.h>
 #include <jni.h>
 #import <objc/message.h>
@@ -408,18 +409,33 @@ JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_bindTexelBuffer(JNIEnv *
         // The simulator rejects linear texture views of shared buffers. Use a separate queue
         // to finish the CPU snapshot upload while the graphics queue has an open render pass.
         id<MTLBuffer> staging=[ctx.device newBufferWithLength:stride options:MTLResourceStorageModeShared];
-        id<MTLBuffer> snapshot=[ctx.device newBufferWithLength:stride options:MTLResourceStorageModePrivate];
-        if(!staging||!snapshot){failure(env,"Metal texel buffer allocation failed");return;}
+        if(!staging){failure(env,"Metal texel buffer allocation failed");return;}
         memcpy(staging.contents,(uint8_t *)source.contents+offset,(NSUInteger)length);
         memset((uint8_t *)staging.contents+length,0,stride-(NSUInteger)length);
-        MTLTextureDescriptor *desc=[MTLTextureDescriptor new];desc.textureType=MTLTextureTypeTextureBuffer;desc.pixelFormat=pixelFormat;desc.width=length/bytes;desc.height=1;desc.storageMode=MTLStorageModePrivate;desc.usage=MTLTextureUsageShaderRead;
-        id<MTLTexture> view=[snapshot newTextureWithDescriptor:desc offset:0 bytesPerRow:stride];if(!view){failure(env,"Metal texel buffer view allocation failed");return;}
-        if(!ctx.texelUploadQueue)ctx.texelUploadQueue=[ctx.device newCommandQueue];
-        id<MTLCommandBuffer> upload=[ctx.texelUploadQueue commandBuffer];id<MTLBlitCommandEncoder> transfer=[upload blitCommandEncoder];
-        if(!transfer){failure(env,"Metal texel buffer upload encoder allocation failed");return;}
-        [transfer copyFromBuffer:staging sourceOffset:0 toBuffer:snapshot destinationOffset:0 size:stride];
-        [transfer endEncoding];[upload commit];[upload waitUntilCompleted];
-        if(upload.status!=MTLCommandBufferStatusCompleted){failure(env,"Metal texel buffer upload failed");return;}
+        MTLTextureDescriptor *desc=[MTLTextureDescriptor new];desc.textureType=MTLTextureTypeTextureBuffer;desc.pixelFormat=pixelFormat;desc.width=length/bytes;desc.height=1;desc.usage=MTLTextureUsageShaderRead;
+        id<MTLTexture> view=nil;
+#if !TARGET_OS_SIMULATOR
+        // A distinct immutable CPU snapshot per binding: later Java writes must not
+        // modify data already referenced by encoded draws. The normal command buffer
+        // retains its texture (and backing buffer) until the GPU is finished.
+        desc.storageMode=MTLStorageModeShared;
+        view=[staging newTextureWithDescriptor:desc offset:0 bytesPerRow:stride];
+#endif
+        if(!view){
+            // Simulator and devices without shared texture-buffer views retain the
+            // proven private upload path. Never wait on UIKit's main queue here.
+            id<MTLBuffer> snapshot=[ctx.device newBufferWithLength:stride options:MTLResourceStorageModePrivate];
+            if(!snapshot){failure(env,"Metal texel snapshot allocation failed");return;}
+            desc.storageMode=MTLStorageModePrivate;
+            view=[snapshot newTextureWithDescriptor:desc offset:0 bytesPerRow:stride];
+            if(!view){failure(env,"Metal texel buffer view allocation failed");return;}
+            if(!ctx.texelUploadQueue)ctx.texelUploadQueue=[ctx.device newCommandQueue];
+            id<MTLCommandBuffer> upload=[ctx.texelUploadQueue commandBuffer];id<MTLBlitCommandEncoder> transfer=[upload blitCommandEncoder];
+            if(!transfer){failure(env,"Metal texel buffer upload encoder allocation failed");return;}
+            [transfer copyFromBuffer:staging sourceOffset:0 toBuffer:snapshot destinationOffset:0 size:stride];
+            [transfer endEncoding];[upload commit];[upload waitUntilCompleted];
+            if(upload.status!=MTLCommandBufferStatusCompleted){failure(env,"Metal texel buffer upload failed");return;}
+        }
         if(stage==0)[ctx.renderEncoder setVertexTexture:view atIndex:index];else[ctx.renderEncoder setFragmentTexture:view atIndex:index];
     }
 }

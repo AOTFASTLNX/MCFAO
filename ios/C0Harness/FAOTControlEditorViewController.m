@@ -4,6 +4,7 @@
 //
 #import "FAOTLauncherViewController.h"
 #import "FAOTControlsOverlay.h"
+#include <math.h>
 
 @interface FAOTControlEditorViewController () <FAOTControlsOverlayDelegate>
 @property (nonatomic, strong) FAOTControlLayout *layout;
@@ -53,8 +54,8 @@
     self.toolbar.translatesAutoresizingMaskIntoConstraints = NO;
     [self.view addSubview:self.toolbar];
 
-    NSArray *titles = @[@"完成", @"保存", @"＋按键", @"改键", @"删除", @"Pojav 默认"];
-    NSArray *selectors = @[@"finishTapped", @"saveTapped", @"addTapped", @"rebindTapped", @"deleteTapped", @"resetTapped"];
+    NSArray *titles = @[@"完成", @"保存", @"＋按键", @"改键", @"大小", @"删除", @"Pojav 默认"];
+    NSArray *selectors = @[@"finishTapped", @"saveTapped", @"addTapped", @"rebindTapped", @"sizeTapped", @"deleteTapped", @"resetTapped"];
     NSMutableArray *buttons = [NSMutableArray array];
     for (NSUInteger i = 0; i < titles.count; i++) {
         UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
@@ -135,7 +136,7 @@
     model.x = 0.45;
     model.y = 0.45;
     model.width = 44.0 / MAX(1, self.overlay.bounds.size.width);
-    model.height = 44.0 / MAX(1, self.overlay.bounds.size.width);
+    model.height = 44.0 / MAX(1, self.overlay.bounds.size.height);
     [self.overlay addControl:model];
     [self promptForControl:model];
 }
@@ -146,6 +147,41 @@
         return;
     }
     [self promptForControl:self.overlay.selectedControl];
+}
+
+- (void)sizeTapped {
+    FAOTControlModel *control = self.overlay.selectedControl;
+    if (!control) { self.hint.text = @"先点一个按键再调整大小"; return; }
+    CGRect safe = UIEdgeInsetsInsetRect(self.overlay.bounds, self.overlay.safeAreaInsets);
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"按钮大小"
+        message:@"分别设置宽、高（屏幕点），范围 28–240。保存布局后生效。"
+        preferredStyle:UIAlertControllerStyleAlert];
+    CGFloat values[] = {control.width * safe.size.width, control.height * safe.size.height};
+    for (NSUInteger i=0; i<2; i++) {
+        CGFloat value = values[i];
+        [alert addTextFieldWithConfigurationHandler:^(UITextField *field) {
+            field.keyboardType = UIKeyboardTypeDecimalPad;
+            field.placeholder = i == 0 ? @"宽度" : @"高度";
+            field.text = [NSString stringWithFormat:@"%.0f", value];
+        }];
+    }
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"应用" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        double width=0, height=0;
+        NSScanner *w=[NSScanner scannerWithString:alert.textFields[0].text ?: @""];
+        NSScanner *h=[NSScanner scannerWithString:alert.textFields[1].text ?: @""];
+        if (![w scanDouble:&width] || !w.isAtEnd || ![h scanDouble:&height] || !h.isAtEnd ||
+            !isfinite(width) || !isfinite(height) || width<28 || width>240 || height<28 || height>240) {
+            self.hint.text = @"大小无效，请输入 28–240 之间的数字"; return;
+        }
+        control.width=MIN(width,safe.size.width)/MAX(1,safe.size.width);
+        control.height=MIN(height,safe.size.height)/MAX(1,safe.size.height);
+        control.x=MIN(MAX(0,control.x),MAX(0,1-control.width));
+        control.y=MIN(MAX(0,control.y),MAX(0,1-control.height));
+        [self.overlay setNeedsLayout];
+        self.hint.text = @"大小已更新，记得保存布局";
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)deleteTapped {

@@ -1,0 +1,33 @@
+name: Launcher and Metal checks
+on:
+  push:
+    branches: [feature/performance-launcher-size-2026-11-13]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile launcher and both Metal target paths
+        run: |
+          set -euo pipefail
+          JDK=$(/usr/libexec/java_home)
+          for PLATFORM in iphoneos iphonesimulator; do
+            SDK=$(xcrun --sdk "$PLATFORM" --show-sdk-path)
+            TARGET=arm64-apple-ios17.0
+            if [ "$PLATFORM" = iphonesimulator ]; then TARGET=arm64-apple-ios17.0-simulator; fi
+            xcrun clang -fsyntax-only -fobjc-arc -fblocks -target "$TARGET" -isysroot "$SDK" \
+              -Werror=implicit-function-declaration -Werror=incompatible-pointer-types \
+              -Iios/C0Harness -Iios/glfw-lite -I"$JDK/include" -I"$JDK/include/darwin" \
+              ios/C0Harness/FAOTControlLayout.m ios/C0Harness/FAOTControlsOverlay.m \
+              ios/C0Harness/FAOTLauncherViewController.m ios/C0Harness/FAOTControlEditorViewController.m \
+              ios/metal-bridge/metal_bridge.m
+          done
+      - name: Graphics and input regression tests
+        run: |
+          python3 -m unittest discover -s tests -p test_graphics_bridge.py -v
+          python3 -m unittest discover -s tests -p test_pointer_input_source.py -v
+          python3 -m unittest discover -s tests -p test_c0_harness.py -v

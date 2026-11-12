@@ -4,6 +4,7 @@
 #import "FAOTLauncherViewController.h"
 #import "FAOTControlsOverlay.h"
 #include <unistd.h>
+#import <QuartzCore/QuartzCore.h>
 
 NSString *const FAOTPlayerNameDefaultsKey = @"FAOTPlayerName";
 NSString *const FAOTMemoryGiBDefaultsKey = @"FAOTMemoryGiB";
@@ -66,6 +67,7 @@ NSString *FAOTPojavDefaultLayoutJSON(void) {
 @property (nonatomic, assign) BOOL launchedInThisProcess;
 @property (nonatomic, copy) NSArray<NSNumber *> *memoryOptions;
 @property (nonatomic, strong) UIView *card;
+@property (nonatomic, strong) CAGradientLayer *backdrop;
 @property (nonatomic, copy) NSString *layoutName;
 @end
 
@@ -109,28 +111,43 @@ NSString *FAOTPojavDefaultLayoutJSON(void) {
 
 - (void)refreshLaunchButton {
     if (self.launchedInThisProcess) {
-        [self.launchButton setTitle:@"Restart App" forState:UIControlStateNormal];
+        [self.launchButton setTitle:@"重新启动应用" forState:UIControlStateNormal];
         self.launchButton.backgroundColor = [UIColor systemOrangeColor];
     } else {
-        [self.launchButton setTitle:@"Launch Minecraft" forState:UIControlStateNormal];
+        [self.launchButton setTitle:@"进入世界  →" forState:UIControlStateNormal];
     }
 }
 
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.view.backgroundColor = [UIColor colorWithRed:0.055 green:0.063 blue:0.078 alpha:1.0];
+    self.backdrop = [CAGradientLayer layer];
+    self.backdrop.colors = @[(id)[UIColor colorWithRed:0.025 green:0.07 blue:0.12 alpha:1].CGColor,
+                            (id)[UIColor colorWithRed:0.04 green:0.22 blue:0.24 alpha:1].CGColor,
+                            (id)[UIColor colorWithRed:0.04 green:0.08 blue:0.16 alpha:1].CGColor];
+    self.backdrop.startPoint = CGPointMake(0,0);
+    self.backdrop.endPoint = CGPointMake(1,1);
+    [self.view.layer insertSublayer:self.backdrop atIndex:0];
     [self buildInterface];
     [self reloadSettings];
 }
 
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    self.backdrop.frame = self.view.bounds;
+    [CATransaction commit];
+}
+
 - (void)buildInterface {
     UILabel *title = [UILabel new];
-    title.text = @"FabricAOT";
-    title.font = [UIFont systemFontOfSize:34 weight:UIFontWeightBold];
-    title.textColor = UIColor.whiteColor;
+    title.text = @"FabricAOT  /  PLAY";
+    title.font = [UIFont systemFontOfSize:30 weight:UIFontWeightBold];
+    title.textColor = [UIColor colorWithRed:0.6 green:0.95 blue:0.82 alpha:1];
 
     UILabel *subtitle = [UILabel new];
-    subtitle.text = @"Minecraft Java 26.1.2 - Java 25 - native iOS AOT, no JIT";
+    subtitle.text = @"你的方块世界，随身出发。\nMinecraft Java 26.1.2 · Fabric";
     subtitle.font = [UIFont systemFontOfSize:13 weight:UIFontWeightRegular];
     subtitle.textColor = [UIColor colorWithWhite:1.0 alpha:0.6];
     subtitle.numberOfLines = 0;
@@ -146,7 +163,7 @@ NSString *FAOTPojavDefaultLayoutJSON(void) {
     self.nameField.returnKeyType = UIReturnKeyDone;
     self.nameField.leftView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 12, 1)];
     self.nameField.leftViewMode = UITextFieldViewModeAlways;
-    self.nameField.placeholder = @"Player name";
+    self.nameField.placeholder = @"玩家名称";
 
     UILabel *memoryCaption = [UILabel new];
     memoryCaption.text = [FAOTLauncherViewController deviceMemoryCaption];
@@ -169,11 +186,11 @@ NSString *FAOTPojavDefaultLayoutJSON(void) {
     self.layoutLabel.textColor = UIColor.whiteColor;
     self.layoutLabel.numberOfLines = 0;
 
-    UIButton *editLayout = [self pillButton:@"Edit controls" action:@selector(editLayoutTapped)];
-    UIButton *importLayout = [self pillButton:@"Import Pojav layout" action:@selector(importLayoutTapped)];
+    UIButton *editLayout = [self pillButton:@"编辑按键" action:@selector(editLayoutTapped)];
+    UIButton *importLayout = [self pillButton:@"导入布局" action:@selector(importLayoutTapped)];
 
     UIButton *launch = [UIButton buttonWithType:UIButtonTypeSystem];
-    [launch setTitle:@"Launch Minecraft" forState:UIControlStateNormal];
+    [launch setTitle:@"进入世界  →" forState:UIControlStateNormal];
     self.launchButton = launch;
     [launch setTitleColor:UIColor.blackColor forState:UIControlStateNormal];
     launch.titleLabel.font = [UIFont systemFontOfSize:19 weight:UIFontWeightBold];
@@ -185,13 +202,19 @@ NSString *FAOTPojavDefaultLayoutJSON(void) {
     self.statusLabel.font = [UIFont monospacedSystemFontOfSize:11 weight:UIFontWeightRegular];
     self.statusLabel.textColor = [UIColor colorWithWhite:1.0 alpha:0.5];
     self.statusLabel.numberOfLines = 0;
-    self.statusLabel.text = @"Controls parse from Pojav's mControlDataList; edit or replace them here.";
+    self.statusLabel.text = @"准备就绪 · 可在编辑按键中自定义布局与大小";
 
-    UIButton *diagnostics = [self pillButton:@"Diagnostics" action:@selector(diagnosticsTapped)];
+    UIButton *diagnostics = [self pillButton:@"运行诊断" action:@selector(diagnosticsTapped)];
 
     self.card = [UIView new];
-    self.card.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.05];
-    self.card.layer.cornerRadius = 16;
+    self.card.backgroundColor = [UIColor colorWithRed:0.04 green:0.09 blue:0.14 alpha:0.94];
+    self.card.layer.borderWidth = 1;
+    self.card.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.12].CGColor;
+    self.card.layer.shadowColor = UIColor.blackColor.CGColor;
+    self.card.layer.shadowOpacity = 0.25;
+    self.card.layer.shadowRadius = 20;
+    self.card.layer.shadowOffset = CGSizeMake(0,8);
+    self.card.layer.cornerRadius = 24;
 
     NSArray *all = @[title, subtitle, self.nameField, memoryCaption, self.memoryPicker,
                      self.layoutLabel, editLayout, importLayout, launch, self.statusLabel, diagnostics];
