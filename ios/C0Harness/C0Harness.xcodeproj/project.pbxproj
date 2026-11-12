@@ -347,6 +347,8 @@
 					Foundation,
 					"-framework",
 					CoreGraphics,
+					"-framework",
+					QuartzCore,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = org.fabricaot.research.c0.kexin;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -376,6 +378,8 @@
 					Foundation,
 					"-framework",
 					CoreGraphics,
+					"-framework",
+					QuartzCore,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = org.fabricaot.research.c0.kexin;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -427,6 +431,8 @@
 					Foundation,
 					"-framework",
 					CoreGraphics,
+					"-framework",
+					QuartzCore,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = org.fabricaot.research.c0.kexin;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -455,6 +461,8 @@
 					Foundation,
 					"-framework",
 					CoreGraphics,
+					"-framework",
+					QuartzCore,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = org.fabricaot.research.c0.kexin;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -504,6 +512,8 @@
 					Foundation,
 					"-framework",
 					CoreGraphics,
+					"-framework",
+					QuartzCore,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = org.fabricaot.research.c0.kexin;
 				PRODUCT_NAME = "$(TARGET_NAME)";
