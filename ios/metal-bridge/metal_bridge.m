@@ -66,6 +66,7 @@
 @property(nonatomic) NSUInteger fenceReuseCount;
 @property(nonatomic) double slotWaitSeconds;
 @property(nonatomic) double drawableWaitSeconds;
+@property(nonatomic) NSUInteger earlyRenderSubmissions;
 @property(nonatomic) double uploadWaitSeconds;
 @property(nonatomic,strong) FAOTPerfCollector *perf;
 @property(nonatomic,strong) CAMetalLayer *layer;
@@ -151,9 +152,9 @@ JNIEXPORT jlong JNICALL Java_fabricaot_metal_MetalNative_create(JNIEnv *env,jcla
     (void)cls;
     @autoreleasepool {
         CAMetalLayer *layer=(__bridge CAMetalLayer *)faot_glfw_metal_layer((GLFWwindow *)(uintptr_t)window);
-        // Match the two in-flight command buffers. A third drawable lets CPU work queue ahead
-        // of the display and produces the long/short frame intervals visible on 120 Hz devices.
-        layer.maximumDrawableCount=2;
+        // Keep a spare drawable while Core Animation scans out the previous frame.
+        // GPU frame submissions remain bounded to two by presentationSlots.
+        layer.maximumDrawableCount=3;
         layer.framebufferOnly=YES;
         if(!layer||!layer.device){failure(env,"Window has no CAMetalLayer/MTLDevice");return 0;}
         FAOTMetalContext *ctx=[FAOTMetalContext new];ctx.perf=[FAOTPerfCollector new];ctx.sampleStarted=CACurrentMediaTime();ctx.layer=layer;ctx.device=layer.device;ctx.queue=[ctx.device newCommandQueue];
@@ -397,6 +398,18 @@ JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_presentFrame(JNIEnv *env
         double slotStart=CACurrentMediaTime();
         dispatch_semaphore_wait(ctx.presentationSlots, DISPATCH_TIME_FOREVER);
         ctx.slotWaitSeconds+=CACurrentMediaTime()-slotStart;
+        // Offscreen game rendering does not depend on a drawable. Commit it before
+        // potentially blocking in nextDrawable so the GPU can render during that wait.
+        // The presentation pass is submitted on the same serial queue afterward.
+        if(ctx.pending){
+            id<MTLCommandBuffer> render=ctx.pending;
+            ctx.pending=nil;ctx.lastFence=nil;ctx.lastCommitted=render;
+            [render addCompletedHandler:^(id<MTLCommandBuffer> completed){
+                if(completed.status==MTLCommandBufferStatusError)
+                    fprintf(stderr,"[Metal] early render failed: %s\n",completed.error.localizedDescription.UTF8String ?: "unknown error");
+            }];
+            [render commit];ctx.earlyRenderSubmissions++;
+        }
         double drawableStart=CACurrentMediaTime();
         id<CAMetalDrawable> drawable=[ctx.layer nextDrawable];
         ctx.drawableWaitSeconds+=CACurrentMediaTime()-drawableStart;
@@ -427,15 +440,15 @@ JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_presentFrame(JNIEnv *env
             double now=CACurrentMediaTime(), factor=1000.0/ctx.sampleFrames;
             double gpuSeconds,fenceSeconds;NSUInteger gpuCompleted,gpuUnavailable,fenceCount;
             [ctx.perf takeGPUSeconds:&gpuSeconds completed:&gpuCompleted unavailable:&gpuUnavailable fenceSeconds:&fenceSeconds fenceCount:&fenceCount];
-            fprintf(stderr,"[MetalPerf] submitted=%lu submit_interval_ms=%.3f cpu_sync_wait_ms=%.3f slot_wait_ms=%.3f drawable_wait_ms=%.3f fence_wait_ms_per_submit=%.3f fence_wait_count=%lu gpu_command_sum_ms_per_submit=%.3f gpu_completed=%lu gpu_unavailable=%lu texel_shared=%.2f texel_private=%.2f texel_upload_wait_ms=%.3f buffer_snapshots=%.2f snapshot_fallbacks=%.2f sync_count=%lu readback_count=%lu readback_wait_ms=%.3f fence_reused=%lu large_snapshots=%lu snapshot_mib_per_submit=%.3f\n",
+            fprintf(stderr,"[MetalPerf] submitted=%lu submit_interval_ms=%.3f cpu_sync_wait_ms=%.3f slot_wait_ms=%.3f drawable_wait_ms=%.3f fence_wait_ms_per_submit=%.3f fence_wait_count=%lu gpu_command_sum_ms_per_submit=%.3f gpu_completed=%lu gpu_unavailable=%lu texel_shared=%.2f texel_private=%.2f texel_upload_wait_ms=%.3f buffer_snapshots=%.2f snapshot_fallbacks=%.2f sync_count=%lu readback_count=%lu readback_wait_ms=%.3f fence_reused=%lu large_snapshots=%lu snapshot_mib_per_submit=%.3f early_render_submits=%lu drawable_count=3\n",
                 (unsigned long)ctx.sampleFrames,(now-ctx.sampleStarted)*factor,ctx.syncWaitSeconds*factor,
                 ctx.slotWaitSeconds*factor,ctx.drawableWaitSeconds*factor,fenceSeconds*factor,(unsigned long)fenceCount,gpuSeconds*factor,(unsigned long)gpuCompleted,(unsigned long)gpuUnavailable,
                 (double)ctx.sharedTexelBindings/ctx.sampleFrames,(double)ctx.privateTexelBindings/ctx.sampleFrames,ctx.uploadWaitSeconds*factor,
                 (double)ctx.snapshotCopies/ctx.sampleFrames,(double)ctx.snapshotFallbacks/ctx.sampleFrames,
                 (unsigned long)ctx.syncWaitCount,(unsigned long)ctx.readbackWaitCount,ctx.readbackWaitSeconds*factor,(unsigned long)ctx.fenceReuseCount,
-                (unsigned long)ctx.largeSnapshotCopies,(double)ctx.snapshotSampleBytes/(1024.0*1024.0*ctx.sampleFrames));
+                (unsigned long)ctx.largeSnapshotCopies,(double)ctx.snapshotSampleBytes/(1024.0*1024.0*ctx.sampleFrames),(unsigned long)ctx.earlyRenderSubmissions);
             ctx.sampleFrames=0;ctx.sharedTexelBindings=0;ctx.privateTexelBindings=0;
-            ctx.syncWaitSeconds=0;ctx.syncWaitCount=0;ctx.readbackWaitCount=0;ctx.readbackWaitSeconds=0;ctx.fenceReuseCount=0;ctx.slotWaitSeconds=0;ctx.drawableWaitSeconds=0;ctx.uploadWaitSeconds=0;ctx.snapshotCopies=0;ctx.snapshotFallbacks=0;ctx.largeSnapshotCopies=0;ctx.snapshotSampleBytes=0;ctx.sampleStarted=now;
+            ctx.syncWaitSeconds=0;ctx.syncWaitCount=0;ctx.readbackWaitCount=0;ctx.readbackWaitSeconds=0;ctx.fenceReuseCount=0;ctx.slotWaitSeconds=0;ctx.drawableWaitSeconds=0;ctx.uploadWaitSeconds=0;ctx.snapshotCopies=0;ctx.snapshotFallbacks=0;ctx.largeSnapshotCopies=0;ctx.snapshotSampleBytes=0;ctx.earlyRenderSubmissions=0;ctx.sampleStarted=now;
         }
         if(!ctx.presentationLogged){ctx.presentationLogged=YES;fprintf(stderr,"[Metal] TEXTURE_FRAME_PRESENTED %lux%lu\n",(unsigned long)width,(unsigned long)height);}
     }

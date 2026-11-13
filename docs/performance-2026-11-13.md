@@ -87,3 +87,15 @@ budget exhaustion retain the synchronous fallback. This is a hypothesis to
 measure, not a claimed FPS gain: extra CPU copying and memory residency can
 offset any benefit. `large_snapshots` and `snapshot_mib_per_submit` expose
 the cost alongside `snapshot_fallbacks`, waits and actual presentation.
+
+## v20 continuation: GPU submission before drawable acquisition
+
+Latest device windows show low CPU synchronization but substantial drawable
+acquisition waits. Offscreen commands previously remained uncommitted until
+nextDrawable returned. They now commit after acquiring the bounded frame slot
+and before acquiring the drawable; the final presentation pass uses the same
+serial command queue. Existing retained command buffers preserve resource
+lifetimes. Three drawable resources provide a spare while frame submissions
+remain capped at two. Memory and input latency need device validation alongside
+FPS/P95/P99; no improvement is claimed before measurement.
+Reference: https://developer.apple.com/documentation/quartzcore/cametallayer
