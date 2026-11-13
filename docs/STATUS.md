@@ -499,4 +499,8 @@ pack-88 之后工作重心从「找下一个崩溃」转成「让探针真正在
 
 ## 2026-11-13 Mixin 重定位 Guava 闭包修复
 
-用户 run-1794503860221.log 显示 wover/bclib 主入口已返回，BetterEnd 在 SmithingTemplates.combine 初始化缺 org.spongepowered.include.com.google.common.collect.ImmutableList。AotExport 现从固定 Mixin JAR 打包完整重定位 Guava 值库命名空间，保留其 ABI，不引入运行时类加载器。11 项相关回归通过，含隔离类加载器从该闭包创建 ImmutableList 的断言。content-samples-build-07 AOT（2m18s）、iOS 链接与签名通过；本轮不运行游戏或模拟器，真机待用户复验，原两项嵌套库排除仍在。
+用户 run-1794503860221.log 显示 wover/bclib 主入口已返回，BetterEnd 在 SmithingTemplates.combine 初始化缺 org.spongepowered.include.com.google.common.collect.ImmutableList。AotExport 现从固定 Mixin JAR 打包完整重定位 Guava 值库命名空间，保留其 ABI，不引入运行时类加载器。11 项相关回归通过，含隔离类加载器从该闭包创建 ImmutableList 的断言。content-samples-build-07 AOT（2m18s）、iOS 链接与签名通过；本轮不运行游戏/模拟器，真机待用户复验，原两项嵌套库排除仍在。
+
+## 2026-11-14 Metal vsync 修复签名 IPA
+
+已从 main-ipa-20261114b 导出 arm64 开发签名 IPA：artifacts/mcfao/metal-vsync-20261114-signed-ipa-01/export/FabricAOT World.ipa（714,407,228 字节，SHA-256 5efa2fb48ce7f760acb625cf3a53609d6f4dd5d6549e1032bfc4dc0b5ba22d66）。来源 AOT 命令使用 metal-ios-world-08，设备构建状态为 SIGNED_DEVICE_APP；IPA 导出状态为 DEVELOPMENT_IPA_VERIFIED。应用及嵌套代码签名通过 codesign --verify --deep --strict；目标为 iOS arm64、最低 iOS 17，Bundle ID org.fabricaot.research.c0.kexin，Team ID P57SZ9Z7G2。签名 profile 于 2026-11-17 13:48:54 UTC 到期，包含 3 台设备；无动态代码 entitlement。deviceRun = NOT RUN：本次只生成和验证签名包，未安装或启动游戏，不能据此认定修复已运行验证或 Gate C/D 通过。
