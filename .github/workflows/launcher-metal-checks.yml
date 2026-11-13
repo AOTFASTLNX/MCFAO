@@ -46,6 +46,7 @@ jobs:
           python3 -m unittest discover -s tests -p test_high_refresh.py -v
           python3 -m unittest discover -s tests -p test_harness_autostart.py -v
           python3 -m unittest discover -s tests -p test_summarize_metal_perf.py -v
+          python3 -m unittest discover -s tests -p test_buffer_sync_contract.py -v
 
   screenshots:
     runs-on: macos-15
