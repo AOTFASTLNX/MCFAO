@@ -22,7 +22,7 @@ PR #2 的真机失败不是“CI 没跑够”，而是最终安装包仍声明�
 | 触控板指针锁/视角 | **NOT RUN（真机）** | 2026-11-13 两次安装均因 iPad 锁屏被 CoreDevice 拒绝；待解锁后执行 [IPAD_INPUT](IPAD_INPUT.md) §4 |
 | 菜单点击/滚动/键盘 | **NOT RUN（真机）** | 同上 |
 
-模拟器证据不能替代真机。PR #2 在真实 iPad Pro 完成触控板双向视角、锁定/释放、菜单点击/滚动/键盘验证前继续保持未合并。
+模拟器证据不能替代真机。PR #2 在真实 iPad Pro 完成触控板双向视角、锁定/释放、菜单点击/滚动/键盘验证前继续保持未合并。手动安装包和回传清单已放在 `artifacts/evidence/ipad-pointer-pr2-20261113/manual-test/README.md`，等待真机结果。
 
 ## 统一 AOT 构建与 Fabric 夹具
 
