@@ -32,7 +32,7 @@ log "host: $(uname -m) ${MEM} GiB, $(xcodebuild -version | head -1), workdir $WO
 # ---------------------------------------------------------------- sources
 log "fetch sources (public, commit-pinned; no token)"
 if [ ! -d repo/.git ]; then
-  git clone --depth 1 "$CI_REPO" repo
+  git clone --depth 1 --branch "$SOURCE_REF" "$CI_REPO" repo
 fi
 if [ ! -d src/.git ]; then
   git clone --depth 1 --branch "$SOURCE_REF" "$UPSTREAM" src

@@ -427,6 +427,10 @@ static CGFloat FAOTEvaluateExpression(NSString *expression, NSDictionary<NSStrin
 }
 
 - (BOOL)saveNamed:(NSString *)name error:(NSError **)error {
+    if (!name.length || ![name isEqualToString:name.lastPathComponent] || [name isEqualToString:@"."] || [name isEqualToString:@".."]) {
+        if (error) *error = [NSError errorWithDomain:@"FAOTControlLayout" code:3 userInfo:@{NSLocalizedDescriptionKey:@"布局名称无效"}];
+        return NO;
+    }
     NSFileManager *manager = [NSFileManager defaultManager];
     NSString *directory = [FAOTControlLayout layoutDirectory];
     if (![manager createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:error]) {
@@ -434,7 +438,12 @@ static CGFloat FAOTEvaluateExpression(NSString *expression, NSDictionary<NSStrin
     }
     NSString *path = [directory stringByAppendingPathComponent:[name stringByAppendingPathExtension:@"json"]];
     self.name = name;
-    return [[self JSONData] writeToFile:path options:NSDataWritingAtomic error:error];
+    NSMutableArray *items = [NSMutableArray array];
+    for (FAOTControlModel *control in self.controls) [items addObject:control.dictionaryRepresentation];
+    NSDictionary *root = @{@"version":@1, @"name":name, @"scaledAt":@(self.authoredScale), @"controls":items};
+    NSData *data = [NSJSONSerialization dataWithJSONObject:root options:NSJSONWritingPrettyPrinted error:error];
+    if (!data) return NO;
+    return [data writeToFile:path options:NSDataWritingAtomic error:error];
 }
 
 #pragma mark Geometry
