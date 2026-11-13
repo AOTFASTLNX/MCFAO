@@ -41,7 +41,9 @@ def main(argv=None):
     jar=out/'client-26.1.2-metal.jar';run=capture([*command,str(client),str(jar)],out/'transform',120,cwd=out)
     if run['exitCode']:raise RuntimeError('Backend injection failed')
     targets={'net/minecraft/client/Minecraft.class','net/minecraft/client/multiplayer/ClientPacketListener.class',
-             'net/minecraft/client/gui/render/GuiItemAtlas.class'}
+             'net/minecraft/client/gui/render/GuiItemAtlas.class',
+             'net/minecraft/client/gui/screens/FaviconTexture.class',
+             'net/minecraft/client/gui/render/pip/PictureInPictureRenderer.class'}
     with zipfile.ZipFile(client) as before,zipfile.ZipFile(jar) as after:
         remaining=set(after.namelist())
         changed=[name for name in before.namelist() if name in remaining and before.read(name)!=after.read(name)]
@@ -49,6 +51,7 @@ def main(argv=None):
     result.update(status='BACKEND_INJECTED',outputJar=str(jar),outputJarSHA256=sha256(jar),changedEntries=changed,
                   chatKeyWait='false secure-chat flag and null chat session short circuit; non-null session validation preserved',
                   guiItemAtlasOrigin='sample rendered item atlas in Metal texture row order',
+                  guiPreviewOrigin='flip world favicon rows and undo the GL PIP blit flip only for Metal',
                   fallbackLoop='preserved',manifest='main attributes retained; stale per-entry signing sections removed',backendOrder=['fabricaot.metal.MetalBackend','com.mojang.blaze3d.opengl.GlBackend'],selfTest='PASS')
     (out/'result.json').write_text(json.dumps(result,indent=2)+'\n')
     register_tree(out,[sys.executable,'-B',str(Path(__file__).resolve()),*(sys.argv[1:] if argv is None else argv)])
