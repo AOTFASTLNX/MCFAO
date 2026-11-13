@@ -151,7 +151,8 @@ public final class InjectBackend implements Opcodes {
             List<AbstractInsnNode> code=Arrays.stream(method.instructions.toArray()).filter(n->n.getOpcode()>=0).toList();
             for(int i=0;i+3<code.size();i++){
                 if(op(code.get(i),FCONST_0)&&op(code.get(i+1),FCONST_1)&&op(code.get(i+2),FCONST_1)&&op(code.get(i+3),FCONST_0)){
-                    method.instructions.insert(code.get(i+1),new MethodInsnNode(INVOKESTATIC,METAL,"guiRenderTargetV","(F)F",false));
+                    // BlitRenderState takes u0, u1, v0, v1: preserve the full U range.
+                    method.instructions.insert(code.get(i+2),new MethodInsnNode(INVOKESTATIC,METAL,"guiRenderTargetV","(F)F",false));
                     method.instructions.insert(code.get(i+3),new MethodInsnNode(INVOKESTATIC,METAL,"guiRenderTargetV","(F)F",false));
                     matches++;
                 }
