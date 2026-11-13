@@ -4,6 +4,26 @@
 
 当前实现和复现见 [BUILDING](BUILDING.md)，工具链决策见 [ADR-001](evidence/ADR-001.md)，原始记录见 [证据索引](evidence/README.md)。
 
+## iPad Pro PR #2 真机失败修复（2026-11-13）
+
+PR #2 的真机失败不是“CI 没跑够”，而是最终安装包仍声明为 iPhone-only：
+
+- 失败构建的实际 `TARGETED_DEVICE_FAMILY = 1`，最终 `.app/Info.plist` 为 `UIDeviceFamily = [1]`，所以 iPad 以 iPhone 兼容模式运行并显示系统放大按钮。
+- 兼容模式/非全屏场景不满足 iPadOS 指针锁定前提，`prefersPointerLocked` 未被批准，原输入桥又只在 `captured && pointerIsLocked` 时转发 `GCMouse` 位移，触控板于是只能移动系统光标。
+
+修复已在独立分支 `fix/ipados-mouse-trackpad-look` 完成，**没有合并 main**：
+
+| 项目 | 状态 | 证据 |
+|---|---|---|
+| 最终包 `UIDeviceFamily=[1,2]` | PASS（构建阶段强制） | `embed_graphics_libraries.sh` → `verify_ipad_bundle.sh`；[构建日志](../artifacts/evidence/ipad-pointer-pr2-20261113/build-ipad-native.log) |
+| 独立包契约复核 | PASS | `python3 tools/verify_ipad_bundle.py --app ...`；[契约 JSON](../artifacts/evidence/ipad-pointer-pr2-20261113/ipa-contract.json) |
+| iPad 原生场景/Drawable | PASS（iPadOS 27.2 模拟器） | 场景 `1210x834 pt`、Drawable `2420x1668 px`、`sceneFullScreen=1`，原版主菜单铺满屏幕；[截图](../artifacts/evidence/ipad-pointer-pr2-20261113/ipad-simulator-native-menu.png) |
+| 窗口/Drawable/锁状态日志 | PASS（模拟器） | `input-*.log`：`state ... scene=1210x834 screen=1210x834 drawable=2420x1668` |
+| 触控板指针锁/视角 | **NOT RUN（真机）** | 2026-11-13 两次安装均因 iPad 锁屏被 CoreDevice 拒绝；待解锁后执行 [IPAD_INPUT](IPAD_INPUT.md) §4 |
+| 菜单点击/滚动/键盘 | **NOT RUN（真机）** | 同上 |
+
+模拟器证据不能替代真机。PR #2 在真实 iPad Pro 完成触控板双向视角、锁定/释放、菜单点击/滚动/键盘验证前继续保持未合并。手动安装包和回传清单已放在 `artifacts/evidence/ipad-pointer-pr2-20261113/manual-test/README.md`，等待真机结果。
+
 ## 统一 AOT 构建与 Fabric 夹具
 
 原版基线取自 Git `1d9af2d`，当时无 tracked 改动。原编译参数、真机链接及签名分别保存在 [Native Image 命令](../artifacts/graphics/main-aot-15/analysis/command.json)、[链接报告](../artifacts/graphics/main-link-ios-world-01/result.json)、[WorldDevice 命令](../artifacts/graphics/world-device-signed-02/command.json)。本轮主机为 macOS 27.2，GraalVM CE 25.0.2+10.1，Xcode 27.2（27B52），Apple Clang 21.0.0，iPhoneOS SDK 27.2。 [Doctor 记录](../artifacts/mcfao/doctor-01/stdout.log)
