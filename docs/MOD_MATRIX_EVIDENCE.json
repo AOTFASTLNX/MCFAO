@@ -1,0 +1,359 @@
+{
+ "_readme": "证据升级表。生成器只读取非下划线开头的键；键为 Mod id，值为 {\"status\": \"LOAD_PASS|FUNCTION_PASS|DEVICE_PASS\", \"note\": \"观察到什么\", \"evidence\": \"日志/截图路径\", \"tests\": \"回归测试路径\"}。只有等级高于自动推导值时才会生效，不能降级。`LOAD_PASS` 可由 `python3 -B tools/scan_mod_evidence.py --build <pack> --emit-evidence` 自动补空位（只补不覆盖）；`FUNCTION_PASS` 必须有人真正在游戏里看到该 Mod 的功能，`DEVICE_PASS` 必须真机复验。",
+ "_example": {
+  "modmenu": {
+   "status": "FUNCTION_PASS",
+   "note": "示例：在运行的游戏内打开 Mod 列表并确认条目完整",
+   "evidence": "artifacts/mcfao/fabric-pack-XX-simulator/game.log",
+   "tests": "tests/test_runtime_lowering.py"
+  }
+ },
+ "advancednetherite": {
+  "status": "LOAD_PASS",
+  "note": "advancednetherite 的 main 入口点 com.autovw.advancednetherite.AdvancedNetheriteFabric 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L43",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "ambientsounds": {
+  "status": "LOAD_PASS",
+  "note": "ambientsounds 的 client 入口点 team.creative.ambientsounds.AmbientSounds 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L102",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "appleskin": {
+  "status": "LOAD_PASS",
+  "note": "appleskin 的 main 入口点 squeek.appleskin.AppleSkinCommon 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L44",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "backpacked": {
+  "status": "LOAD_PASS",
+  "note": "backpacked 在运行期打出初始化标记（token `backpacked`），入口点未抛异常",
+  "evidence": "fabric-pack-87-simulator/game.log#L43",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "biomesoplenty": {
+  "status": "LOAD_PASS",
+  "note": "biomesoplenty 在运行期打出初始化标记（token `biomesoplenty`），入口点未抛异常",
+  "evidence": "fabric-pack-87-simulator/game.log#L54",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "chat_heads": {
+  "status": "LOAD_PASS",
+  "note": "chat_heads 的 client 入口点 dzwdz.chat_heads.fabric.ChatHeadsFabric 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L98",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "cloth-config": {
+  "status": "LOAD_PASS",
+  "note": "cloth-config 的 client 入口点 me.shedaniel.autoconfig.example.ExampleInits::exampleCommonInit 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L99",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "conditional-mixin": {
+  "status": "LOAD_PASS",
+  "note": "conditional-mixin 的 main 入口点 me.fallenbreath.conditionalmixin.fabric.ConditionalMixinFabric 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L45",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "continuity": {
+  "status": "LOAD_PASS",
+  "note": "continuity 的 client 入口点 me.pepperbell.continuity.client.ContinuityClient 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L100",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "creativecore": {
+  "status": "LOAD_PASS",
+  "note": "creativecore 的 main 入口点 team.creative.creativecore.CreativeCore 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L46",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "entity_texture_features": {
+  "status": "LOAD_PASS",
+  "note": "entity_texture_features 的 client 入口点 traben.entity_texture_features.ETFInit 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L104",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "entityculling": {
+  "status": "LOAD_PASS",
+  "note": "entityculling 的 client 入口点 dev.tr7zw.entityculling.EntityCullingMod 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L105",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "fabric-api-lookup-api-v1": {
+  "status": "LOAD_PASS",
+  "note": "fabric-api-lookup-api-v1 的 main 入口点 net.fabricmc.fabric.impl.lookup.ApiLookupImpl 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L49",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "fabric-convention-tags-v2": {
+  "status": "LOAD_PASS",
+  "note": "fabric-convention-tags-v2 的 main 入口点 net.fabricmc.fabric.impl.tag.convention.v2.TranslationConventionLogWarnings 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L50",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "fabric-data-attachment-api-v1": {
+  "status": "LOAD_PASS",
+  "note": "fabric-data-attachment-api-v1 的 main 入口点 net.fabricmc.fabric.impl.attachment.AttachmentEntrypoint 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L53",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "fabric-dimensions-v1": {
+  "status": "LOAD_PASS",
+  "note": "fabric-dimensions-v1 的 main 入口点 net.fabricmc.fabric.impl.dimension.DimensionModificationImpl 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L47",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "fabric-events-interaction-v0": {
+  "status": "LOAD_PASS",
+  "note": "fabric-events-interaction-v0 的 main 入口点 net.fabricmc.fabric.impl.event.interaction.InteractionEventsRouter 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L55",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "fabric-lifecycle-events-v1": {
+  "status": "LOAD_PASS",
+  "note": "fabric-lifecycle-events-v1 的 main 入口点 net.fabricmc.fabric.impl.event.lifecycle.LifecycleEventsImpl 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L48",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "fabric-menu-api-v1": {
+  "status": "LOAD_PASS",
+  "note": "fabric-menu-api-v1 的 main 入口点 net.fabricmc.fabric.impl.menu.Networking 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L56",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "fabric-model-loading-api-v1": {
+  "status": "LOAD_PASS",
+  "note": "fabric-model-loading-api-v1 的 client 入口点 net.fabricmc.fabric.impl.client.model.loading.CustomUnbakedBlockStateModelInit 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L116",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "fabric-networking-api-v1": {
+  "status": "LOAD_PASS",
+  "note": "fabric-networking-api-v1 的 main 入口点 net.fabricmc.fabric.impl.networking.CommonPacketsImpl::init 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L51",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "fabric-particles-v1": {
+  "status": "LOAD_PASS",
+  "note": "fabric-particles-v1 的 main 入口点 net.fabricmc.fabric.impl.particle.ExtendedBlockParticleOptionSync 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L57",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "fabric-recipe-api-v1": {
+  "status": "LOAD_PASS",
+  "note": "fabric-recipe-api-v1 的 main 入口点 net.fabricmc.fabric.impl.recipe.ingredient.CustomIngredientInit 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L58",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "fabric-registry-sync-v0": {
+  "status": "LOAD_PASS",
+  "note": "fabric-registry-sync-v0 的 main 入口点 net.fabricmc.fabric.impl.registry.sync.FabricRegistryInit 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L61",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "fabric-renderer-api-v1": {
+  "status": "LOAD_PASS",
+  "note": "fabric-renderer-api-v1 的 client 入口点 net.fabricmc.fabric.impl.client.renderer.DebugOverlayClient 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L115",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "fabric-renderer-indigo": {
+  "status": "LOAD_PASS",
+  "note": "fabric-renderer-indigo 在运行期打出初始化标记（token `Indigo`），入口点未抛异常",
+  "evidence": "fabric-pack-87-simulator/game.log#L60",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "fabric-rendering-v1": {
+  "status": "LOAD_PASS",
+  "note": "fabric-rendering-v1 的 client 入口点 net.fabricmc.fabric.impl.client.rendering.hud.HudStatusBarHeightRegistryImpl 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L114",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "fabric-resource-conditions-api-v1": {
+  "status": "LOAD_PASS",
+  "note": "fabric-resource-conditions-api-v1 的 main 入口点 net.fabricmc.fabric.impl.resource.conditions.ResourceConditionsImpl 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L62",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "fabric-tag-api-v1": {
+  "status": "LOAD_PASS",
+  "note": "fabric-tag-api-v1 的 main 入口点 net.fabricmc.fabric.impl.tag.TagInit 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L63",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "forgeconfigapiport": {
+  "status": "LOAD_PASS",
+  "note": "forgeconfigapiport 的 main 入口点 fuzs.forgeconfigapiport.fabric.impl.ForgeConfigAPIPortFabric 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L64",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "framework": {
+  "status": "LOAD_PASS",
+  "note": "framework 的 main 入口点 com.mrcrayfish.framework.FrameworkFabric 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L74",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "freecam": {
+  "status": "LOAD_PASS",
+  "note": "freecam 的 client 入口点 net.xolt.freecam.fabric.FreecamFabric 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L137",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "ftblibrary": {
+  "status": "LOAD_PASS",
+  "note": "ftblibrary 的 main 入口点 dev.ftb.mods.ftblibrary.fabric.FTBLibraryFabric 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L77",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "ftbultimine": {
+  "status": "LOAD_PASS",
+  "note": "ftbultimine 的 main 入口点 dev.ftb.mods.ftbultimine.fabric.FTBUltimineFabric 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L78",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "glitchcore": {
+  "status": "LOAD_PASS",
+  "note": "glitchcore 的 main 入口点 glitchcore.fabric.core.GlitchCoreFabric 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L79",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "ias": {
+  "status": "LOAD_PASS",
+  "note": "ias 在运行期打出初始化标记（token `ias`），入口点未抛异常",
+  "evidence": "fabric-pack-87-simulator/game.log#L84",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "immediatelyfast": {
+  "status": "LOAD_PASS",
+  "note": "immediatelyfast 在运行期打出初始化标记（token `immediatelyfast`），入口点未抛异常",
+  "evidence": "fabric-pack-87-simulator/game.log#L126",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "inventoryprofilesnext": {
+  "status": "LOAD_PASS",
+  "note": "inventoryprofilesnext 的 client 入口点 org.anti_ad.mc.ipnext.InventoryProfilesKt::init 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L158",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "jade": {
+  "status": "FUNCTION_PASS",
+  "note": "Jade 的方块提示框在游戏里真实渲染：对准沙地时显示 'Sand' + 蓝色模组名 'Minecraft'，打开创造物品栏悬停时显示 'Service Door' + 'Minecraft'。getModName 的 loader 分支已被改写为 Entrypoints.optionalModName，运行期未抛 NoSuchMethodError；glog :80/:155 两条入口点派发、:332-334 三个 addon 插件加载。",
+  "evidence": "fabric-pack-92-simulator/probe/attachments/probe-aim-down_0_0E5B452D-A266-43C7-9F6E-91F5BD1DA054.png（Sand 提示框）、fabric-pack-92-simulator/probe/attachments/probe-inventory_0_184238C5-1386-41CD-92CB-77FD9701ADFA.png（Service Door 提示框）、fabric-pack-92-simulator/game.log#L80,#L155,#L332-L334",
+  "tests": "tools/function_probe_simulator.py + ios/C0Harness/WorldUITests.m#testFabricModFunctions + tests/test_runtime_lowering.py::test_jade_tooltip_mod_names_answer_from_the_generated_table"
+ },
+ "kirin": {
+  "status": "LOAD_PASS",
+  "note": "kirin 的 client 入口点 com.minelittlepony.kirin.impl.Test 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L156",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "libipn": {
+  "status": "LOAD_PASS",
+  "note": "libipn 的 client 入口点 org.anti_ad.mc.common.LibIPNKt::init 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L157",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "litematica": {
+  "status": "LOAD_PASS",
+  "note": "litematica 的 main 入口点 fi.dy.masa.litematica.Litematica 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L83",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "lithium": {
+  "status": "LOAD_PASS",
+  "note": "lithium 的 main 入口点 net.caffeinemc.mods.lithium.fabric.LithiumFabricMod 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L81",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "malilib": {
+  "status": "LOAD_PASS",
+  "note": "malilib 的 main 入口点 fi.dy.masa.malilib.MaLiLib 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L82",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "mcfao_fixture": {
+  "status": "LOAD_PASS",
+  "note": "mcfao_fixture 的 client 入口点 mcfao.fixture.GameMod 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L160",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "minihud": {
+  "status": "LOAD_PASS",
+  "note": "minihud 的 main 入口点 fi.dy.masa.minihud.MiniHUD 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L84",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "modmenu": {
+  "status": "LOAD_PASS",
+  "note": "modmenu 的 client 入口点 com.terraformersmc.modmenu.ModMenu 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L162",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "mousetweaks": {
+  "status": "LOAD_PASS",
+  "note": "mousetweaks 的 client 入口点 yalter.mousetweaks.fabric.MouseTweaksFabric 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L165",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "nochatreports": {
+  "status": "LOAD_PASS",
+  "note": "nochatreports 的 main 入口点 com.aizistral.nochatreports.fabric.NoChatReports 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L85",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "presencefootsteps": {
+  "status": "LOAD_PASS",
+  "note": "presencefootsteps 的 client 入口点 eu.ha3.presencefootsteps.PresenceFootsteps 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L191",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "sit": {
+  "status": "LOAD_PASS",
+  "note": "sit 的 main 入口点 bl4ckscor3.mod.sit.FabricEntrypoint 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L86",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "skinlayers3d": {
+  "status": "LOAD_PASS",
+  "note": "skinlayers3d 的 client 入口点 dev.tr7zw.skinlayers.SkinLayersMod 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L193",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "sound_physics_remastered": {
+  "status": "LOAD_PASS",
+  "note": "sound_physics_remastered 的 main 入口点 com.sonicether.soundphysics.FabricSoundPhysicsMod 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L87",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "terrablender": {
+  "status": "LOAD_PASS",
+  "note": "terrablender 在运行期打出初始化标记（token `terrablender`），入口点未抛异常",
+  "evidence": "fabric-pack-87-simulator/game.log#L577",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "transition": {
+  "status": "LOAD_PASS",
+  "note": "transition 的 client 入口点 dev.tr7zw.transition.ClientTRansitionMod 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L196",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "trender": {
+  "status": "LOAD_PASS",
+  "note": "trender 的 client 入口点 dev.tr7zw.trender.gui.impl.client.LibGuiClient 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L198",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "yet_another_config_lib_v3": {
+  "status": "LOAD_PASS",
+  "note": "yet_another_config_lib_v3 的 client 入口点 dev.isxander.yacl3.platform.PlatformEntrypoint 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L200",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ },
+ "zoomify": {
+  "status": "LOAD_PASS",
+  "note": "zoomify 的 client 入口点 dev.isxander.zoomify.Zoomify 派发返回，未抛异常",
+  "evidence": "fabric-pack-88-simulator/game.log#L201",
+  "tests": "tools/scan_mod_evidence.py + tests/test_scan_mod_evidence.py"
+ }
+}

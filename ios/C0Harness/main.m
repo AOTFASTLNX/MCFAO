@@ -405,8 +405,19 @@ static void FAOTProbeReservations(FILE *logFile) {
             @"--accessToken", @"0", @"--userType", @"legacy", @"--versionType", @"release",
         ]];
 #if TARGET_OS_SIMULATOR
+        // A dedicated server address lets XCUITest exercise the real multiplayer path without
+        // typing into the UI or persisting a server entry in the simulator's save directory.
+        NSString *quickServer = NSProcessInfo.processInfo.environment[@"FABRICAOT_SIMULATOR_QUICK_SERVER"];
+        if (quickServer.length) {
+            [argvList addObjectsFromArray:@[@"--quickPlayMultiplayer", quickServer]];
+        }
         // Exercise an existing test save through Minecraft's own Quick Play path on a headless host.
         // Pass a save directory name as one argument, including any spaces.
+        // Preserve the simulator-only AOT test argument channel without changing the launcher UI.
+        NSString *simulatorArgs = NSProcessInfo.processInfo.environment[@"FABRICAOT_SIMULATOR_EXTRA_ARGS"];
+        if (simulatorArgs.length) {
+            [argvList addObjectsFromArray:[simulatorArgs componentsSeparatedByString:@" "]];
+        }
         NSString *quickWorld = NSProcessInfo.processInfo.environment[@"FABRICAOT_SIMULATOR_QUICK_WORLD"];
         if (quickWorld.length) {
             BOOL isName = [quickWorld isEqualToString:quickWorld.lastPathComponent]

@@ -9,7 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 NOTE = '''# FabricAOT 复现参考包
 
-本包包含打包时 Git 已跟踪的项目文件（包括工作区修改）及本打包脚本。项目仍处于研发阶段：正式真机 C0 为 BLOCKED，C1/C2 未完成；模拟器结果不能代替真机验收。请先阅读 README.md、AGENTS.md、docs/WORK_HANDOFF.md、docs/BUILDING.md 和 docs/GRAPHICS_BOOTSTRAP.md。
+本包包含打包时 Git 已跟踪的项目文件（包括工作区修改）及本打包脚本。项目仍处于研发阶段：正式真机 C0 为 BLOCKED，C1/C2 未完成；模拟器结果不能代替真机验收。请先阅读 AGENTS.md、docs/WORK_HANDOFF.md、docs/BUILDING.md 和 docs/GRAPHICS_BOOTSTRAP.md。
 
 本包不含 .git、artifacts、.cache、本地运行日志、构建目录、签名材料、Minecraft 客户端、游戏资源或存档。文档中指向这些目录的历史证据链接因而可能失效；本包并非完整原始证据归档，也不能开箱即运行。复现者需要自行合法获取客户端和资源，按锁定文件准备依赖与工具链，并自行配置 Apple 签名。路径、设备标识和签名配置可能是原作者本机示例，需自行调整。请遵守各依赖的许可证；本包不授予游戏或第三方组件的分发权。
 

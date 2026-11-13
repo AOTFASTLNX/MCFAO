@@ -1,7 +1,7 @@
 name: Launcher and Metal checks
 on:
   push:
-    branches: [feature/performance-launcher-size-2026-11-13]
+    branches: [feature/performance-launcher-size-2026-11-13, integration/aot-and-performance-20261113]
   workflow_dispatch:
 concurrency:
   group: launcher-metal-${{ github.ref }}
@@ -14,6 +14,12 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - name: AOT source and compatibility regression tests
+        run: |
+          python3 -m compileall -q tools tests
+          python3 -m unittest discover -s tests -p test_config_reflection.py -v
+          python3 -m unittest discover -s tests -p test_mod_matrix.py -v
+          python3 -m unittest discover -s tests -p test_scan_mod_evidence.py -v
       - name: Compile launcher and both Metal target paths
         run: |
           set -euo pipefail

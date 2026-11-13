@@ -19,12 +19,26 @@ final class MetalRenderPass implements RenderPassBackend {
     private final Map<String,GpuBufferSlice> uniforms=new HashMap<>();
     private record TextureBinding(MetalTextureView texture,GpuSampler sampler) {}
     private final Map<String,TextureBinding> textures=new HashMap<>();
+    private boolean skipped;
+    private static final Set<String> skippedReported=new HashSet<>();
     MetalRenderPass(MetalDevice device){this.device=device;}
     private void alive(){device.alive();if(closed||device.activePass!=this)throw new IllegalStateException("Metal render pass closed");}
     private UnsupportedOperationException unsupported(String api){alive();return new UnsupportedOperationException("Metal game render pipeline not implemented: "+api);}
     public void pushDebugGroup(Supplier<String> name){alive();MetalNative.debugGroup(device.context,name.get(),true);groups++;}
     public void popDebugGroup(){alive();if(groups==0)throw new IllegalStateException("Debug group underflow");MetalNative.debugGroup(device.context,"",false);groups--;}
-    public void setPipeline(RenderPipeline source){alive();pipeline=(MetalPipeline)device.precompilePipeline(source,null);MetalNative.setPipeline(device.context,pipeline.handle);}
+    public void setPipeline(RenderPipeline source){alive();
+        // Registration already refused this pipeline (no precompiled program in the bundle), so
+        // the pass it belongs to must not draw: a Mod keeps its pipeline object and calls it on
+        // its own schedule, and throwing here would abort a pass that vanilla closes from a
+        // finally block at best - at worst it strands device.activePass and the next clear in the
+        // frame dies on "Close the existing render pass before creating a new one".
+        if(!BundledPipelines.supports(source)){
+            skipped=true;pipeline=null;
+            if(skippedReported.add(source.getLocation().toString()))
+                System.err.println("[MCFAO_SHADER] skipping draws for unsupported pipeline "+source.getLocation());
+            return;
+        }
+        skipped=false;pipeline=(MetalPipeline)device.precompilePipeline(source,null);MetalNative.setPipeline(device.context,pipeline.handle);}
     public void bindTexture(String name,GpuTextureView texture,GpuSampler sampler){alive();device.sampler(sampler);textures.put(Objects.requireNonNull(name),new TextureBinding(device.view(texture),sampler));}
     public void setUniform(String name,GpuBuffer buffer){setUniform(name,buffer.slice());}
     public void setUniform(String name,GpuBufferSlice slice){alive();MetalDevice.MetalBuffer buffer=device.buffer(slice.buffer());TextureSpec.range(buffer.size(),slice.offset(),slice.length());uniforms.put(Objects.requireNonNull(name),slice);}
@@ -54,6 +68,7 @@ final class MetalRenderPass implements RenderPassBackend {
         }
     }
     public void drawIndexed(int baseVertex,int firstIndex,int indexCount,int instances){
+        if(skipped)return;
         prepare();if(index==null||index.isClosed()||index.mappings!=0)throw new IllegalStateException("Missing live unmapped index buffer");
         if(firstIndex<0||indexCount<0||instances<0)throw new IllegalArgumentException("Negative indexed draw range");
         TextureSpec.range(index.size(),Math.multiplyExact((long)firstIndex,indexType.bytes),Math.multiplyExact((long)indexCount,indexType.bytes));
@@ -68,10 +83,27 @@ final class MetalRenderPass implements RenderPassBackend {
         }
     }
     public void draw(int first,int count){
+        if(skipped)return;
         prepare();if(first<0||count<0)throw new IllegalArgumentException("Negative draw range");
         if(vertex!=null&&pipeline.key.stride()!=0)TextureSpec.range(vertex.size(),Math.multiplyExact((long)first,pipeline.key.stride()),Math.multiplyExact((long)count,pipeline.key.stride()));
         if(count!=0)MetalNative.draw(device.context,pipeline.handle,first,count);
     }
-    public void close(){if(closed)return;alive();while(groups>0)popDebugGroup();MetalNative.endPass(device.context);device.activePass=null;closed=true;}
+    /** Closes the native pass and *always* releases {@code device.activePass}.
+     *
+     * <p>Vanilla closes passes from {@code try}/{@code finally} blocks, but a caller that swallows
+     * an exception from inside the pass (a Mod drawing an unsupported pipeline, a failing uniform
+     * upload) may never reach {@code close()} at all. The device only has one pass slot, so a
+     * stranded slot turns the next {@code clearColorAndDepthTextures} or pass creation into a
+     * fatal {@code IllegalStateException} far away from the real failure. Releasing the slot here
+     * unconditionally keeps a nested {@code close()} (or one that races an already-failed device)
+     * from wedging the frame.
+     */
+    public void close(){
+        if(closed)return;
+        closed=true;
+        if(device.activePass==this)device.activePass=null;
+        if(groups>0){while(groups>0){groups--;MetalNative.debugGroup(device.context,"",false);}}
+        MetalNative.endPass(device.context);
+    }
     public boolean isClosed(){return closed;}
 }

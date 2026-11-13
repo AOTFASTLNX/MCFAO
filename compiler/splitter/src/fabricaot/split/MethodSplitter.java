@@ -708,7 +708,12 @@ public final class MethodSplitter {
         }
         boundaries[boundaries.length - 1] = insns.length;
         int partCount = boundaries.length - 1;
-        String prefix = method.name.equals("<clinit>") ? "fabricaot$init$" : "fabricaot$part$";
+        // The synthetic names carry the owning method's identity. Two methods of one class can both
+        // be split, and a bare "fabricaot$part$1" then collides: the class file is rejected with
+        // "Duplicate method name" only when it is loaded, which is minutes into start-up and looks
+        // like an unrelated failure (net.minecraft.util.datafix.fixes.BlockStateData).
+        String tag = methodTag(method);
+        String prefix = (method.name.equals("<clinit>") ? "fabricaot$init$" : "fabricaot$part$") + tag + "$";
 
         // Part 0 keeps the original method's identity and access flags.
         InsnList first = new InsnList();
@@ -737,7 +742,7 @@ public final class MethodSplitter {
             MethodNode node = new MethodNode(Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC,
                     prefix + part, "()V", null, null);
             InsnList body = new InsnList();
-            result.spilledSlots += restore(body, owner, frames[boundaries[part]], boundaries[part], fields,
+            result.spilledSlots += restore(body, owner, method, frames[boundaries[part]], boundaries[part], fields,
                     exactTypes);
             for (int i = boundaries[part]; i < boundaries[part + 1]; i++) {
                 body.add(insns[i]);
@@ -752,15 +757,36 @@ public final class MethodSplitter {
             node.maxLocals = method.maxLocals;
             parts.add(node);
         }
+        // A duplicate synthetic name is invisible until the class is loaded, and then it looks like
+        // an unrelated crash minutes into start-up. Refuse to emit it instead.
+        var seen = new java.util.HashSet<String>();
+        for (MethodNode existing : owner.methods) {
+            seen.add(existing.name + existing.desc);
+        }
+        for (MethodNode part : parts) {
+            if (!seen.add(part.name + part.desc)) {
+                throw new IllegalStateException("synthetic part collides in " + owner.name + ": "
+                        + part.name + part.desc + " (from " + method.name + method.desc + ")");
+            }
+        }
         return parts;
+    }
+
+    /**
+     * Identifies a method inside the synthetic namespace. The descriptor hash separates overloads,
+     * which share a name and would otherwise share their parts and spill slots.
+     */
+    private static String methodTag(MethodNode method) {
+        String name = method.name.equals("<clinit>") ? "clinit" : method.name;
+        return name + "$" + Integer.toHexString(method.desc.hashCode());
     }
 
     private static boolean originalHasLocals(MethodNode method) {
         return method.localVariables != null && !method.localVariables.isEmpty();
     }
 
-    private static String spillFieldName(int boundary, int slot) {
-        return "fabricaot$spill$" + boundary + "$" + slot;
+    private static String spillFieldName(String tag, int boundary, int slot) {
+        return "fabricaot$spill$" + tag + "$" + boundary + "$" + slot;
     }
 
     private static int spill(InsnList target, ClassNode owner, MethodNode method, Frame<BasicValue> frame,
@@ -768,6 +794,7 @@ public final class MethodSplitter {
         if (frame == null) {
             return 0;
         }
+        String tag = methodTag(method);
         int written = 0;
         for (int slot = 0; slot < frame.getLocals(); slot++) {
             BasicValue value = frame.getLocal(slot);
@@ -783,7 +810,7 @@ public final class MethodSplitter {
                 continue;
             }
             String descriptor = type.getDescriptor();
-            String name = spillFieldName(boundary, slot);
+            String name = spillFieldName(tag, boundary, slot);
             if (!hasField(owner, fields, name, descriptor)) {
                 fields.add(new FieldNode(Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC,
                         name, descriptor, null, null));
@@ -795,11 +822,12 @@ public final class MethodSplitter {
         return written;
     }
 
-    private static int restore(InsnList target, ClassNode owner, Frame<BasicValue> frame, int boundary,
-                               List<FieldNode> fields, boolean exactTypes) {
+    private static int restore(InsnList target, ClassNode owner, MethodNode method, Frame<BasicValue> frame,
+                               int boundary, List<FieldNode> fields, boolean exactTypes) {
         if (frame == null) {
             return 0;
         }
+        String tag = methodTag(method);
         int restored = 0;
         for (int slot = 0; slot < frame.getLocals(); slot++) {
             BasicValue value = frame.getLocal(slot);
@@ -818,7 +846,7 @@ public final class MethodSplitter {
                 continue;
             }
             String descriptor = type.getDescriptor();
-            String name = spillFieldName(boundary, slot);
+            String name = spillFieldName(tag, boundary, slot);
             if (!hasField(owner, fields, name, descriptor)) {
                 fields.add(new FieldNode(Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC,
                         name, descriptor, null, null));

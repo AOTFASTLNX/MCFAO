@@ -20,6 +20,10 @@ struct GLFWwindow {
     GLFWmousebuttonfun button; GLFWcursorposfun cursor; GLFWscrollfun scroll;
     GLFWdropfun drop; GLFWimestatusfun imeStatus; GLFWpreeditfun preedit;
     unsigned char keys[349];
+    /* Pollable mirror of FAOT_EVENT_BUTTON presses: malilib re-checks keybinds by polling
+     * glfwGetMouseButton every tick, so button state must survive between events the same
+     * way key state does for glfwGetKey. GLFW supports 8 buttons; GLFW_MOUSE_BUTTON_LAST=7. */
+    unsigned char mouseButtons[8];
 };
 typedef struct { GLFWwindow *window; int kind; double a, b; int c, d; } Event;
 static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -175,12 +179,18 @@ void glfwPollEvents(void) {
         }
         case FAOT_EVENT_FOCUS:
             w->focus=!!e.a;
-            if(!w->focus)for(int k=0;k<349&&w==live;k++)if(w->keys[k]){w->keys[k]=0;if(w->key)w->key(w,k,0,0,0);}
+            if(!w->focus){
+                for(int k=0;k<349&&w==live;k++)if(w->keys[k]){w->keys[k]=0;if(w->key)w->key(w,k,0,0,0);}
+                for(int b=0;b<8&&w==live;b++)w->mouseButtons[b]=0;
+            }
             if(w==live&&w->focused)w->focused(w,w->focus);break;
         case FAOT_EVENT_CURSOR: w->cursorX=e.a; w->cursorY=e.b; if(w->cursor)w->cursor(w,e.a,e.b); break;
         case FAOT_EVENT_CURSOR_DELTA:
             if(w->cursorMode==GLFW_CURSOR_DISABLED){w->cursorX+=e.a;w->cursorY+=e.b;if(w->cursor)w->cursor(w,w->cursorX,w->cursorY);}break;
-        case FAOT_EVENT_BUTTON: if(w->button)w->button(w,(int)e.a,(int)e.b,e.c); break;
+        case FAOT_EVENT_BUTTON:
+            /* uikit_surface.m enqueues (button, action, 0, 0): the action lands in e.b. */
+            if((int)e.a>=0&&(int)e.a<8)w->mouseButtons[(int)e.a]=(e.b!=0);
+            if(w->button)w->button(w,(int)e.a,(int)e.b,e.c); break;
         case FAOT_EVENT_SCROLL: if(w->scroll)w->scroll(w,e.a,e.b); break;
         case FAOT_EVENT_CHAR: if(w->character)w->character(w,(unsigned int)e.a); break;
         case FAOT_EVENT_KEY:
@@ -235,6 +245,7 @@ void glfwSetInputMode(GLFWwindow *w,int mode,int value) {
 }
 int glfwRawMouseMotionSupported(void) { return 0; }
 int glfwGetKey(GLFWwindow *w,int key) { return valid(w)&&key>=0&&key<349?w->keys[key]:0; }
+int glfwGetMouseButton(GLFWwindow *w,int button) { return valid(w)&&button>=0&&button<8?w->mouseButtons[button]:0; }
 const char *glfwGetKeyName(int key,int scan) { (void)scan;static _Thread_local char name[2];if(key>=32&&key<=126){name[0]=(char)key;name[1]=0;return name;}return NULL; }
 void glfwSetCursorPos(GLFWwindow *w,double x,double y) { if(valid(w)&&isfinite(x)&&isfinite(y))faot_glfw_enqueue(w,FAOT_EVENT_CURSOR,x,y,0,0); }
 void glfwGetCursorPos(GLFWwindow *w,double *x,double *y) { if(valid(w)){if(x)*x=w->cursorX;if(y)*y=w->cursorY;} }

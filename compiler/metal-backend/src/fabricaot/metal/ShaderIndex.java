@@ -39,7 +39,12 @@ final class ShaderIndex {
     void clearSourceValidation(){verifiedSources.clear();}
     Program program(RenderPipeline pipeline,ShaderSource source,boolean allowPreloadedSource){
         String key=key(pipeline);JsonObject entry=programs.get(key);
-        if(entry==null)throw new UnsupportedOperationException("Rebuild required for shader variant: "+pipeline.getLocation()+" "+key);
+        if(entry==null){
+            // Naming the pipeline here is the difference between "some variant is missing" and a
+            // rebuild target; the key alone is unreadable in a log.
+            System.err.println("[MCFAO_SHADER] no bundle entry for "+pipeline.getLocation()+" vertex="+pipeline.getVertexShader()+" fragment="+pipeline.getFragmentShader());
+            throw new UnsupportedOperationException("Rebuild required for shader variant: "+pipeline.getLocation()+" "+key);
+        }
         try{
             if(!hash(Files.readAllBytes(directory.resolve(key+".metallib"))).equals(entry.get("metallibSHA256").getAsString()))throw new IllegalStateException("Precompiled Metal library fingerprint changed: "+key);
             if(source!=null){
@@ -48,6 +53,10 @@ final class ShaderIndex {
                 // The splash draws before ShaderManager's initial reload. It can reuse only a
                 // program already checked through GameRenderer's explicit vanilla preload.
                 if(!(vertex==null&&fragment==null&&allowPreloadedSource&&verifiedSources.contains(key))){
+                    // Only reached when a pipeline draws before its sources exist and the preload
+                    // never verified this program - the two conditions are easy to confuse, so the
+                    // line reports both facts next to the pipeline being drawn.
+                    if(vertex==null)System.err.println("[MCFAO_SHADER] missing source "+pipeline.getLocation()+" vertex="+pipeline.getVertexShader()+" fragment="+pipeline.getFragmentShader()+" verified="+verifiedSources.contains(key)+" allow="+allowPreloadedSource);
                     verifyStage(pipeline,entry,"vertex",vertex);
                     verifyStage(pipeline,entry,"fragment",fragment);
                     verifiedSources.add(key);
