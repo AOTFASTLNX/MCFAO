@@ -15,8 +15,8 @@ PR #2 的真机失败不是“CI 没跑够”，而是最终安装包仍声明�
 
 | 项目 | 状态 | 证据 |
 |---|---|---|
-| 最终包 `UIDeviceFamily=[1,2]` | PASS（构建阶段强制） | `embed_graphics_libraries.sh` → `verify_ipad_bundle.sh`；[构建日志](../artifacts/ipad-pr2-fix-01/build-3.log) |
-| 独立包契约复核 | PASS | `python3 tools/verify_ipad_bundle.py --app ...`；[契约 JSON](../artifacts/ipad-pr2-fix-01/ipad-bundle-contract.json)（若已归档） |
+| 最终包 `UIDeviceFamily=[1,2]` | PASS（构建阶段强制） | `embed_graphics_libraries.sh` → `verify_ipad_bundle.sh`；[构建日志](../artifacts/evidence/ipad-pointer-pr2-20261113/build-ipad-native.log) |
+| 独立包契约复核 | PASS | `python3 tools/verify_ipad_bundle.py --app ...`；[契约 JSON](../artifacts/evidence/ipad-pointer-pr2-20261113/ipa-contract.json) |
 | iPad 原生场景/Drawable | PASS（iPadOS 27.2 模拟器） | 场景 `1210x834 pt`、Drawable `2420x1668 px`、`sceneFullScreen=1`，原版主菜单铺满屏幕；[截图](../artifacts/evidence/ipad-pointer-pr2-20261113/ipad-simulator-native-menu.png) |
 | 窗口/Drawable/锁状态日志 | PASS（模拟器） | `input-*.log`：`state ... scene=1210x834 screen=1210x834 drawable=2420x1668` |
 | 触控板指针锁/视角 | **NOT RUN（真机）** | 2026-11-13 两次安装均因 iPad 锁屏被 CoreDevice 拒绝；待解锁后执行 [IPAD_INPUT](IPAD_INPUT.md) §4 |
