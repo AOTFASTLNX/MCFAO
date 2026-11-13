@@ -38,6 +38,7 @@ jobs:
           python3 -m unittest discover -s tests -p test_graphics_bridge.py -v
           python3 -m unittest discover -s tests -p test_pointer_input_source.py -v
           python3 -m unittest discover -s tests -p test_c0_harness.py -v
+          python3 -m unittest discover -s tests -p test_dragon_phase_reflection.py -v
 
   screenshots:
     runs-on: macos-15
