@@ -251,7 +251,7 @@ void glfwSetCursorPos(GLFWwindow *w,double x,double y) { if(valid(w)&&isfinite(x
 void glfwGetCursorPos(GLFWwindow *w,double *x,double *y) { if(valid(w)){if(x)*x=w->cursorX;if(y)*y=w->cursorY;} }
 GLFWcursor *glfwCreateStandardCursor(int shape) { if(!ready())return NULL;GLFWcursor *c=malloc(sizeof *c);if(c)c->shape=shape;return c; }
 void glfwDestroyCursor(GLFWcursor *c) { free(c); }
-void glfwSetCursor(GLFWwindow *w,GLFWcursor *c) { (void)c;if(valid(w))fprintf(stderr,"[GLFW-lite] cursor artwork is not implemented\n"); }
+void glfwSetCursor(GLFWwindow *w,GLFWcursor *c) { (void)c;(void)w; }  /* hot path: Minecraft sets the cursor every frame */
 const char *glfwGetClipboardString(GLFWwindow *w) { if(w&&!valid(w))return NULL;free(clipboard);clipboard=faot_surface_clipboard_copy();return clipboard; }
 void glfwSetClipboardString(GLFWwindow *w,const char *s) { if((!w||valid(w))&&s)faot_surface_clipboard_set(s); }
 void glfwSetPreeditCursorRectangle(GLFWwindow *w,int x,int y,int width,int height) { if(valid(w))faot_surface_ime_rect(w->surface,x,y,width,height); }

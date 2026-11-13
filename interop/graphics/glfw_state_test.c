@@ -1,6 +1,7 @@
 /* First-party host fixture only. Not an iOS surface or Minecraft acceptance test. */
 #include "glfw_lite.h"
 #include "input_mapping.h"
+#include "pointer_motion.h"
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,6 +28,13 @@ static void focus(GLFWwindow *w,int f){assert(w==window&&f==1);focused++;}
 static void character(GLFWwindow *w,unsigned int c){assert(w==window&&c==0x1f600);chars++;}
 static void destroyOnResize(GLFWwindow *w,int a,int b){(void)a;(void)b;glfwDestroyWindow(w);}
 int main(void){
+    FAOTPointerMotion hover={0};double dx,dy;
+    assert(!faot_pointer_hover_delta(&hover,100,200,&dx,&dy));
+    assert(faot_pointer_hover_delta(&hover,104,194,&dx,&dy)&&dx==4&&dy==-6);
+    assert(!faot_pointer_hover_delta(&hover,104,194,&dx,&dy));
+    faot_pointer_reset(&hover);
+    assert(!faot_pointer_hover_delta(&hover,400,800,&dx,&dy)&&dx==0&&dy==0);
+    assert(faot_pointer_hover_delta(&hover,398,803,&dx,&dy)&&dx==-2&&dy==3);
     assert(!glfwCreateWindow(1,1,"test",NULL,NULL));
     const char *error;assert(glfwGetError(&error)==GLFW_NOT_INITIALIZED&&error);
     assert(glfwGetError(&error)==0&&error==NULL);

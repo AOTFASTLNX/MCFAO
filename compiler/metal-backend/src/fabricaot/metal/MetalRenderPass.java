@@ -44,7 +44,7 @@ final class MetalRenderPass implements RenderPassBackend {
     public void setUniform(String name,GpuBufferSlice slice){alive();MetalDevice.MetalBuffer buffer=device.buffer(slice.buffer());TextureSpec.range(buffer.size(),slice.offset(),slice.length());uniforms.put(Objects.requireNonNull(name),slice);}
     public void enableScissor(int x,int y,int width,int height){alive();if(width<0||height<0)throw new IllegalArgumentException("Negative scissor extent");MetalNative.scissor(device.context,true,x,y,width,height);}
     public void disableScissor(){alive();MetalNative.scissor(device.context,false,0,0,0,0);}
-    public void setVertexBuffer(int slot,GpuBuffer buffer){alive();if(slot!=0)throw unsupported("vertex stream slot "+slot);vertex=device.buffer(buffer);if(vertex.mappings!=0)throw new IllegalStateException("Vertex buffer is mapped");MetalNative.vertexBuffer(device.context,vertex.handle);}
+    public void setVertexBuffer(int slot,GpuBuffer buffer){alive();if(slot!=0)throw unsupported("vertex stream slot "+slot);vertex=device.buffer(buffer);if(vertex.mappings!=0)throw new IllegalStateException("Vertex buffer is mapped");device.bufferHazards.read(vertex.hazard);MetalNative.vertexBuffer(device.context,vertex.handle);}
     public void setIndexBuffer(GpuBuffer buffer,VertexFormat.IndexType type){alive();index=device.buffer(buffer);indexType=Objects.requireNonNull(type);}
     private void prepare(){
         alive();if(pipeline==null||!pipeline.isValid())throw new IllegalStateException("No live Metal pipeline selected");
@@ -54,6 +54,9 @@ final class MetalRenderPass implements RenderPassBackend {
                 GpuBufferSlice slice=uniforms.get(binding.name());if(slice==null)throw new IllegalStateException("Missing uniform "+binding.name()+" for "+pipeline.source.getLocation());
                 MetalDevice.MetalBuffer buffer=device.buffer(slice.buffer());TextureSpec.range(buffer.size(),slice.offset(),slice.length());
                 if(buffer.mappings!=0||slice.length()<binding.bytes())throw new IllegalStateException("Mapped or undersized uniform "+binding.name());
+                // Texel bindings currently copy their CPU source, but tracking them
+                // conservatively keeps this safe if that implementation changes.
+                device.bufferHazards.read(buffer.hazard);
                 if(binding.bufferTexture()){
                     var description=pipeline.source.getUniforms().stream().filter(v->v.name().equals(binding.name())).findFirst().orElseThrow(()->new IllegalStateException("Missing texel format "+binding.name()));
                     MetalNative.bindTexelBuffer(device.context,binding.stage(),binding.index(),TextureSpec.formatId(Objects.requireNonNull(description.textureFormat())),buffer.handle,slice.offset(),slice.length());
@@ -69,7 +72,7 @@ final class MetalRenderPass implements RenderPassBackend {
         prepare();if(index==null||index.isClosed()||index.mappings!=0)throw new IllegalStateException("Missing live unmapped index buffer");
         if(firstIndex<0||indexCount<0||instances<0)throw new IllegalArgumentException("Negative indexed draw range");
         TextureSpec.range(index.size(),Math.multiplyExact((long)firstIndex,indexType.bytes),Math.multiplyExact((long)indexCount,indexType.bytes));
-        if(indexCount!=0&&instances!=0)MetalNative.drawIndexed(device.context,pipeline.handle,index.handle,indexType==VertexFormat.IndexType.SHORT?0:1,firstIndex,indexCount,baseVertex,instances);
+        if(indexCount!=0&&instances!=0){device.bufferHazards.read(index.hazard);MetalNative.drawIndexed(device.context,pipeline.handle,index.handle,indexType==VertexFormat.IndexType.SHORT?0:1,firstIndex,indexCount,baseVertex,instances);}
     }
     public <T> void drawMultipleIndexed(Collection<RenderPass.Draw<T>> draws,GpuBuffer buffer,VertexFormat.IndexType type,Collection<String> names,T value){
         alive();for(RenderPass.Draw<T> draw:draws){

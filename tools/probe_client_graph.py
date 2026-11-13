@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Analyze the real locally owned client entry graph; this is not a game runtime or C0 acceptance."""
 from __future__ import annotations
+import os
 
 import argparse
 import json
@@ -329,7 +330,7 @@ def main(argv=None):
             entry["name"]: sorted([item["name"] for item in entry.get("methods", ())] +
                                   [item["name"] for item in entry.get("fields", ())])
             for entry in inferred if entry.get("methods") or entry.get("fields")}
-        cmd=[*base,str(executable),"--no-fallback","-H:+SharedArenaSupport","-O1",f"--parallelism={args.parallelism}",f"-J-Xmx{args.heap_gib}g","-J-XX:-UsePerfData",
+        cmd=[*base,str(executable),"--no-fallback","-H:+SharedArenaSupport",os.environ.get("MCFAO_OPT_LEVEL","-O1"),f"--parallelism={args.parallelism}",f"-J-Xmx{args.heap_gib}g","-J-XX:-UsePerfData",
              "-J-Duser.home="+str(work/"home"),"-J-Djava.io.tmpdir="+str(work/"tmp"),"-H:+UnlockExperimentalVMOptions",
              "--shared","--verbose","--diagnostics-mode","-H:+PrintAnalysisStatistics",
              "-H:BuildOutputJSONFile="+str(work/"build-output.json"),
