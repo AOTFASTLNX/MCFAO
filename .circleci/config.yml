@@ -123,6 +123,77 @@ jobs:
           path: build/ci/published
           destination: ipados-pointer
 
+  integration-game-ipa:
+    macos:
+      xcode: "27.2.0"
+    resource_class: m4pro.medium
+    environment:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+      MCFAO_OPT_LEVEL: "-O1"
+    steps:
+      - checkout
+      - run:
+          name: Validate CI source, host and signing mode
+          command: |
+            set -euo pipefail
+            test "$(uname -m)" = arm64
+            xcodebuild -version
+            xcrun --sdk iphoneos --show-sdk-version
+            sysctl -n hw.memsize | awk '{printf "Memory: %.1f GiB\n", $1/1073741824}'
+            df -h .
+            python3 -m py_compile ci/patch_src.py ci/fetch_minecraft.py
+            bash -n ci/build_mac.sh
+            test "$CIRCLE_BRANCH" = "integration/aot-and-performance-20261113"
+            test -n "$CIRCLE_SHA1"
+      - run:
+          name: Build full-resource unsigned Minecraft 26.1.2 IPA (pinned integration source)
+          no_output_timeout: 60m
+          command: |
+            set -euo pipefail
+            export WORK="$HOME/mcfao-build"
+            export CI_REPO="$PWD"
+            export UPSTREAM="https://github.com/AOTFASTLNX/MCFAO"
+            export SOURCE_REF="$CIRCLE_BRANCH"
+            export SOURCE_SHA="$CIRCLE_SHA1"
+            export HEAP_GIB=9
+            export JOBS=6
+            export AOT_PAR=4
+            export SLIM_ASSETS=0
+            bash ci/build_mac.sh
+      - run:
+          name: Verify actual IPA and source provenance
+          command: |
+            set -euo pipefail
+            IPA="$HOME/mcfao-build/FabricAOT-game.ipa"
+            test -s "$IPA"
+            unzip -tq "$IPA" > "$HOME/mcfao-build/ipa-zip-test.txt"
+            test "$(cat "$HOME/mcfao-build/source-sha.txt")" = "$CIRCLE_SHA1"
+            shasum -a 256 "$IPA" | tee "$HOME/mcfao-build/ipa-sha256.txt"
+            echo "Unsigned full-resource IPA ready; requires local developer signing"
+      - run:
+          name: Report build failure with relevant diagnostics
+          when: on_fail
+          command: |
+            echo "CI build did not produce a verified IPA. See logs and reason." 
+            tail -100 "$HOME/mcfao-build/build.log" 2>/dev/null || true
+            find "$HOME/mcfao-build/src/artifacts/ci" -maxdepth 4 -name stderr.log -print 2>/dev/null | head -25 || true
+      - store_artifacts:
+          path: ~/mcfao-build/FabricAOT-game.ipa
+          destination: unsigned-private-game/FabricAOT-game.ipa
+      - store_artifacts:
+          path: ~/mcfao-build/build.log
+          destination: diagnostics/build.log
+      - store_artifacts:
+          path: ~/mcfao-build/ipa-sha256.txt
+          destination: diagnostics/ipa-sha256.txt
+      - store_artifacts:
+          path: ~/mcfao-build/source-sha.txt
+          destination: diagnostics/source-sha.txt
+      - store_artifacts:
+          path: ~/mcfao-build/ipa-zip-test.txt
+          destination: diagnostics/ipa-zip-test.txt
+
 workflows:
   build-ipados-pointer:
     jobs:
@@ -130,3 +201,11 @@ workflows:
           filters:
             branches:
               only: fix/ipados-mouse-trackpad-look
+
+  build-integration-game-ipa:
+    jobs:
+      - integration-game-ipa:
+          filters:
+            branches:
+              only:
+                - integration/aot-and-performance-20261113
