@@ -6,6 +6,7 @@ final class MetalNative {
     static native String deviceName(long context);
     static native long createBuffer(long context,long bytes);
     static native long bufferAddress(long buffer);
+    static native long cloneBuffer(long context,long buffer,long bytes);
     static native long createSampler(long context,boolean repeatU,boolean repeatV,boolean linearMin,boolean linearMag,int anisotropy,double maxLod);
     static native long createTexture(long context,int format,int usage,int width,int height,int layers,int mips);
     static native long createTextureView(long texture,int baseMip,int mips);
@@ -31,6 +32,7 @@ final class MetalNative {
     static native boolean awaitFence(long fence,long timeoutNanos);
     static native void presentTexture(long context,long view);
     static native void presentFrame(long context);
+    static native void setDisplaySync(long context, boolean enabled);
     static native void clearDiagnosticFrame(long context,float r,float g,float b,float a);
     static native void release(long object);
 }

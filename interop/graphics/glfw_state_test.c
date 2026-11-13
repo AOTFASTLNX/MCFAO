@@ -1,6 +1,7 @@
 /* First-party host fixture only. Not an iOS surface or Minecraft acceptance test. */
 #include "glfw_lite.h"
 #include "input_mapping.h"
+#include "pointer_motion.h"
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -8,7 +9,9 @@
 static int sizes, pixels, focused, chars, destroyed;
 static GLFWwindow *window;
 static int keyDown,keyUp;static double cursorX,cursorY;
+static int buttonDown,buttonUp;
 static void key(GLFWwindow *w,int k,int scan,int action,int mods){(void)scan;(void)mods;assert(w==window&&k=='W');if(action)keyDown++;else keyUp++;}
+static void mouseButton(GLFWwindow *w,int button,int action,int mods){(void)mods;assert(w==window&&button==0);if(action)buttonDown++;else buttonUp++;}
 static void cursor(GLFWwindow *w,double x,double y){assert(w==window);cursorX=x;cursorY=y;}
 void *faot_surface_create(GLFWwindow *w,int *a,int *b,int *c,int *d){(void)w;*a=390;*b=844;*c=1170;*d=2532;return malloc(1);}
 void faot_surface_destroy(void *p){free(p);destroyed++;}
@@ -25,6 +28,13 @@ static void focus(GLFWwindow *w,int f){assert(w==window&&f==1);focused++;}
 static void character(GLFWwindow *w,unsigned int c){assert(w==window&&c==0x1f600);chars++;}
 static void destroyOnResize(GLFWwindow *w,int a,int b){(void)a;(void)b;glfwDestroyWindow(w);}
 int main(void){
+    FAOTPointerMotion hover={0};double dx,dy;
+    assert(!faot_pointer_hover_delta(&hover,100,200,&dx,&dy));
+    assert(faot_pointer_hover_delta(&hover,104,194,&dx,&dy)&&dx==4&&dy==-6);
+    assert(!faot_pointer_hover_delta(&hover,104,194,&dx,&dy));
+    faot_pointer_reset(&hover);
+    assert(!faot_pointer_hover_delta(&hover,400,800,&dx,&dy)&&dx==0&&dy==0);
+    assert(faot_pointer_hover_delta(&hover,398,803,&dx,&dy)&&dx==-2&&dy==3);
     assert(!glfwCreateWindow(1,1,"test",NULL,NULL));
     const char *error;assert(glfwGetError(&error)==GLFW_NOT_INITIALIZED&&error);
     assert(glfwGetError(&error)==0&&error==NULL);
@@ -54,8 +64,16 @@ int main(void){
     faot_glfw_enqueue(window,FAOT_EVENT_CURSOR_DELTA,4,-6,0,0);
     faot_glfw_enqueue(window,FAOT_EVENT_KEY,'W',0x1a,1,0);glfwPollEvents();
     assert(cursorX==24&&cursorY==24&&glfwGetKey(window,'W')&&keyDown==1);
+    glfwSetMouseButtonCallback(window,mouseButton);
+    faot_glfw_enqueue(window,FAOT_EVENT_BUTTON,0,1,0,0);glfwPollEvents();
+    assert(glfwGetMouseButton(window,0)&&buttonDown==1); /* malilib polls this every tick. */
+    assert(!glfwGetMouseButton(window,7)&&!glfwGetMouseButton(window,-1)&&!glfwGetMouseButton(window,8));
+    faot_glfw_enqueue(window,FAOT_EVENT_BUTTON,0,0,0,0);glfwPollEvents();
+    assert(!glfwGetMouseButton(window,0)&&buttonUp==1);
+    faot_glfw_enqueue(window,FAOT_EVENT_KEY,'W',0x1a,1,0);
     faot_glfw_enqueue(window,FAOT_EVENT_FOCUS,0,0,0,0);glfwPollEvents();
     assert(!glfwGetKey(window,'W')&&keyUp==1);
+    assert(!glfwGetMouseButton(window,0)); /* Losing focus also releases polled buttons. */
     glfwSetWindowSizeCallback(window,destroyOnResize);
     faot_glfw_enqueue(window,FAOT_EVENT_RESIZE,0,0,0,0);glfwPollEvents();
     assert(destroyed==1&&glfwGetCurrentContext()==NULL);

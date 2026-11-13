@@ -17,6 +17,8 @@ public final class InjectBackend implements Opcodes {
     private static final String CHAT = "net/minecraft/network/chat/RemoteChatSession$Data";
     private static final String SERVICES = "net/minecraft/server/Services";
     private static final String ITEM_ATLAS = "net/minecraft/client/gui/render/GuiItemAtlas";
+    private static final String FAVICON = "net/minecraft/client/gui/screens/FaviconTexture";
+    private static final String PIP = "net/minecraft/client/gui/render/pip/PictureInPictureRenderer";
     private static final String BACKEND = "com/mojang/blaze3d/systems/GpuBackend";
     private static final String GL = "com/mojang/blaze3d/opengl/GlBackend";
     private static final String METAL = "fabricaot/metal/MetalBackend";
@@ -326,6 +328,39 @@ public final class InjectBackend implements Opcodes {
         return result;
     }
 
+    static byte[] orientFavicon(byte[] bytes) {
+        ClassNode cls=new ClassNode();new ClassReader(bytes).accept(cls,0);
+        if(!cls.name.equals(FAVICON))throw new IllegalArgumentException("Unexpected favicon class");
+        int matches=0;
+        for(MethodNode method:cls.methods){
+            if(method.name.equals("upload")&&method.desc.equals("(Lcom/mojang/blaze3d/platform/NativeImage;)V")){
+                InsnList patch=new InsnList();patch.add(new VarInsnNode(ALOAD,1));
+                patch.add(new MethodInsnNode(INVOKESTATIC,METAL,"orientFavicon","(Lcom/mojang/blaze3d/platform/NativeImage;)V",false));
+                method.instructions.insert(patch);matches++;
+            }
+        }
+        if(matches!=1)throw new IllegalArgumentException("Expected one FaviconTexture.upload method");
+        ClassWriter writer=new ClassWriter(ClassWriter.COMPUTE_MAXS);cls.accept(writer);return writer.toByteArray();
+    }
+    static byte[] orientPictureInPicture(byte[] bytes) {
+        ClassNode cls=new ClassNode();new ClassReader(bytes).accept(cls,0);
+        if(!cls.name.equals(PIP))throw new IllegalArgumentException("Unexpected PIP renderer class");
+        int matches=0;
+        for(MethodNode method:cls.methods){
+            if(!method.name.equals("blitTexture")||!method.desc.equals("(Lnet/minecraft/client/renderer/state/gui/pip/PictureInPictureRenderState;Lnet/minecraft/client/renderer/state/gui/GuiRenderState;)V"))continue;
+            List<AbstractInsnNode> code=Arrays.stream(method.instructions.toArray()).filter(n->n.getOpcode()>=0).toList();
+            for(int i=0;i+3<code.size();i++){
+                if(op(code.get(i),FCONST_0)&&op(code.get(i+1),FCONST_1)&&op(code.get(i+2),FCONST_1)&&op(code.get(i+3),FCONST_0)){
+                    // BlitRenderState takes u0, u1, v0, v1: preserve the full U range.
+                    method.instructions.insert(code.get(i+2),new MethodInsnNode(INVOKESTATIC,METAL,"guiRenderTargetV","(F)F",false));
+                    method.instructions.insert(code.get(i+3),new MethodInsnNode(INVOKESTATIC,METAL,"guiRenderTargetV","(F)F",false));
+                    matches++;
+                }
+            }
+        }
+        if(matches!=1)throw new IllegalArgumentException("Expected one PIP blit UV sequence");
+        ClassWriter writer=new ClassWriter(ClassWriter.COMPUTE_MAXS);cls.accept(writer);return writer.toByteArray();
+    }
     static void selfTest() {
         ClassWriter w = new ClassWriter(0); w.visit(V25, ACC_PUBLIC, "Fixture", null, "java/lang/Object", null);
         MethodVisitor m = w.visitMethod(ACC_PUBLIC, "<init>", "()V", null, null); m.visitCode();
@@ -348,7 +383,7 @@ public final class InjectBackend implements Opcodes {
         if (args.length != 3) throw new IllegalArgumentException("input.jar output.jar diagnostics-classes");
         int targets = 0, packetTargets = 0, itemTargets = 0, trackerTargets = 0;
         int waitingTargets = 0, rendererTargets = 0, chunkCacheTargets = 0, playerTargets = 0;
-        int connectionTargets = 0;
+        int connectionTargets = 0, faviconTargets = 0, pipTargets = 0;
         Set<String> written = new HashSet<>();
         try (JarFile input = new JarFile(args[0]); ZipOutputStream output = new ZipOutputStream(Files.newOutputStream(Path.of(args[1])))) {
             for (JarEntry entry : Collections.list(input.entries())) {
@@ -365,6 +400,8 @@ public final class InjectBackend implements Opcodes {
                 if (name.equals(TARGET)) { bytes = transform(bytes); targets++; }
                 if (name.equals(PACKET+".class")) { bytes=avoidUnneededChatKeyWait(bytes);packetTargets++; }
                 if (name.equals(ITEM_ATLAS+".class")) { bytes=orientGuiItemAtlas(bytes);itemTargets++; }
+                if (name.equals(FAVICON+".class")) { bytes=orientFavicon(bytes);faviconTargets++; }
+                if (name.equals(PIP+".class")) { bytes=orientPictureInPicture(bytes);pipTargets++; }
                 if (name.equals(LEVEL_TRACKER+".class")) { bytes=instrumentLevelLoadTracker(bytes);trackerTargets++; }
                 if (name.equals(LEVEL_TRACKER_WAITING+".class")) { bytes=instrumentWaitingForPlayerChunk(bytes);waitingTargets++; }
                 if (name.equals(LEVEL_RENDERER+".class")) { bytes=instrumentLevelRenderer(bytes);rendererTargets++; }
@@ -396,9 +433,12 @@ public final class InjectBackend implements Opcodes {
                     + " waiting=" + waitingTargets + " renderer=" + rendererTargets
                     + " chunkCache=" + chunkCacheTargets + " player=" + playerTargets
                     + " connection=" + connectionTargets);
+        if (faviconTargets != 1 || pipTargets != 1)
+            throw new IllegalArgumentException("Expected one favicon and PIP class; got favicon=" + faviconTargets + " pip=" + pipTargets);
         System.out.println("BACKEND_INJECTION_PASS arrays=1 order=Metal,OpenGL fallback=preserved");
         System.out.println("CHAT_KEY_SHORT_CIRCUIT_PASS signedValidation=preserved");
         System.out.println("GUI_ITEM_ATLAS_ORIGIN_PASS legacyBackendCoordinates=preserved");
+        System.out.println("GUI_PREVIEW_ORIGIN_PASS favicon=top-first pip=metal-render-target");
         System.out.println("PLAY_DIAGNOSTICS_INJECTED classes=1");
     }
 

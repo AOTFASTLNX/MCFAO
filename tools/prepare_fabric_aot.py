@@ -22,6 +22,9 @@ TOOL = ROOT / "interop/fabric/tool"
 FIXTURE = ROOT / "interop/fabric/fixture"
 MAIN = "mcfao.build.AotExport"
 MAX_ARCHIVE = 128 * 1024**2
+# The overlay carries every Mod class, resource and service file in one jar, so it grows past
+# the per-input archive cap as soon as a real pack is prepared. This bounds the output only.
+MAX_EXPORT = 1024 * 1024**2
 MAX_UNPACKED = 512 * 1024**2
 # Recollection3 resolves to 221 root and nested archives (53 roots, 168 nested).
 # The transform budget must be able to reach that inventory, otherwise a real pack is
@@ -32,6 +35,18 @@ MAX_INSPECTION_ARCHIVES = 512
 # provider cannot exist in the closed-world client, no code can query the stage, so the
 # entry is unreachable and recorded instead of failing the archive.
 OPTIONAL_PROVIDER_STAGES = {"modmenu": "modmenu", "jei_mod_plugin": "jei"}
+# Classes under interop/fabric/tool/mcfao/aot replace bytecode a Mod would have generated at run
+# time, so they implement that Mod's own API and compile against that Mod's jar. They must not be
+# compiled into a pack that does not contain the Mod: the compile would fail on the missing
+# package, and a class nothing references would still ship. Keyed by tool-relative path.
+RUNTIME_OVERLAY_MODS = {"mcfao/aot/GenericVertexSerializer.java": "sodium"}
+# Packages the pinned engine owns. A Mod that ships its own copy would shadow the very
+# code the image is built against; Fabric API and language adapters live elsewhere.
+LOADER_PACKAGES = ("net/fabricmc/loader/", "net/fabricmc/mappingio/",
+                   "net/fabricmc/accesswidener/", "net/fabricmc/tinyremapper/")
+# Identities the image supplies itself. A Mod that re-ships one of these must use the image
+# copy: its own classes are never merged.
+RESERVED_IDS = frozenset({"java", "minecraft", "fabricloader", "mixinextras"})
 
 
 def unique_keys(pairs):
@@ -100,6 +115,34 @@ def mod_files(directory):
     return jars
 
 
+def root_mod_ids(roots):
+    """Ids declared by the root JARs, used to decide which run-time overlays can compile."""
+    ids = set()
+    for path in roots:
+        with zipfile.ZipFile(path) as archive:
+            try:
+                metadata = read_entry(archive, "fabric.mod.json")
+            except (ValueError, KeyError):
+                continue
+        if isinstance(metadata.get("id"), str):
+            ids.add(metadata["id"])
+    return ids
+
+
+def runtime_overlay_sources(roots):
+    """Split the run-time overlay sources into the ones this pack can compile and the rest."""
+    present = root_mod_ids(roots)
+    compiled, skipped = [], []
+    for path in sorted((TOOL / "mcfao" / "aot").rglob("*.java")):
+        relative = path.relative_to(TOOL).as_posix()
+        required = RUNTIME_OVERLAY_MODS.get(relative)
+        if required and required not in present:
+            skipped.append({"source": relative, "requiresMod": required})
+            continue
+        compiled.append(path)
+    return compiled, skipped
+
+
 def inspect_archives(roots, work, *, metadata_only=False):
     inventory = []
     budget = MAX_UNPACKED
@@ -144,21 +187,44 @@ def inspect_archives(roots, work, *, metadata_only=False):
     return inventory
 
 
-def transformation_checks(inventory, metadata, *, client_ids=None):
+def transformation_checks(inventory, metadata, *, client_ids=None, nested=None, adapters=None):
     if client_ids is None:
         client_ids = {mod["id"] for mod in metadata if mod["client"]}
-    reserved = {"java", "minecraft", "fabricloader", "mixinextras"}
+    if nested is None:
+        nested = [False] * len(inventory)
+    # Only an adapter that some archive in the closure actually registers can be resolved at
+    # build time; anything else would need a runtime registry lookup.
+    registered_adapters = {"default"} | set(adapters or ())
+    reserved = RESERVED_IDS
     skipped = []
-    for (path, origin, raw, names), parsed in zip(inventory, metadata, strict=True):
+    for (path, origin, raw, names), parsed, is_nested in zip(inventory, metadata, nested, strict=True):
         def unsupported(message):
             raise ValueError(f"{origin} [{parsed['id']}]: {message}")
 
         if not parsed["client"]:
             continue
         if parsed["id"] in reserved or reserved.intersection(raw.get("provides", [])):
+            # A nested Jar that re-ships a runtime the image already provides is redundant,
+            # not conflicting: the provider is present exactly once at a higher level.
+            if is_nested:
+                skipped.append({"mod": parsed["id"], "stage": "provided", "provider": parsed["id"],
+                                "entrypoint": None,
+                                "reason": "nested Jar re-ships a runtime the image already provides; "
+                                          "the packaged copy is dropped and the image copy is used"})
+                continue
             unsupported("Reserved Fabric/Minecraft dependency identity")
-        if raw.get("schemaVersion") != 1 or raw.get("languageAdapters") or raw.get("initializers"):
-            unsupported("Schema 1 and the built-in default language adapter are required")
+        if raw.get("schemaVersion") != 1 or raw.get("initializers"):
+            unsupported("Schema 1 without initializers is required")
+        for adapter, value in sorted((raw.get("languageAdapters") or {}).items()):
+            if not re.fullmatch(r"[\w$]+(?:\.[\w$]+)+", str(value), re.ASCII):
+                unsupported(f"Language adapter {adapter} must name a class: {value}")
+            # The adapter is only consulted while the image is assembled: it decides whether the
+            # entrypoint is a Kotlin object or a class to construct. The generated hook records
+            # that decision, so the image needs neither the adapter nor its registry.
+            skipped.append({"mod": parsed["id"], "stage": "language-adapter", "provider": adapter,
+                            "entrypoint": str(value),
+                            "reason": "adapter resolved at build time into a direct construction "
+                                      "or a singleton field read"})
         for stage, entries in parsed["entrypoints"].items():
             if stage in {"server", "fabric-datagen"}:
                 continue
@@ -171,23 +237,36 @@ def transformation_checks(inventory, metadata, *, client_ids=None):
                                 "entrypoint": entry.get("value")} for entry in entries)
                 continue
             if stage not in {"main", "client"}:
-                unsupported(f"Unsupported lifecycle stage {stage}")
+                # Custom stages exist so one mod can call into another. The generated hooks only
+                # invoke main/client, so these callbacks never run; recording them keeps the
+                # loss visible instead of silently dropping behaviour.
+                consumer = provider or stage.split(":", 1)[0]
+                if consumer in {"main", "client"}:
+                    unsupported(f"Unsupported lifecycle stage {stage}")
+                skipped.extend({"mod": parsed["id"], "stage": stage, "provider": consumer,
+                                "entrypoint": entry.get("value"),
+                                "reason": "custom stage is dispatched by its provider mod or the Loader "
+                                          "outside the generated main/client hooks"} for entry in entries)
+                continue
             for entry in entries:
-                if entry["adapter"] != "default" or not re.fullmatch(
-                        r"[\w$]+(?:\.[\w$]+)+(?:::\w+)?", entry["value"], re.ASCII):
+                if entry["adapter"] not in registered_adapters:
+                    unsupported(f"Entrypoint language adapter {entry['adapter']} is not registered "
+                                f"by any packaged Mod: {entry['value']}")
+                if not re.fullmatch(r"[\w$]+(?:\.[\w$]+)+(?:::\w+)?", entry["value"], re.ASCII):
                     unsupported("Entrypoint must be a public Java class or an official method "
                                 f"reference: {entry['value']}")
+                if entry["adapter"] != "default":
+                    skipped.append({"mod": parsed["id"], "stage": "entrypoint-adapter",
+                                    "provider": entry["adapter"], "entrypoint": entry["value"],
+                                    "reason": "adapter resolved at build time into a direct "
+                                              "construction or a singleton field read"})
         for name in sorted(names):
             if name == "META-INF/services/":
                 continue
-            if (name.startswith(("META-INF/native-image/", "META-INF/versions/", "META-INF/services/",
-                                 "mcfao/aot/", "org/spongepowered/", "com/llamalad7/"))
-                    or (name.startswith("net/fabricmc/") and not (
-                        name == "net/fabricmc/" or name.startswith("net/fabricmc/fabric/")))
-                    or name.lower().endswith((".dylib", ".so", ".dll")) or name == "module-info.class"):
+            if (name.startswith(("mcfao/aot/", "org/spongepowered/", "com/llamalad7/", *LOADER_PACKAGES))
+                    or name.lower().endswith((".dylib", ".so", ".dll"))):
                 unsupported(f"Unsupported host configuration, class or native resource {name}")
-            if (name.startswith(("assets/", "data/"))
-                    and not re.fullmatch(r"[a-zA-Z0-9_./-]+", name)):
+            if name.startswith(("assets/", "data/")) and re.search(r"[\\\x00-\x1f]", name):
                 unsupported(f"Unsupported resource path {name}")
         with zipfile.ZipFile(path) as archive:
             for name in parsed["mixins"]:
@@ -197,10 +276,25 @@ def transformation_checks(inventory, metadata, *, client_ids=None):
                 # declared injection points and dynamic selectors still change which classes
                 # Mixin emits and remain unsupported.
                 if (any(config.get(key) for key in ("parent", "injectionPoints", "dynamicSelectors"))
-                        or (config.get("refmap") and needs_reference_remapping(archive, config["refmap"]))
-                        or config.get("required") is not True
                         or not re.fullmatch(r"[\w$]+(?:\.[\w$]+)*", config.get("package", ""), re.ASCII)):
-                    unsupported(f"Mixin config must be required and use official names: {name}")
+                    unsupported(f"Mixin config must not use parents or dynamic selectors and must "
+                                f"use official names: {name}")
+                if "required" in config and not isinstance(config["required"], bool):
+                    unsupported(f"Mixin config required must be a boolean: {name}")
+                if config.get("required") is not True:
+                    # Mixin itself skips a non-required config whose targets are absent, so the
+                    # JVM reference behaves the same way. Recording it keeps the loss visible.
+                    skipped.append({"mod": parsed["id"], "stage": "mixin", "provider": "mixin",
+                                    "entrypoint": name,
+                                    "reason": "config is not required:true; Mixin skips it on failure "
+                                              "exactly as in the JVM reference"})
+                if config.get("refmap") and needs_reference_remapping(archive, config["refmap"]):
+                    # Fabric only installs a refmap remapper in development. In a production
+                    # closure the mod's own bytecode is authoritative, so the refmap is retained
+                    # but inert; a wrong namespace still fails loudly while Mixin is applied.
+                    skipped.append({"mod": parsed["id"], "stage": "mixin", "provider": "mixin",
+                                    "entrypoint": f"{name} refmap {config['refmap']}",
+                                    "reason": "refmap is retained but inert outside development"})
             if parsed.get("classTweaker"):
                 name = parsed["classTweaker"]
                 if name not in names:
@@ -217,16 +311,31 @@ def inspect_compatibility(inventory, metadata, root_paths):
     skipped = []
     root_ids = defaultdict(list)
     client_ids = {mod["id"] for mod in metadata if mod["client"]}
+    adapters = {adapter for (_, _, raw, _) in inventory
+                for adapter in (raw.get("languageAdapters") or {})}
+    normalised = {"multiRelease": [], "serviceRegistrations": [], "hostMetadata": [], "moduleDescriptor": []}
     for item, mod in zip(inventory, metadata, strict=True):
-        path, origin, _, _ = item
-        if path in root_paths:
+        path, origin, _, names = item
+        is_root = path in root_paths
+        if is_root:
             root = origin
             root_ids[mod["id"]].append(origin)
         try:
-            skipped.extend(transformation_checks([item], [mod], client_ids=client_ids))
+            skipped.extend(transformation_checks([item], [mod], client_ids=client_ids,
+                                                 nested=[not is_root], adapters=adapters))
         except (ValueError, KeyError, IndexError, TypeError, OSError, zipfile.BadZipFile) as error:
             findings.append({"path": origin, "id": mod["id"], "reason": str(error)})
             blocked_roots.add(root)
+            continue
+        if any(name.startswith("META-INF/versions/") and not name.endswith("/") for name in names):
+            normalised["multiRelease"].append(mod["id"])
+        for name in names:
+            if name.startswith("META-INF/services/") and not name.endswith("/"):
+                normalised["serviceRegistrations"].append(f"{mod['id']}: {name[len('META-INF/services/'):]}")
+            elif name.startswith("META-INF/native-image/") and name.endswith((".json", ".properties")):
+                normalised["hostMetadata"].append(f"{mod['id']}: {name}")
+            elif name == "module-info.class":
+                normalised["moduleDescriptor"].append(mod["id"])
     return {
         "status": "BLOCKED" if findings else "NO_METADATA_BLOCKERS",
         "scope": "First applicable metadata restriction per archive, plus unreachable optional "
@@ -235,17 +344,27 @@ def inspect_compatibility(inventory, metadata, root_paths):
         "nestedJarCount": len(inventory) - len(root_paths),
         "rootJarsWithBlockers": sorted(blocked_roots),
         "duplicateRootModIds": {key: paths for key, paths in root_ids.items() if len(paths) > 1},
+        "normalisedAtExport": {key: sorted(set(value)) if isinstance(value, list) else value
+                               for key, value in normalised.items()},
         "findings": findings,
         "optionalEntrypointsSkipped": skipped,
     }
 
 
-def merge_client(client, overlay, output, changes):
+def merge_client(client, overlay, output, changes, resources=()):
+    """Merge the Mod overlay into the client jar.
+
+    Overlapping entries are allowed only when the export declared them: transformed game
+    classes are listed per entry, and a Mod resource that overrides a vanilla file is listed
+    as an overridden resource, because a single layer cannot express pack priority.
+    """
     with (zipfile.ZipFile(client) as base, zipfile.ZipFile(overlay) as patch,
           zipfile.ZipFile(output, "x", compression=zipfile.ZIP_DEFLATED) as merged):
         updated = set(patch.namelist())
-        if updated.intersection(base.namelist()) != set(changes):
-            raise ValueError("Fabric overlay changes undocumented client entries")
+        declared = set(changes) | set(resources)
+        if updated.intersection(base.namelist()) != declared:
+            raise ValueError("Fabric overlay changes undocumented client entries: "
+                             + ", ".join(sorted(updated.intersection(base.namelist()) - declared)[:5]))
         for source in (base, patch):
             for member in source.infolist():
                 name = member.filename
@@ -312,8 +431,18 @@ def prepare(prepared, client, mods, output, audited):
     engine_names = {p.name for p in engine}
     classpath = [*engine, *(p for p in libraries if p.name not in engine_names)]
     classes = work / "classes"
-    compile_java(home, classpath, TOOL.rglob("*.java"), classes, output / "compile")
+    # Classes that replace run-time generated Mod code implement Mod APIs, so they compile
+    # against the Mod jars and never enter the tool's own classpath. Keeping the two compilations
+    # apart means the AOT host still sees Mod jars only through Knot.
+    tool_sources = [p for p in TOOL.rglob("*.java") if "aot" not in p.relative_to(TOOL).parts]
+    compile_java(home, classpath, tool_sources, classes, output / "compile")
     classpath.insert(0, classes)
+    runtime_sources, overlay_skipped = runtime_overlay_sources(roots)
+    runtime_classes = None
+    if runtime_sources:
+        runtime_classes = work / "runtime-classes"
+        compile_java(home, [*classpath, *sorted((work / "game/mods").glob("*.jar"))],
+                     runtime_sources, runtime_classes, output / "compile-runtime")
     driver = prepared / "driver.jar"
     if sha256(driver) != report["binaries"]["driver.jar"]["sha256"]:
         raise ValueError("Sandbox control driver changed")
@@ -354,7 +483,9 @@ def prepare(prepared, client, mods, output, audited):
     for row, (_, origin, _, _) in zip(metadata, inventory, strict=True):
         row["path"] = origin
     record = {"status": "FABRIC_METADATA_PARSED", "loader": "0.19.3", "namespace": "official",
-              "modSHA256": hashes, "mods": metadata}
+              "modSHA256": hashes, "mods": metadata,
+              "runtimeOverlays": {"compiled": [p.relative_to(TOOL).as_posix() for p in runtime_sources],
+                                  "skipped": overlay_skipped}}
     if not audited:
         record["compatibility"] = inspect_compatibility(inventory, metadata, set(roots))
         resolution = work / "resolution.json"
@@ -367,24 +498,108 @@ def prepare(prepared, client, mods, output, audited):
     (output / "result.json").write_text(json.dumps(record, indent=2) + "\n")
     if not audited:
         return
-    skipped = transformation_checks(inventory, metadata)
+    skipped = transformation_checks(
+        inventory, metadata,
+        nested=[path not in set(roots) for path, _, _, _ in inventory],
+        adapters={adapter for (_, _, raw, _) in inventory
+                  for adapter in (raw.get("languageAdapters") or {})})
     if skipped:
         record["optionalEntrypointsSkipped"] = skipped
     request = work / "ids.txt"
-    request.write_text("\n".join(sorted({row["id"] for row in metadata if row["client"]})) + "\n")
-    log = output / "knot"
-    result = execute([*java, "--enable-native-access=ALL-UNNAMED", "-Dfabric.noGui=true",
-                      "-Dfabric.gameMappingNamespace=official", f"-Dfabric.gameJarPath={client}",
-                      f"-Dfabric.modsFolder={work / 'game/mods'}", *cp, "export", str(client),
-                      str(work), str(request), str(work / "game")], log, work, timeout=240, cpu_seconds=300,
-                     file_size_bytes=MAX_ARCHIVE)
+    wanted = sorted({row["id"] for row in metadata if row["client"] and row["id"] not in RESERVED_IDS})
+    request.write_text("\n".join(wanted) + "\n")
+    # A Mod that cannot join a closed world is excluded and recorded, and the export is retried
+    # without it: one bad class must not hide the verdict for the other forty Mods, and the Mod
+    # set that survives is exactly the set the image can contain.
+    excluded = {}
+    # Dropping a Mod must drop its dependents too: they compile against classes the image will
+    # not contain, and discovering that ten minutes into a native-image build is expensive.
+    depends = {raw["id"]: set((raw.get("depends") or {}).keys())
+               for (_, _, raw, _) in inventory if isinstance(raw, dict) and "id" in raw}
+    # Knot applies a Mod's Mixin configs because the jar sits in the mods folder, not because the
+    # Mod was requested for export. Dropping only the export request therefore left Mixin patches
+    # from an unexported Mod in the image, and the first game code that called into that Mod died
+    # with NoClassDefFoundError. A whole jar is retired once every id it declares is excluded, so
+    # the set of applied Mixins matches the set of classes the image contains.
+    ids_by_jar = {}
+    for _, origin, raw, _ in inventory:
+        if isinstance(raw, dict) and "id" in raw:
+            ids_by_jar.setdefault(str(origin), set()).add(raw["id"])
+    mods_folder = (work / "game/mods").resolve()
+    retired = work / "excluded"
+    for attempt in range(1, 6):
+        log = output / ("knot" if attempt == 1 else f"knot-{attempt}")
+        result = execute([*java, "--enable-native-access=ALL-UNNAMED", "-Dfabric.noGui=true",
+                          "-Dfabric.gameMappingNamespace=official", f"-Dfabric.gameJarPath={client}",
+                          f"-Dfabric.modsFolder={work / 'game/mods'}", *cp, "export", str(client),
+                          str(work), str(request), str(work / "game"),
+                          str(runtime_classes) if runtime_classes else ""], log, work, timeout=900,
+                         cpu_seconds=900, file_size_bytes=MAX_EXPORT)
+        blocked = work / "incompatible.json"
+        if blocked.is_file():
+            report = json.loads(blocked.read_text())
+            # Retired by rename rather than deletion: each attempt keeps the verdicts it produced,
+            # which is the only record of why a Mod left the pack, and a bulk-delete guard in the
+            # hosting environment cannot abort the retry half way through it.
+            blocked.replace(output / f"incompatible-{attempt}.json")
+            fresh = {key: value for key, value in report["mods"].items() if key not in excluded}
+            if fresh:
+                excluded.update(fresh)
+                # Transitive dependents, each with the Mod that forced it out.
+                changed = True
+                while changed:
+                    changed = False
+                    for mod in list(wanted):
+                        if mod in excluded:
+                            continue
+                        required = depends.get(mod, set()) & set(excluded)
+                        if required:
+                            excluded[mod] = ["requires excluded Mod " + sorted(required)[0]]
+                            changed = True
+                wanted = [key for key in wanted if key not in excluded]
+                request.write_text("\n".join(wanted) + "\n")
+                retired.mkdir(exist_ok=True)
+                for origin, declared in ids_by_jar.items():
+                    if not declared or not declared <= set(excluded):
+                        continue
+                    # The inventory records a root jar by file name, so a bare name is resolved
+                    # against the mods folder rather than the current directory.
+                    jar = Path(origin)
+                    if not jar.is_absolute():
+                        jar = mods_folder / jar
+                    jar = jar.resolve()
+                    if jar.parent != mods_folder or not jar.exists():
+                        continue
+                    shutil.move(str(jar), str(retired / jar.name))
+                continue
+        break
     require_run(result, log, "MCFAO_FABRIC_EXPORT_PASS")
+    if excluded:
+        record["excludedMods"] = {
+            key: sorted({line.split(": ", 1)[-1] for line in value})
+            for key, value in sorted(excluded.items())}
+        # Which declared ids live in which jar, so a retired jar can be explained after the fact.
+        record["jarIds"] = {Path(origin).name: sorted(declared)
+                            for origin, declared in sorted(ids_by_jar.items())}
+        if retired.is_dir():
+            record["retiredJars"] = sorted(path.name for path in retired.glob("*.jar"))
     transform = json.loads((work / "transform.json").read_text())
     output_jar = output / "client.jar"
-    merge_client(client, work / "overlay.jar", output_jar, transform["gameTransforms"])
+    merge_client(client, work / "overlay.jar", output_jar, transform["gameTransforms"],
+                 transform.get("overriddenResources", []))
+    record["semanticCompatibility"] = semantic_compatibility(transform)
     record.update(status="FABRIC_AOT_INPUT_PREPARED", sandbox="file and network denial controls passed",
                   transform=transform, clientSHA256=sha256(client), outputJarSHA256=sha256(output_jar))
     (output / "result.json").write_text(json.dumps(record, indent=2) + "\n")
+
+
+def semantic_compatibility(transform):
+    """Code generation and behavioral compatibility are deliberately separate verdicts."""
+    methods = sorted(set(transform.get("stubbedMethods", [])))
+    return {"status": "REQUIRES_REVIEW" if methods else "NO_RESIDUE_REPORTED",
+            "scope": "Loader residue report only; not proof of functional equivalence",
+            "unsupportedMethods": methods,
+            "runtimeVerified": False}
 
 
 def main(argv=None):

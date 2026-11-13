@@ -21,6 +21,15 @@ final class MetalDevice implements GpuDeviceBackend {
     private final Map<MetalPipeline.Key,MetalPipeline> pipelines=new HashMap<>();
     private final Map<RenderPipeline,MetalPipeline> pipelineInstances=new IdentityHashMap<>();
     MetalRenderPass activePass;
+    final BufferHazardTracker bufferHazards=new BufferHazardTracker();
+    private long unprotectedWrites, protectedWrites, largeBufferWaits;
+    void waitForGpu(){MetalNative.synchronize(context);bufferHazards.completed();}
+    void recordBufferWrite(boolean protectedWrite,boolean largeWait){
+        if(protectedWrite)protectedWrites++;else unprotectedWrites++;
+        if(largeWait)largeBufferWaits++;
+    }
+    private int hazardSampleFrames;
+
     MetalDevice(long window,ShaderSource source){defaultShaderSource=source;context=MetalNative.create(window);if(context==0)throw new IllegalStateException("Metal context allocation failed");renderer=MetalNative.deviceName(context);System.err.println("[Metal] device="+renderer+" resourceBudgetMiB="+budget.limitMiB());}
     void alive(){if(context==0)throw new IllegalStateException("Metal device closed");}
     void outsidePass(){alive();if(activePass!=null)throw new IllegalStateException("Operation inside an active Metal render pass");}
@@ -82,17 +91,37 @@ final class MetalDevice implements GpuDeviceBackend {
         MetalPipeline.Key key=MetalPipeline.Key.of(pipeline);cached=pipelines.get(key);
         if(cached!=null&&cached.isValid()){if(source!=null)shaderIndex.program(pipeline,source,false);pipelineInstances.put(pipeline,cached);return cached;}
         if(shaderIndex==null)shaderIndex=new ShaderIndex();
+        // Diagnostics: a fresh compile of a pipeline the splash is drawing is exactly the
+        // situation the preload contract exists to prevent, so name the pipeline and where the
+        // source came from. The bundle is read-only, so this stays a stderr line.
+        System.err.println("[MCFAO_SHADER] compile "+pipeline.getLocation()+" src="+(source!=null?"explicit":(defaultShaderSource!=null?"default":"none")));
         MetalPipeline compiled=track(new MetalPipeline(this,pipeline,shaderIndex.program(pipeline,source==null?defaultShaderSource:source,source==null)));pipelines.put(key,compiled);pipelineInstances.put(pipeline,compiled);return compiled;
     }
-    public void clearPipelineCache(){outsidePass();for(MetalPipeline pipeline:List.copyOf(pipelines.values()))pipeline.close();pipelines.clear();pipelineInstances.clear();if(shaderIndex!=null)shaderIndex.clearSourceValidation();}
+    public void clearPipelineCache(){outsidePass();System.err.println("[MCFAO_SHADER] clearPipelineCache from "+caller());for(MetalPipeline pipeline:List.copyOf(pipelines.values()))pipeline.close();pipelines.clear();pipelineInstances.clear();if(shaderIndex!=null)shaderIndex.clearSourceValidation();}
+    private static String caller(){
+        StackTraceElement[] trace=new Throwable().getStackTrace();
+        StringBuilder text=new StringBuilder();
+        for(int index=1;index<trace.length&&index<5;index++){
+            if(text.length()!=0)text.append(" < ");
+            text.append(trace[index].getClassName()).append('#').append(trace[index].getMethodName())
+                .append(':').append(trace[index].getLineNumber());
+        }
+        return text.toString();
+    }
     public List<String> getEnabledExtensions(){return List.of();}
     public int getMaxSupportedAnisotropy(){return 16;}
-    public void setVsync(boolean enabled){alive();if(!enabled)throw unsupported("disable display synchronization on iOS");}
-    public void presentFrame(){outsidePass();MetalNative.presentFrame(context);}
+    public void setVsync(boolean enabled){alive();vsync=enabled;MetalNative.setDisplaySync(context,enabled);}
+    private boolean vsync=true;
+    public void presentFrame(){outsidePass();MetalNative.presentFrame(context);
+        if(++hazardSampleFrames==300){
+            System.err.println("[MetalBufferHazards] frames=300 direct_writes="+unprotectedWrites+" protected_writes="+protectedWrites+" large_waits="+largeBufferWaits);
+            hazardSampleFrames=0;unprotectedWrites=0;protectedWrites=0;largeBufferWaits=0;
+        }
+    }
     public boolean isZZeroToOne(){return true;}
     public void close(){
         if(context==0)return;
-        outsidePass();MetalNative.synchronize(context);
+        outsidePass();waitForGpu();
         clearPipelineCache();
         for(AutoCloseable resource:List.copyOf(resources))try{resource.close();}catch(Exception e){throw new IllegalStateException("Metal resource release",e);}
         MetalNative.release(context);context=0;
@@ -102,6 +131,7 @@ final class MetalDevice implements GpuDeviceBackend {
         final MetalDevice owner=MetalDevice.this;
         long handle;
         int mappings;
+        final BufferHazardTracker.State hazard=new BufferHazardTracker.State();
         MetalBuffer(long handle,int usage,long size){super(usage,size);this.handle=handle;}
         public boolean isClosed(){return handle==0;}
         public void close(){if(mappings!=0)throw new IllegalStateException("Closing mapped Metal buffer");if(handle!=0){MetalNative.release(handle);handle=0;retire(this,size());}}

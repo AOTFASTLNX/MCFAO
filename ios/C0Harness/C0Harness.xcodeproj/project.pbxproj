@@ -7,11 +7,19 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A2000000000000000000090E /* FAOTControlEditorViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000090C /* FAOTControlEditorViewController.m */; };
+		A2000000000000000000090D /* FAOTControlEditorViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000090C /* FAOTControlEditorViewController.m */; };
+		A2000000000000000000090B /* FAOTLauncherViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000909 /* FAOTLauncherViewController.m */; };
+		A2000000000000000000090A /* FAOTLauncherViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000909 /* FAOTLauncherViewController.m */; };
+		A20000000000000000000907 /* FAOTControlsOverlay.m in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000905 /* FAOTControlsOverlay.m */; };
+		A20000000000000000000906 /* FAOTControlsOverlay.m in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000905 /* FAOTControlsOverlay.m */; };
+		A20000000000000000000903 /* FAOTControlLayout.m in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000901 /* FAOTControlLayout.m */; };
+		A20000000000000000000902 /* FAOTControlLayout.m in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000901 /* FAOTControlLayout.m */; };
 		A20000000000000000000001 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* main.m */; };
-		A200000000000000000000A7 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* main.m */; };
 		A20000000000000000000004 /* client-graph.dylib in Embed Native Runtime */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013 /* client-graph.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		A200000000000000000000A8 /* client-graph.dylib in Embed Native Runtime */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013 /* client-graph.dylib */; };
 		A20000000000000000000081 /* WorldUITests.m in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000082 /* WorldUITests.m */; };
+		A200000000000000000000A7 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* main.m */; };
+		A200000000000000000000A8 /* client-graph.dylib in Embed Native Runtime */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013 /* client-graph.dylib */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -50,17 +58,24 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		A2000000000000000000090C /* FAOTControlEditorViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FAOTControlEditorViewController.m; sourceTree = "<group>"; };
+		A20000000000000000000909 /* FAOTLauncherViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FAOTLauncherViewController.m; sourceTree = "<group>"; };
+		A20000000000000000000908 /* FAOTLauncherViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FAOTLauncherViewController.h; sourceTree = "<group>"; };
+		A20000000000000000000905 /* FAOTControlsOverlay.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FAOTControlsOverlay.m; sourceTree = "<group>"; };
+		A20000000000000000000904 /* FAOTControlsOverlay.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FAOTControlsOverlay.h; sourceTree = "<group>"; };
+		A20000000000000000000901 /* FAOTControlLayout.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FAOTControlLayout.m; sourceTree = "<group>"; };
+		A20000000000000000000900 /* FAOTControlLayout.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FAOTControlLayout.h; sourceTree = "<group>"; };
 		A20000000000000000000011 /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
 		A20000000000000000000013 /* client-graph.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = "client-graph.dylib"; path = "$(FAOT_CLIENT_LIBRARY)"; sourceTree = "<absolute>"; };
 		A20000000000000000000014 /* C0Harness.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = C0Harness.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		A200000000000000000000A6 /* FabricAOTWorld.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = FabricAOTWorld.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A20000000000000000000015 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A20000000000000000000016 /* GraphicsProbe.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = GraphicsProbe.xcconfig; sourceTree = "<group>"; };
-		A200000000000000000000B3 /* WorldDevice.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = WorldDevice.xcconfig; sourceTree = "<group>"; };
 		A20000000000000000000082 /* WorldUITests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = WorldUITests.m; sourceTree = "<group>"; };
 		A20000000000000000000083 /* WorldUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = WorldUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A20000000000000000000090 /* WorldSimulator.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = WorldSimulator.xcconfig; sourceTree = "<group>"; };
 		A20000000000000000000093 /* Info.WorldSimulator.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.WorldSimulator.plist; sourceTree = "<group>"; };
+		A200000000000000000000A6 /* FabricAOTWorld.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = FabricAOTWorld.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A200000000000000000000B3 /* WorldDevice.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = WorldDevice.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -78,6 +93,13 @@
 			isa = PBXGroup;
 			children = (
 				A20000000000000000000011 /* main.m */,
+				A20000000000000000000900 /* FAOTControlLayout.h */,
+				A20000000000000000000901 /* FAOTControlLayout.m */,
+				A20000000000000000000904 /* FAOTControlsOverlay.h */,
+				A20000000000000000000905 /* FAOTControlsOverlay.m */,
+				A20000000000000000000908 /* FAOTLauncherViewController.h */,
+				A20000000000000000000909 /* FAOTLauncherViewController.m */,
+				A2000000000000000000090C /* FAOTControlEditorViewController.m */,
 				A20000000000000000000082 /* WorldUITests.m */,
 				A20000000000000000000090 /* WorldSimulator.xcconfig */,
 				A20000000000000000000093 /* Info.WorldSimulator.plist */,
@@ -121,6 +143,22 @@
 			productReference = A20000000000000000000014 /* C0Harness.app */;
 			productType = "com.apple.product-type.application";
 		};
+		A20000000000000000000084 /* WorldUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A20000000000000000000085 /* Build configuration list for PBXNativeTarget "WorldUITests" */;
+			buildPhases = (
+				A20000000000000000000086 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A20000000000000000000087 /* PBXTargetDependency */,
+			);
+			name = WorldUITests;
+			productName = WorldUITests;
+			productReference = A20000000000000000000083 /* WorldUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 		A200000000000000000000A0 /* FabricAOTWorld */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = A200000000000000000000A2 /* Build configuration list for PBXNativeTarget "FabricAOTWorld" */;
@@ -137,22 +175,6 @@
 			productName = FabricAOTWorld;
 			productReference = A200000000000000000000A6 /* FabricAOTWorld.app */;
 			productType = "com.apple.product-type.application";
-		};
-		A20000000000000000000084 /* WorldUITests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = A20000000000000000000085 /* Build configuration list for PBXNativeTarget "WorldUITests" */;
-			buildPhases = (
-				A20000000000000000000086 /* Sources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				A20000000000000000000087 /* PBXTargetDependency */,
-			);
-			name = WorldUITests;
-			productName = WorldUITests;
-			productReference = A20000000000000000000083 /* WorldUITests.xctest */;
-			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 /* End PBXNativeTarget section */
 
@@ -241,14 +263,10 @@
 			buildActionMask = 2147483647;
 			files = (
 				A20000000000000000000001 /* main.m in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		A200000000000000000000A1 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				A200000000000000000000A7 /* main.m in Sources */,
+				A20000000000000000000902 /* FAOTControlLayout.m in Sources */,
+				A20000000000000000000906 /* FAOTControlsOverlay.m in Sources */,
+				A2000000000000000000090A /* FAOTLauncherViewController.m in Sources */,
+				A2000000000000000000090D /* FAOTControlEditorViewController.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -257,6 +275,18 @@
 			buildActionMask = 2147483647;
 			files = (
 				A20000000000000000000081 /* WorldUITests.m in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A200000000000000000000A1 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A200000000000000000000A7 /* main.m in Sources */,
+				A20000000000000000000903 /* FAOTControlLayout.m in Sources */,
+				A20000000000000000000907 /* FAOTControlsOverlay.m in Sources */,
+				A2000000000000000000090B /* FAOTLauncherViewController.m in Sources */,
+				A2000000000000000000090E /* FAOTControlEditorViewController.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -271,6 +301,99 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		021C5E5930A61D0400EE4462 /* World Simulator */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				PRODUCT_NAME = C0Harness;
+			};
+			name = "World Simulator";
+		};
+		021C5E5A30A61D0400EE4462 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEVELOPMENT_TEAM = "";
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				PRODUCT_BUNDLE_IDENTIFIER = fab.aot.kexin;
+				PRODUCT_NAME = FabricAOTWorld;
+				PROVISIONING_PROFILE_SPECIFIER = "";
+			};
+			name = Debug;
+		};
+		021C5E5B30A61D0400EE4462 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "";
+				PRODUCT_BUNDLE_IDENTIFIER = fab.aot.kexin;
+				PRODUCT_NAME = FabricAOTWorld;
+				PROVISIONING_PROFILE_SPECIFIER = "";
+			};
+			name = Release;
+		};
+		021C5E5C30A61D0400EE4462 /* Graphics Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
+				PRODUCT_BUNDLE_IDENTIFIER = fab.aot.kexin;
+				PRODUCT_NAME = FabricAOTWorld;
+				PROVISIONING_PROFILE_SPECIFIER = "";
+			};
+			name = "Graphics Debug";
+		};
+		021C5E5D30A61D0400EE4462 /* World Device */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
+				PRODUCT_BUNDLE_IDENTIFIER = fab.aot.kexin;
+				PRODUCT_NAME = FabricAOTWorld;
+				PROVISIONING_PROFILE_SPECIFIER = "";
+			};
+			name = "World Device";
+		};
+		021C5E5E30A61D0400EE4462 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COPY_PHASE_STRIP = NO;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				PRODUCT_NAME = WorldUITests;
+			};
+			name = Debug;
+		};
+		021C5E5F30A61D0400EE4462 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COPY_PHASE_STRIP = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				PRODUCT_NAME = WorldUITests;
+			};
+			name = Release;
+		};
+		021C5E6030A61D0400EE4462 /* Graphics Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				PRODUCT_NAME = WorldUITests;
+			};
+			name = "Graphics Debug";
+		};
+		021C5E6130A61D0400EE4462 /* World Device */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				PRODUCT_NAME = WorldUITests;
+			};
+			name = "World Device";
+		};
 		A20000000000000000000071 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -313,6 +436,12 @@
 				OTHER_LDFLAGS = (
 					"-framework",
 					UIKit,
+					"-framework",
+					Foundation,
+					"-framework",
+					CoreGraphics,
+					"-framework",
+					QuartzCore,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = org.fabricaot.research.c0.kexin;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -338,6 +467,12 @@
 				OTHER_LDFLAGS = (
 					"-framework",
 					UIKit,
+					"-framework",
+					Foundation,
+					"-framework",
+					CoreGraphics,
+					"-framework",
+					QuartzCore,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = org.fabricaot.research.c0.kexin;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -357,18 +492,6 @@
 			};
 			name = "Graphics Debug";
 		};
-		A200000000000000000000B1 /* World Device */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ALWAYS_SEARCH_USER_PATHS = NO;
-				ALWAYS_SEARCH_USER_PATHS = NO;
-				CLANG_ENABLE_OBJC_ARC = YES;
-				GCC_C_LANGUAGE_STANDARD = gnu11;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				SDKROOT = iphoneos;
-			};
-			name = "World Device";
-		};
 		A20000000000000000000076 /* Graphics Debug */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = A20000000000000000000016 /* GraphicsProbe.xcconfig */;
@@ -385,6 +508,12 @@
 				OTHER_LDFLAGS = (
 					"-framework",
 					UIKit,
+					"-framework",
+					Foundation,
+					"-framework",
+					CoreGraphics,
+					"-framework",
+					QuartzCore,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = org.fabricaot.research.c0.kexin;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -393,38 +522,14 @@
 			};
 			name = "Graphics Debug";
 		};
-		A200000000000000000000B2 /* World Device */ = {
-			isa = XCBuildConfiguration;
-			baseConfigurationReference = A200000000000000000000B3 /* WorldDevice.xcconfig */;
-			buildSettings = {
-				ARCHS = arm64;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
-				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = "";
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-				);
-				OTHER_LDFLAGS = (
-					"-framework",
-					UIKit,
-				);
-				PRODUCT_BUNDLE_IDENTIFIER = org.fabricaot.research.c0.kexin;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SUPPORTED_PLATFORMS = iphoneos;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = "World Device";
-		};
 		A20000000000000000000089 /* World Simulator */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ARCHS = arm64;
-				SDKROOT = iphonesimulator;
 				GENERATE_INFOPLIST_FILE = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = org.fabricaot.research.c0.worlduitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphonesimulator;
 				SUPPORTED_PLATFORMS = iphonesimulator;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = FabricAOTWorld;
@@ -454,12 +559,59 @@
 				OTHER_LDFLAGS = (
 					"-framework",
 					UIKit,
+					"-framework",
+					Foundation,
+					"-framework",
+					CoreGraphics,
+					"-framework",
+					QuartzCore,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = org.fabricaot.research.c0.kexin;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = "World Simulator";
+		};
+		A200000000000000000000B1 /* World Device */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+			};
+			name = "World Device";
+		};
+		A200000000000000000000B2 /* World Device */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = A200000000000000000000B3 /* WorldDevice.xcconfig */;
+			buildSettings = {
+				ARCHS = arm64;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				OTHER_LDFLAGS = (
+					"-framework",
+					UIKit,
+					"-framework",
+					Foundation,
+					"-framework",
+					CoreGraphics,
+					"-framework",
+					QuartzCore,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.fabricaot.research.c0.kexin;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = "World Device";
 		};
 /* End XCBuildConfiguration section */
 
@@ -483,22 +635,31 @@
 				A20000000000000000000074 /* Release */,
 				A20000000000000000000076 /* Graphics Debug */,
 				A200000000000000000000B2 /* World Device */,
+				021C5E5930A61D0400EE4462 /* World Simulator */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
-		};
-		A200000000000000000000A2 /* Build configuration list for PBXNativeTarget "FabricAOTWorld" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				A20000000000000000000092 /* World Simulator */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = "World Simulator";
 		};
 		A20000000000000000000085 /* Build configuration list for PBXNativeTarget "WorldUITests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				A20000000000000000000089 /* World Simulator */,
+				021C5E5E30A61D0400EE4462 /* Debug */,
+				021C5E5F30A61D0400EE4462 /* Release */,
+				021C5E6030A61D0400EE4462 /* Graphics Debug */,
+				021C5E6130A61D0400EE4462 /* World Device */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = "World Simulator";
+		};
+		A200000000000000000000A2 /* Build configuration list for PBXNativeTarget "FabricAOTWorld" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A20000000000000000000092 /* World Simulator */,
+				021C5E5A30A61D0400EE4462 /* Debug */,
+				021C5E5B30A61D0400EE4462 /* Release */,
+				021C5E5C30A61D0400EE4462 /* Graphics Debug */,
+				021C5E5D30A61D0400EE4462 /* World Device */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = "World Simulator";

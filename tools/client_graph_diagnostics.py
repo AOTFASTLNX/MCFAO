@@ -12,7 +12,9 @@ def audit_metadata(libraries: list[Path], arguments: list[str]) -> dict:
     entries, total = [], 0
     for library in libraries:
         with zipfile.ZipFile(library) as archive:
-            if len(archive.infolist()) > 100_000:
+            members = archive.infolist()
+            original_count = sum(not item.filename.startswith("mcfao/mod-files/") for item in members)
+            if len(members) > 200_000 or original_count > 100_000:
                 raise ValueError("Too many JAR entries")
             seen = set()
             for info in archive.infolist():
