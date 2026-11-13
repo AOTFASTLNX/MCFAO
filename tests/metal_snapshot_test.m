@@ -3,6 +3,7 @@
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
 #include <string.h>
+#include <stdint.h>
 int main(void) { @autoreleasepool {
     id<MTLDevice> device=MTLCreateSystemDefaultDevice();
     if(!device) { fprintf(stderr,"No Metal device available\n"); return 1; }
@@ -41,5 +42,31 @@ int main(void) { @autoreleasepool {
         float *values=output.contents;
         for(NSUInteger i=0;i<count*4;i++) if(values[i]!=1.0f){fprintf(stderr,"Snapshot corrupted at %lu\n",(unsigned long)i);return 1;}
     }
+    // A pending draw must still see the old buffer after a partial write has
+    // cloned it, replaced the CPU handle, and released the old CPU reference.
+    NSString *bufferSource=@"#include <metal_stdlib>\nusing namespace metal; kernel void copyBuffer(device const uint *in [[buffer(0)]], device uint *out [[buffer(1)]], uint i [[thread_position_in_grid]]) { out[i]=in[i]; }";
+    id<MTLLibrary> bufferLibrary=[device newLibraryWithSource:bufferSource options:nil error:&error];
+    id<MTLFunction> bufferFunction=[bufferLibrary newFunctionWithName:@"copyBuffer"];
+    id<MTLComputePipelineState> bufferPipeline=bufferFunction?[device newComputePipelineStateWithFunction:bufferFunction error:&error]:nil;
+    if(!bufferPipeline){fprintf(stderr,"%s\n",error.description.UTF8String);return 1;}
+    id<MTLBuffer> oldOutput=[device newBufferWithLength:16 options:MTLResourceStorageModeShared];
+    id<MTLBuffer> newOutput=[device newBufferWithLength:16 options:MTLResourceStorageModeShared];
+    id<MTLCommandBuffer> bufferCommand=[queue commandBuffer];
+    @autoreleasepool {
+        id<MTLBuffer> old=[device newBufferWithLength:16 options:MTLResourceStorageModeShared];
+        uint32_t initial[4]={10,20,30,40};memcpy(old.contents,initial,sizeof(initial));
+        id<MTLComputeCommandEncoder> first=[bufferCommand computeCommandEncoder];
+        [first setComputePipelineState:bufferPipeline];[first setBuffer:old offset:0 atIndex:0];[first setBuffer:oldOutput offset:0 atIndex:1];
+        [first dispatchThreads:MTLSizeMake(4,1,1) threadsPerThreadgroup:MTLSizeMake(1,1,1)];[first endEncoding];
+        id<MTLBuffer> replacement=[device newBufferWithLength:16 options:MTLResourceStorageModeShared];
+        memcpy(replacement.contents,old.contents,16);((uint32_t *)replacement.contents)[2]=99;
+        id<MTLComputeCommandEncoder> second=[bufferCommand computeCommandEncoder];
+        [second setComputePipelineState:bufferPipeline];[second setBuffer:replacement offset:0 atIndex:0];[second setBuffer:newOutput offset:0 atIndex:1];
+        [second dispatchThreads:MTLSizeMake(4,1,1) threadsPerThreadgroup:MTLSizeMake(1,1,1)];[second endEncoding];
+    }
+    [bufferCommand commit];[bufferCommand waitUntilCompleted];
+    if(bufferCommand.status!=MTLCommandBufferStatusCompleted){fprintf(stderr,"%s\n",bufferCommand.error.description.UTF8String);return 1;}
+    uint32_t expectedOld[4]={10,20,30,40},expectedNew[4]={10,20,99,40};
+    if(memcmp(oldOutput.contents,expectedOld,16)||memcmp(newOutput.contents,expectedNew,16)){fprintf(stderr,"Buffer snapshot data mismatch\n");return 1;}
     puts("METAL_SNAPSHOT_PASS");return 0;
 }}
