@@ -91,7 +91,9 @@ JNIEXPORT jlong JNICALL Java_fabricaot_metal_MetalNative_create(JNIEnv *env,jcla
     (void)cls;
     @autoreleasepool {
         CAMetalLayer *layer=(__bridge CAMetalLayer *)faot_glfw_metal_layer((GLFWwindow *)(uintptr_t)window);
-        layer.maximumDrawableCount=3;
+        // Match the two in-flight command buffers. A third drawable lets CPU work queue ahead
+        // of the display and produces the long/short frame intervals visible on 120 Hz devices.
+        layer.maximumDrawableCount=2;
         layer.framebufferOnly=YES;
         if(!layer||!layer.device){failure(env,"Window has no CAMetalLayer/MTLDevice");return 0;}
         FAOTMetalContext *ctx=[FAOTMetalContext new];ctx.sampleStarted=CACurrentMediaTime();ctx.layer=layer;ctx.device=layer.device;ctx.queue=[ctx.device newCommandQueue];

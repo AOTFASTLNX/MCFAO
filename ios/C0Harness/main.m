@@ -107,14 +107,21 @@ static void FAOTApplyLanguageToOptions(NSString *path, NSString *language) {
     NSArray<NSString *> *lines = [existing componentsSeparatedByString:@"\n"];
     NSMutableArray<NSString *> *updated = [NSMutableArray arrayWithCapacity:lines.count + 1];
     BOOL replaced = NO;
+    BOOL vsyncPresent = NO;
     for (NSString *line in lines) {
         if ([line hasPrefix:@"lang:"]) {
             if (!replaced) { [updated addObject:[NSString stringWithFormat:@"lang:%@", language]]; replaced = YES; }
+        } else if ([line hasPrefix:@"enableVsync:"]) {
+            // Keep presentation cadence tied to the display. The old false default allowed
+            // unpaced submissions on 120 Hz panels and caused visible 30/60 Hz oscillation.
+            [updated addObject:@"enableVsync:true"];
+            vsyncPresent = YES;
         } else if (line.length > 0) {
             [updated addObject:line];
         }
     }
     if (!replaced) [updated addObject:[NSString stringWithFormat:@"lang:%@", language]];
+    if (!vsyncPresent) [updated addObject:@"enableVsync:true"];
     NSString *result = [[updated componentsJoinedByString:@"\n"] stringByAppendingString:@"\n"];
     [result writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil];
 }
@@ -422,7 +429,7 @@ static void FAOTProbeReservations(FILE *logFile) {
                 NSData *worldDefaults = [@"renderDistance:8\nsimulationDistance:5\nmaxFps:60\n"
                                  @"graphicsMode:1\nclouds:false\nentityShadows:false\n"
                                  @"particles:2\nbiomeBlendRadius:0\nao:false\n"
-                                 @"mipmapLevels:4\nenableVsync:false\n"
+                                 @"mipmapLevels:4\nenableVsync:true\n"
                                  dataUsingEncoding:NSUTF8StringEncoding];
         [worldDefaults writeToFile:options options:NSDataWritingWithoutOverwriting error:nil];
 #endif
