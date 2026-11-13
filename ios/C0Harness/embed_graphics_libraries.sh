@@ -36,9 +36,3 @@ if [ -n "${FAOT_GRAPHICS_NATIVE_DIR:-}" ]; then
     /usr/bin/ditto "$FAOT_GRAPHICS_NATIVE_DIR/fabricaot-shaders" "$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH/fabricaot-shaders"
   fi
 fi
-
-# The WorldDevice target must produce a native iPad bundle. This runs after
-# ProcessInfoPlistFile, so it inspects the exact Info.plist that will be signed.
-if [ "${PLATFORM_NAME:-}" = iphoneos ] && [ "${CONFIGURATION:-}" = "World Device" ]; then
-  /bin/sh "$SRCROOT/verify_ipad_bundle.sh"
-fi

@@ -30,8 +30,8 @@ def main(argv=None):
     binary=output/"libglfw.dylib"
     cmd=["xcrun","--sdk",args.sdk,"clang","-target",target,"-std=c11","-fobjc-arc","-O2",
          "-Wall","-Wextra","-Werror","-Wno-deprecated-declarations","-dynamiclib",
-         str(source/"glfw_lite.c"),str(source/"pointer_state.c"),str(source/"uikit_surface.m"),"-framework","UIKit",
-         "-framework","QuartzCore","-framework","CoreGraphics","-framework","Metal","-framework","GameController","-install_name","@rpath/libglfw.dylib","-o",str(binary)]
+         str(source/"glfw_lite.c"),str(source/"uikit_surface.m"),"-framework","UIKit",
+         "-framework","QuartzCore","-framework","CoreGraphics","-framework","Metal","-install_name","@rpath/libglfw.dylib","-o",str(binary)]
     result={"status":"BLOCKED","gateC0":"BLOCKED","target":target,
             "scope":"GLFW native subset only; no Java bridge or Minecraft renderer acceptance",
             "sourcesSHA256":{str(p.relative_to(ROOT)):sha256(p) for p in source.iterdir() if p.is_file()}}
@@ -51,31 +51,19 @@ def main(argv=None):
     if args.test_host:
         fixture=output/"glfw-state-test"
         host=capture(["xcrun","clang","-std=c11","-Wall","-Wextra","-Werror","-g","-fsanitize=address,undefined",
-                      "-I",str(source),str(source/"glfw_lite.c"),str(source/"pointer_state.c"),
-                      str(ROOT/"interop/graphics/glfw_state_test.c"),
+                      "-I",str(source),str(source/"glfw_lite.c"),str(ROOT/"interop/graphics/glfw_state_test.c"),
                       "-o",str(fixture)],output/"fixture-compile",120)
         result["fixtureCompile"]=host
         if host["exitCode"]==0:
             tested=capture([str(fixture)],output/"fixture-run",30);result["fixtureRun"]=tested
             result["hostStateFixture"]="PASS" if tested["exitCode"]==0 and "GLFW_STATE_PASS" in (output/"fixture-run/stdout.log").read_text() else "FAIL"
         else: result["hostStateFixture"]="FAIL"
-        pointer_fixture=output/"pointer-state-test"
-        pointer_host=capture(["xcrun","clang","-std=c11","-Wall","-Wextra","-Werror","-g","-fsanitize=address,undefined",
-                              "-I",str(source),str(source/"pointer_state.c"),
-                              str(ROOT/"interop/graphics/pointer_state_test.c"),
-                              "-o",str(pointer_fixture)],output/"pointer-fixture-compile",120)
-        result["pointerFixtureCompile"]=pointer_host
-        if pointer_host["exitCode"]==0:
-            pointer_tested=capture([str(pointer_fixture)],output/"pointer-fixture-run",30)
-            result["pointerFixtureRun"]=pointer_tested
-            result["hostPointerStateFixture"]="PASS" if pointer_tested["exitCode"]==0 and "POINTER_STATE_PASS" in (output/"pointer-fixture-run/stdout.log").read_text() else "FAIL"
-        else: result["hostPointerStateFixture"]="FAIL"
     (output/"result.json").write_text(json.dumps(result,indent=2)+"\n")
     command=[sys.executable,"-B",str(Path(__file__).resolve()),*(sys.argv[1:] if argv is None else argv)]
     try: register_tree(output,command)
     except (OSError,RuntimeError) as exc:
         print(str(exc),file=sys.stderr);return 1
-    print(json.dumps({k:v for k,v in result.items() if k not in ("compile","fixtureCompile","fixtureRun","pointerFixtureCompile","pointerFixtureRun")},indent=2))
-    return 0 if result["status"]=="NATIVE_SUBSET_BUILT" and result.get("hostStateFixture")!="FAIL" and result.get("hostPointerStateFixture")!="FAIL" else 2
+    print(json.dumps({k:v for k,v in result.items() if k not in ("compile","fixtureCompile","fixtureRun")},indent=2))
+    return 0 if result["status"]=="NATIVE_SUBSET_BUILT" and result.get("hostStateFixture")!="FAIL" else 2
 
 if __name__=="__main__":raise SystemExit(main())
