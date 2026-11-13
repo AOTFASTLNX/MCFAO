@@ -30,7 +30,9 @@ for a Metal System Trace. CPU/GPU work can overlap and their durations must not 
 300 valid intervals: real presentation FPS, mean, P95 and P99 interval, and invalid, dropped
 or out-of-order callbacks observed in the window. Background pauses and loading are included;
 compare only equivalent warmed-up scenes and record thermal state, settings and duration.
-Zero presentation timestamps are not counted as displayed frames. Counters do not modify game
+Zero presentation timestamps are not counted as displayed frames. The presentation callback
+is compiled for physical iOS devices only; simulator builds do not emit `MetalPresented`.
+Counters do not modify game
 rendering, world state or GPU synchronization.
 
 ## Completed validation and delivery

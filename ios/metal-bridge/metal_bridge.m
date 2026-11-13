@@ -389,8 +389,10 @@ JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_presentFrame(JNIEnv *env
         id<MTLCommandBuffer> pending=commands(ctx);id<MTLRenderCommandEncoder> encoder=[pending renderCommandEncoderWithDescriptor:pass];
         if(!encoder){dispatch_semaphore_signal(ctx.presentationSlots);failure(env,"Metal presentation encoder creation failed");return;}
         [encoder setRenderPipelineState:ctx.presentationPipeline];[encoder setFragmentTexture:ctx.presentationSource atIndex:0];[encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];[encoder endEncoding];
+#if !TARGET_OS_SIMULATOR
         FAOTPerfCollector *perf=ctx.perf;
         [drawable addPresentedHandler:^(id<MTLDrawable> shown){[perf recordPresentation:shown.presentedTime];}];
+#endif
         [pending presentDrawable:drawable];
         ctx.presentationSource=nil;
         ctx.lastCommitted=pending;
