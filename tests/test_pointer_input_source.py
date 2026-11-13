@@ -34,6 +34,13 @@ class PointerBridgeTests(unittest.TestCase):
         self.assertIn("pointerHovered:", SURFACE)
         self.assertIn("FAOT_EVENT_CURSOR,p.x,p.y", SURFACE)
 
+    def test_unlocked_game_falls_back_to_hover_deltas_without_affecting_locked_motion(self):
+        self.assertIn("else if(!self.pointerIsLocked)", SURFACE)
+        self.assertIn("faot_pointer_hover_delta(&_hoverMotion,p.x,p.y,&dx,&dy)", SURFACE)
+        self.assertIn("FAOT_EVENT_CURSOR_DELTA,dx,dy", SURFACE)
+        self.assertIn("[view resetHoverMotion]", SURFACE)
+        self.assertIn("hover.cancelsTouchesInView=NO", SURFACE)
+
     def test_hardware_mouse_buttons_do_not_duplicate_uikit_pointer_touches(self):
         self.assertIn("nativeMouseButton:index pressed:pressed", SURFACE)
         self.assertIn("touch.type==UITouchTypeIndirectPointer", SURFACE)

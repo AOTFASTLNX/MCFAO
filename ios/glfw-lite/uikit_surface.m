@@ -2,6 +2,7 @@
 #import <QuartzCore/CAMetalLayer.h>
 #import <Metal/Metal.h>
 #import <GameController/GameController.h>
+#include "pointer_motion.h"
 #include "glfw_lite.h"
 #include "input_mapping.h"
 
@@ -82,7 +83,9 @@ static NSArray<NSDictionary *> *FAOTBuiltinControlModels(void) {
     return models;
 }
 
-@interface FAOTMetalView : UIView <UIKeyInput>
+@interface FAOTMetalView : UIView <UIKeyInput> {
+    FAOTPointerMotion _hoverMotion;
+}
 @property(nonatomic,assign) GLFWwindow *handle;
 @property(nonatomic,assign) BOOL textEnabled;
 @property(nonatomic,assign) BOOL captured;
@@ -103,6 +106,7 @@ static NSArray<NSDictionary *> *FAOTBuiltinControlModels(void) {
 - (void)releaseNativeMouseButtons;
 - (void)nativeMouseButton:(int)index pressed:(BOOL)pressed;
 - (void)pointerHovered:(UIHoverGestureRecognizer *)recognizer;
+- (void)resetHoverMotion;
 - (void)controlDown:(UIButton *)button;
 - (void)controlUp:(UIButton *)button;
 - (BOOL)sendControl:(int)code pressed:(BOOL)pressed;
@@ -206,6 +210,7 @@ static NSArray<NSDictionary *> *FAOTBuiltinControlModels(void) {
     self.controls=controls;
     // Menu pointer positions are independent of clicks. UIKit touches alone cannot track hover.
     UIHoverGestureRecognizer *hover=[[UIHoverGestureRecognizer alloc] initWithTarget:self action:@selector(pointerHovered:)];
+    hover.cancelsTouchesInView=NO;
     [self addGestureRecognizer:hover];
 }
 - (BOOL)sendControl:(int)code pressed:(BOOL)pressed {
@@ -265,13 +270,24 @@ static NSArray<NSDictionary *> *FAOTBuiltinControlModels(void) {
     [self.heldControls removeAllObjects];
 }
 - (void)pointerHovered:(UIHoverGestureRecognizer *)recognizer {
-    if(!self.handle||self.captured)return;
-    if(recognizer.state!=UIGestureRecognizerStateBegan&&recognizer.state!=UIGestureRecognizerStateChanged)return;
+    if(!self.handle)return;
+    if(recognizer.state!=UIGestureRecognizerStateBegan&&recognizer.state!=UIGestureRecognizerStateChanged){
+        [self resetHoverMotion];return;
+    }
     CGPoint p=[recognizer locationInView:self];
-    faot_glfw_enqueue(self.handle,FAOT_EVENT_CURSOR,p.x,p.y,0,0);
+    if(!self.captured){
+        [self resetHoverMotion];
+        faot_glfw_enqueue(self.handle,FAOT_EVENT_CURSOR,p.x,p.y,0,0);
+    }else if(!self.pointerIsLocked){
+        double dx,dy;
+        if(faot_pointer_hover_delta(&_hoverMotion,p.x,p.y,&dx,&dy))
+            faot_glfw_enqueue(self.handle,FAOT_EVENT_CURSOR_DELTA,dx,dy,0,0);
+    }else [self resetHoverMotion];
 }
+- (void)resetHoverMotion { faot_pointer_reset(&_hoverMotion); }
 - (void)setGameCapture:(BOOL)captured {
     if(self.captured==captured)return;
+    [self resetHoverMotion];
     if(!captured)[self releaseGameControls];
     self.captured=captured;
     self.hasCapturedGame|=captured;
@@ -446,6 +462,7 @@ void *faot_surface_create(GLFWwindow *handle,int *width,int *height,int *pw,int 
         surface.pointerToken=[nc addObserverForName:UIPointerLockStateDidChangeNotification object:scene.pointerLockState queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note){
             (void)note;
             FAOTMetalView *view=pointerView;
+            [view resetHoverMotion];
             view.pointerIsLocked=scene.pointerLockState.isLocked;
             fprintf(stderr,"[GLFW-lite] iPad pointer lock: %s\\n",view.pointerIsLocked?"locked":"unlocked");
         }];
@@ -466,6 +483,7 @@ void *faot_surface_create(GLFWwindow *handle,int *width,int *height,int *pw,int 
             (void)note;FAOTMetalView *view=inputView;
             if(view.primaryTouch){if(view.primaryButton>=0)faot_glfw_enqueue(handle,FAOT_EVENT_BUTTON,view.primaryButton,0,0,0);view.primaryTouch=nil;}
             [view releaseGameControls];
+            [view resetHoverMotion];
             view.pointerIsLocked=NO;
             [view.forwardedKeys removeAllIndexes];faot_glfw_enqueue(handle,FAOT_EVENT_FOCUS,0,0,0,0);
         }];
