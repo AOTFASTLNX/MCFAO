@@ -21,6 +21,15 @@ final class MetalDevice implements GpuDeviceBackend {
     private final Map<MetalPipeline.Key,MetalPipeline> pipelines=new HashMap<>();
     private final Map<RenderPipeline,MetalPipeline> pipelineInstances=new IdentityHashMap<>();
     MetalRenderPass activePass;
+    final BufferHazardTracker bufferHazards=new BufferHazardTracker();
+    private long unprotectedWrites, protectedWrites, largeBufferWaits;
+    void waitForGpu(){MetalNative.synchronize(context);bufferHazards.completed();}
+    void recordBufferWrite(boolean protectedWrite,boolean largeWait){
+        if(protectedWrite)protectedWrites++;else unprotectedWrites++;
+        if(largeWait)largeBufferWaits++;
+    }
+    private int hazardSampleFrames;
+
     MetalDevice(long window,ShaderSource source){defaultShaderSource=source;context=MetalNative.create(window);if(context==0)throw new IllegalStateException("Metal context allocation failed");renderer=MetalNative.deviceName(context);System.err.println("[Metal] device="+renderer+" resourceBudgetMiB="+budget.limitMiB());}
     void alive(){if(context==0)throw new IllegalStateException("Metal device closed");}
     void outsidePass(){alive();if(activePass!=null)throw new IllegalStateException("Operation inside an active Metal render pass");}
@@ -89,11 +98,16 @@ final class MetalDevice implements GpuDeviceBackend {
     public int getMaxSupportedAnisotropy(){return 16;}
     public void setVsync(boolean enabled){alive();vsync=enabled;MetalNative.setDisplaySync(context,enabled);}
     private boolean vsync=true;
-    public void presentFrame(){outsidePass();MetalNative.presentFrame(context);}
+    public void presentFrame(){outsidePass();MetalNative.presentFrame(context);
+        if(++hazardSampleFrames==300){
+            System.err.println("[MetalBufferHazards] frames=300 direct_writes="+unprotectedWrites+" protected_writes="+protectedWrites+" large_waits="+largeBufferWaits);
+            hazardSampleFrames=0;unprotectedWrites=0;protectedWrites=0;largeBufferWaits=0;
+        }
+    }
     public boolean isZZeroToOne(){return true;}
     public void close(){
         if(context==0)return;
-        outsidePass();MetalNative.synchronize(context);
+        outsidePass();waitForGpu();
         clearPipelineCache();
         for(AutoCloseable resource:List.copyOf(resources))try{resource.close();}catch(Exception e){throw new IllegalStateException("Metal resource release",e);}
         MetalNative.release(context);context=0;
@@ -103,6 +117,7 @@ final class MetalDevice implements GpuDeviceBackend {
         final MetalDevice owner=MetalDevice.this;
         long handle;
         int mappings;
+        final BufferHazardTracker.State hazard=new BufferHazardTracker.State();
         MetalBuffer(long handle,int usage,long size){super(usage,size);this.handle=handle;}
         public boolean isClosed(){return handle==0;}
         public void close(){if(mappings!=0)throw new IllegalStateException("Closing mapped Metal buffer");if(handle!=0){MetalNative.release(handle);handle=0;retire(this,size());}}

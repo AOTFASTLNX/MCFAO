@@ -33,6 +33,11 @@ jobs:
         run: |
           clang -fobjc-arc tests/metal_snapshot_test.m -framework Foundation -framework Metal -o /tmp/metal-snapshot
           /tmp/metal-snapshot
+      - name: Exercise buffer hazard state transitions
+        run: |
+          mkdir -p /tmp/buffer-hazards
+          javac -d /tmp/buffer-hazards compiler/metal-backend/src/fabricaot/metal/BufferHazardTracker.java tests/BufferHazardTrackerTest.java
+          java -cp /tmp/buffer-hazards fabricaot.metal.BufferHazardTrackerTest
       - name: Verify presentation interval statistics
         run: |
           clang -std=c11 -Wall -Wextra -Werror -Iios/metal-bridge tests/perf_window_test.c -o /tmp/perf-window

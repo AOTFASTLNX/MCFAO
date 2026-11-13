@@ -33,6 +33,12 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         }
     }
     private void prepareCpuWrite(MetalDevice.MetalBuffer buffer){
+        // No GPU read has been encoded since this storage was created/renamed or
+        // the last global completion. Repeated CPU writes can safely reuse it.
+        if(!device.bufferHazards.needsProtection(buffer.hazard)){
+            device.recordBufferWrite(false,false);return;
+        }
+        device.recordBufferWrite(true,buffer.size()>64*1024);
         // Small buffers are CPU-written and GPU-read. Give each write its own
         // backing storage so already-encoded draws keep their original data.
         // Large buffers retain the bounded-memory synchronous path.
@@ -41,9 +47,10 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
             long replacement=MetalNative.cloneBuffer(device.context,previous,buffer.size());
             if(replacement!=0){
                 buffer.handle=replacement;
+                device.bufferHazards.renamed(buffer.hazard);
                 MetalNative.release(previous);
-            }else MetalNative.synchronize(device.context);
-        }else MetalNative.synchronize(device.context);
+            }else device.waitForGpu();
+        }else device.waitForGpu();
     }
     public void writeToBuffer(GpuBufferSlice slice,ByteBuffer data){
         device.outsidePass();MetalDevice.MetalBuffer buffer=device.buffer(slice.buffer());
@@ -101,6 +108,7 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         long bytes=Math.multiplyExact(Math.multiplyExact((long)width,height),t.getFormat().pixelSize());TextureSpec.range(b.size(),offset,bytes);
         if(b.mappings!=0)throw new IllegalStateException("Readback destination is mapped");
         MetalNative.readTexture(device.context,t.handle,mip,x,y,width,height,b.handle,offset);
+        device.bufferHazards.completed();
         // The initial transfer path waits for completion; callbacks execute on the caller's game thread.
         callback.run();
     }

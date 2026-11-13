@@ -27,6 +27,20 @@ class BufferSyncContractTests(unittest.TestCase):
         present = source.split("Java_fabricaot_metal_MetalNative_presentFrame", 1)[1]
         self.assertIn("ctx.lastFence=nil;ctx.lastCommitted=pending", present)
 
+    def test_gpu_read_sites_are_tracked_and_writes_check_hazards(self):
+        root = ROOT / "compiler/metal-backend/src/fabricaot/metal"
+        render = (root / "MetalRenderPass.java").read_text(encoding="utf-8")
+        self.assertIn("bufferHazards.read(vertex.hazard)", render)
+        self.assertIn("bufferHazards.read(buffer.hazard)", render)
+        self.assertIn("bufferHazards.read(index.hazard)", render)
+        encoder = (root / "MetalCommandEncoder.java").read_text(encoding="utf-8")
+        self.assertLess(encoder.index("needsProtection(buffer.hazard)"), encoder.index("cloneBuffer("))
+        self.assertIn("bufferHazards.renamed(buffer.hazard)", encoder)
+        self.assertIn("device.waitForGpu()", encoder)
+        self.assertIn("device.bufferHazards.completed()", encoder)
+        device = (root / "MetalDevice.java").read_text(encoding="utf-8")
+        self.assertIn("MetalNative.synchronize(context);bufferHazards.completed()", device)
+
     def test_copy_uses_snapshot_and_preserves_overlap_semantics(self):
         source = (ROOT / "compiler/metal-backend/src/fabricaot/metal/MetalCommandEncoder.java").read_text(encoding="utf-8")
         copy = source.split("public void copyToBuffer(", 1)[1].split("public void writeToTexture(", 1)[0]

@@ -62,3 +62,17 @@ empty command-buffer submissions without moving a fence past real work.
 synchronization calls from texture readback; the latter wait is already included
 in `cpu_sync_wait_ms`, not an additional time to add. Effectiveness and display
 correctness require controlled real-device tests; no FPS gain is claimed.
+
+## Per-buffer CPU-write hazard tracking
+
+A buffer is marked when bound for GPU reading (vertex, uniform/texel, or index
+draw). If its current storage has no GPU read since creation, renaming, or a
+completed global wait, CPU writes may reuse it directly. Hazardous small-buffer
+writes still snapshot; hazardous large-buffer writes still wait. A completed
+texture readback also advances the global completion generation. GPU writes to
+game buffers remain forbidden by the CPU-owned-buffer contract. GPU use tracking
+is render-thread confined and deliberately conservative for texel snapshots.
+
+`[MetalBufferHazards]` reports direct writes, protected writes, and large-buffer
+waits per 300 presentation submissions. These are call counts, not per-frame
+times. CPU/GPU overlap and real-device FPS must be measured separately.
