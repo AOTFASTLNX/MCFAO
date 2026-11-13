@@ -50,3 +50,15 @@ labels pre-instrumentation waits as combined and old zero GPU timings as unavail
 - v8 installed successfully over the same app on the USB-connected iPhone. All 37 backed-up world files retain their SHA-256 hashes after installation. The existing Documents asset index remains available.
 - Self-signable full-resource local deliverable: FabricAOT-game-unsigned-v8.ipa, 459653072 bytes, SHA-256 6e90a5883faa65d3cf113ea90f501b5ee112b2aee7e23247ca4760994562e1d6. All 4752 distinct indexed asset objects passed size/SHA-1 checks; ZIP integrity passed. Game binaries/assets are not committed here.
 - New device gameplay/FPS/thermal tests remain NOT RUN: the device returned a black screenshot and the developer launch request timed out. Host GPU correctness does not establish a game FPS improvement.
+
+## Fence submission and wait diagnosis
+
+Consecutive fences with no intervening queued GPU work share the same completion
+object; the next submission invalidates that cached checkpoint. Each Java fence
+retains its own reference and observes the same completion or error. This avoids
+empty command-buffer submissions without moving a fence past real work.
+`fence_reused` counts the avoided submissions per 300 submitted frames.
+`sync_count`, `readback_count`, and `readback_wait_ms` separate explicit
+synchronization calls from texture readback; the latter wait is already included
+in `cpu_sync_wait_ms`, not an additional time to add. Effectiveness and display
+correctness require controlled real-device tests; no FPS gain is claimed.

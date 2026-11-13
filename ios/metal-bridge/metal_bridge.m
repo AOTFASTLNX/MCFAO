@@ -49,6 +49,7 @@
 }
 @end
 
+@class FAOTMetalFence;
 @interface FAOTMetalContext : NSObject
 @property(nonatomic,strong) id<MTLDevice> device;
 @property(nonatomic,strong) id<MTLCommandQueue> queue;
@@ -59,6 +60,10 @@
 @property(nonatomic) NSUInteger privateTexelBindings;
 @property(nonatomic) double sampleStarted;
 @property(nonatomic) double syncWaitSeconds;
+@property(nonatomic) double readbackWaitSeconds;
+@property(nonatomic) NSUInteger readbackWaitCount;
+@property(nonatomic) NSUInteger syncWaitCount;
+@property(nonatomic) NSUInteger fenceReuseCount;
 @property(nonatomic) double slotWaitSeconds;
 @property(nonatomic) double drawableWaitSeconds;
 @property(nonatomic) double uploadWaitSeconds;
@@ -67,6 +72,8 @@
 
 @property(nonatomic,strong) id<MTLCommandBuffer> pending;
 @property(nonatomic,strong) id<MTLCommandBuffer> lastCommitted;
+// Last fence is reusable only until another command buffer is committed.
+@property(nonatomic,strong) FAOTMetalFence *lastFence;
 // Keep a bounded two-frame pipeline. This removes the per-frame GPU completion stall while
 // preventing unbounded command-buffer growth and drawable starvation on slower devices.
 @property(nonatomic) dispatch_semaphore_t presentationSlots;
@@ -121,7 +128,7 @@ static BOOL outsidePass(JNIEnv *env,FAOTMetalContext *ctx){if(ctx.renderEncoder)
 
 static BOOL submitAndWait(JNIEnv *env,FAOTMetalContext *ctx){
     if(!outsidePass(env,ctx))return NO;
-    if(ctx.pending){ctx.lastCommitted=ctx.pending;ctx.pending=nil;[ctx.lastCommitted commit];}
+    if(ctx.pending){ctx.lastFence=nil;ctx.lastCommitted=ctx.pending;ctx.pending=nil;[ctx.lastCommitted commit];}
     if(ctx.lastCommitted){double start=CACurrentMediaTime();[ctx.lastCommitted waitUntilCompleted];ctx.syncWaitSeconds+=CACurrentMediaTime()-start;if(ctx.lastCommitted.status==MTLCommandBufferStatusError){failure(env,ctx.lastCommitted.error.localizedDescription.UTF8String);return NO;}}
     return YES;
 }
@@ -311,7 +318,7 @@ JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_debugGroup(JNIEnv *env,j
     (void)cls;FAOTMetalContext *ctx=context(handle);if(!ctx.renderEncoder){failure(env,"No active Metal render pass");return;}
     if(push){const char *s=(*env)->GetStringUTFChars(env,label,NULL);if(!s)return;[ctx.renderEncoder pushDebugGroup:[NSString stringWithUTF8String:s]];(*env)->ReleaseStringUTFChars(env,label,s);}else[ctx.renderEncoder popDebugGroup];
 }
-JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_synchronize(JNIEnv *env,jclass cls,jlong handle){(void)cls;@autoreleasepool{submitAndWait(env,context(handle));}}
+JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_synchronize(JNIEnv *env,jclass cls,jlong handle){(void)cls;@autoreleasepool{FAOTMetalContext *ctx=context(handle);ctx.syncWaitCount++;submitAndWait(env,ctx);}}
 JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_writeTexture(JNIEnv *env,jclass cls,jlong handle,jlong target,jint mip,jint layer,jint x,jint y,jint width,jint height,jlong data,jint sourceStride,jint components){
     (void)cls;@autoreleasepool {FAOTMetalContext *ctx=context(handle);if(!outsidePass(env,ctx))return;id<MTLTexture> destination=texture(target);
         NSUInteger bytes=pixelBytes(destination);
@@ -336,7 +343,9 @@ JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_readTexture(JNIEnv *env,
         id<MTLBuffer> staging=[ctx.device newBufferWithLength:total options:MTLResourceStorageModeShared];if(!staging){failure(env,"Texture readback staging allocation failed");return;}
         id<MTLBlitCommandEncoder> encoder=[commands(ctx) blitCommandEncoder];
         [encoder copyFromTexture:input sourceSlice:0 sourceLevel:mip sourceOrigin:MTLOriginMake(x,y,0) sourceSize:MTLSizeMake(width,height,1) toBuffer:staging destinationOffset:0 destinationBytesPerRow:row destinationBytesPerImage:total];[encoder endEncoding];
-        if(!submitAndWait(env,ctx))return;
+        double syncBefore=ctx.syncWaitSeconds;ctx.readbackWaitCount++;
+        BOOL completed=submitAndWait(env,ctx);ctx.readbackWaitSeconds+=ctx.syncWaitSeconds-syncBefore;
+        if(!completed)return;
         uint8_t *dst=(uint8_t *)buffer(destination).contents+(NSUInteger)offset;
         for(int line=0;line<height;line++)memcpy(dst+(NSUInteger)line*width*bytes,(uint8_t *)staging.contents+(NSUInteger)line*row,(NSUInteger)width*bytes);
     }
@@ -348,9 +357,13 @@ JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_copyTexture(JNIEnv *env,
     }
 }
 JNIEXPORT jlong JNICALL Java_fabricaot_metal_MetalNative_createFence(JNIEnv *env,jclass cls,jlong handle){
-    (void)cls;@autoreleasepool {FAOTMetalContext *ctx=context(handle);if(!outsidePass(env,ctx))return 0;FAOTMetalFence *fence=[FAOTMetalFence new];fence.perf=ctx.perf;fence.completion=dispatch_group_create();dispatch_group_enter(fence.completion);
+    (void)cls;@autoreleasepool {FAOTMetalContext *ctx=context(handle);if(!outsidePass(env,ctx))return 0;
+        // Consecutive fences with no intervening GPU commands represent the same
+        // completion point. Share it rather than submit an empty command buffer.
+        if(!ctx.pending && ctx.lastFence){ctx.fenceReuseCount++;return keep(ctx.lastFence);}
+        FAOTMetalFence *fence=[FAOTMetalFence new];fence.perf=ctx.perf;fence.completion=dispatch_group_create();dispatch_group_enter(fence.completion);
         id<MTLCommandBuffer> pending=commands(ctx);[pending addCompletedHandler:^(id<MTLCommandBuffer> completed){if(completed.status==MTLCommandBufferStatusError)fence.error=completed.error.localizedDescription;dispatch_group_leave(fence.completion);}];
-        ctx.lastCommitted=pending;ctx.pending=nil;[pending commit];return keep(fence);
+        ctx.lastCommitted=pending;ctx.pending=nil;ctx.lastFence=fence;[pending commit];return keep(fence);
     }
 }
 JNIEXPORT jboolean JNICALL Java_fabricaot_metal_MetalNative_awaitFence(JNIEnv *env,jclass cls,jlong handle,jlong timeout){
@@ -395,7 +408,7 @@ JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_presentFrame(JNIEnv *env
 #endif
         [pending presentDrawable:drawable];
         ctx.presentationSource=nil;
-        ctx.lastCommitted=pending;
+        ctx.lastFence=nil;ctx.lastCommitted=pending;
         [pending addCompletedHandler:^(id<MTLCommandBuffer> completed) {
             if (completed.status == MTLCommandBufferStatusError) {
                 fprintf(stderr, "[Metal] asynchronous frame failed: %s\n", completed.error.localizedDescription.UTF8String ?: "unknown error");
@@ -410,13 +423,14 @@ JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_presentFrame(JNIEnv *env
             double now=CACurrentMediaTime(), factor=1000.0/ctx.sampleFrames;
             double gpuSeconds,fenceSeconds;NSUInteger gpuCompleted,gpuUnavailable,fenceCount;
             [ctx.perf takeGPUSeconds:&gpuSeconds completed:&gpuCompleted unavailable:&gpuUnavailable fenceSeconds:&fenceSeconds fenceCount:&fenceCount];
-            fprintf(stderr,"[MetalPerf] submitted=%lu submit_interval_ms=%.3f cpu_sync_wait_ms=%.3f slot_wait_ms=%.3f drawable_wait_ms=%.3f fence_wait_ms_per_submit=%.3f fence_wait_count=%lu gpu_command_sum_ms_per_submit=%.3f gpu_completed=%lu gpu_unavailable=%lu texel_shared=%.2f texel_private=%.2f texel_upload_wait_ms=%.3f buffer_snapshots=%.2f snapshot_fallbacks=%.2f\n",
+            fprintf(stderr,"[MetalPerf] submitted=%lu submit_interval_ms=%.3f cpu_sync_wait_ms=%.3f slot_wait_ms=%.3f drawable_wait_ms=%.3f fence_wait_ms_per_submit=%.3f fence_wait_count=%lu gpu_command_sum_ms_per_submit=%.3f gpu_completed=%lu gpu_unavailable=%lu texel_shared=%.2f texel_private=%.2f texel_upload_wait_ms=%.3f buffer_snapshots=%.2f snapshot_fallbacks=%.2f sync_count=%lu readback_count=%lu readback_wait_ms=%.3f fence_reused=%lu\n",
                 (unsigned long)ctx.sampleFrames,(now-ctx.sampleStarted)*factor,ctx.syncWaitSeconds*factor,
                 ctx.slotWaitSeconds*factor,ctx.drawableWaitSeconds*factor,fenceSeconds*factor,(unsigned long)fenceCount,gpuSeconds*factor,(unsigned long)gpuCompleted,(unsigned long)gpuUnavailable,
                 (double)ctx.sharedTexelBindings/ctx.sampleFrames,(double)ctx.privateTexelBindings/ctx.sampleFrames,ctx.uploadWaitSeconds*factor,
-                (double)ctx.snapshotCopies/ctx.sampleFrames,(double)ctx.snapshotFallbacks/ctx.sampleFrames);
+                (double)ctx.snapshotCopies/ctx.sampleFrames,(double)ctx.snapshotFallbacks/ctx.sampleFrames,
+                (unsigned long)ctx.syncWaitCount,(unsigned long)ctx.readbackWaitCount,ctx.readbackWaitSeconds*factor,(unsigned long)ctx.fenceReuseCount);
             ctx.sampleFrames=0;ctx.sharedTexelBindings=0;ctx.privateTexelBindings=0;
-            ctx.syncWaitSeconds=0;ctx.slotWaitSeconds=0;ctx.drawableWaitSeconds=0;ctx.uploadWaitSeconds=0;ctx.snapshotCopies=0;ctx.snapshotFallbacks=0;ctx.sampleStarted=now;
+            ctx.syncWaitSeconds=0;ctx.syncWaitCount=0;ctx.readbackWaitCount=0;ctx.readbackWaitSeconds=0;ctx.fenceReuseCount=0;ctx.slotWaitSeconds=0;ctx.drawableWaitSeconds=0;ctx.uploadWaitSeconds=0;ctx.snapshotCopies=0;ctx.snapshotFallbacks=0;ctx.sampleStarted=now;
         }
         if(!ctx.presentationLogged){ctx.presentationLogged=YES;fprintf(stderr,"[Metal] TEXTURE_FRAME_PRESENTED %lux%lu\n",(unsigned long)width,(unsigned long)height);}
     }
