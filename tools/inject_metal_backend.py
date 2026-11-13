@@ -64,7 +64,6 @@ def main(argv=None):
                   playDiagnostics='optional -Dmcfao.diag.play=true/false; level states, chunks, movement, connection failures, heartbeat and stall thread dump',
                   chatKeyWait='false secure-chat flag and null chat session short circuit; non-null session validation preserved',
                   guiItemAtlasOrigin='sample rendered item atlas in Metal texture row order',
-                   guiPreviewOrigin='flip world favicon rows and undo GL PIP blit flip for Metal',
                   guiPreviewOrigin='flip world favicon rows and undo the GL PIP blit flip only for Metal',
                   fallbackLoop='preserved',manifest='main attributes retained; stale per-entry signing sections removed',backendOrder=['fabricaot.metal.MetalBackend','com.mojang.blaze3d.opengl.GlBackend'],selfTest='PASS')
     (out/'result.json').write_text(json.dumps(result,indent=2)+'\n')
