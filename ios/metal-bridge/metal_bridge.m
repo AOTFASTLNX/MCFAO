@@ -32,6 +32,7 @@
 // Keep a bounded two-frame pipeline. This removes the per-frame GPU completion stall while
 // preventing unbounded command-buffer growth and drawable starvation on slower devices.
 @property(nonatomic) dispatch_semaphore_t presentationSlots;
+@property(nonatomic) NSUInteger snapshotBytesThisFrame;
 @property(nonatomic,strong) id<MTLRenderCommandEncoder> renderEncoder;
 @property(nonatomic,strong) id<MTLTexture> activeColor;
 @property(nonatomic,strong) id<MTLTexture> activeDepth;
@@ -117,6 +118,19 @@ JNIEXPORT jlong JNICALL Java_fabricaot_metal_MetalNative_createBuffer(JNIEnv *en
     }
 }
 JNIEXPORT jlong JNICALL Java_fabricaot_metal_MetalNative_bufferAddress(JNIEnv *env,jclass cls,jlong handle){(void)env;(void)cls;id<MTLBuffer> buffer=(__bridge id<MTLBuffer>)(void *)(uintptr_t)handle;return (jlong)(uintptr_t)buffer.contents;}
+JNIEXPORT jlong JNICALL Java_fabricaot_metal_MetalNative_cloneBuffer(JNIEnv *env,jclass cls,jlong handle,jlong sourceHandle,jlong bytes){
+    (void)cls;@autoreleasepool {
+        FAOTMetalContext *ctx=context(handle);if(!outsidePass(env,ctx))return 0;
+        id<MTLBuffer> source=buffer(sourceHandle);
+        if(!source||bytes<=0||bytes>64*1024||(uint64_t)bytes>source.length){failure(env,"Invalid buffer snapshot");return 0;}
+        if(ctx.snapshotBytesThisFrame+(NSUInteger)bytes>16*1024*1024)return 0;
+        id<MTLBuffer> snapshot=[ctx.device newBufferWithLength:(NSUInteger)bytes options:MTLResourceStorageModeShared];
+        if(!snapshot){failure(env,"Metal buffer snapshot allocation failed");return 0;}
+        memcpy(snapshot.contents,source.contents,(NSUInteger)bytes);
+        ctx.snapshotBytesThisFrame+=(NSUInteger)bytes;
+        return keep(snapshot);
+    }
+}
 JNIEXPORT jlong JNICALL Java_fabricaot_metal_MetalNative_createSampler(JNIEnv *env,jclass cls,jlong handle,jboolean u,jboolean v,jboolean min,jboolean mag,jint anisotropy,jdouble lod){
     (void)cls;
     @autoreleasepool {
@@ -331,6 +345,7 @@ JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_presentFrame(JNIEnv *env
         }];
         ctx.pending=nil;
         [pending commit];
+        ctx.snapshotBytesThisFrame=0;
         ctx.sampleFrames++;
         if(pending.GPUEndTime>=pending.GPUStartTime && pending.GPUStartTime>0)
             ctx.finalGpuSeconds+=pending.GPUEndTime-pending.GPUStartTime;

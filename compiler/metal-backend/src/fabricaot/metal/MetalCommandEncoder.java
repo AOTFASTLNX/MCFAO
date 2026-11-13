@@ -37,7 +37,17 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         TextureSpec.range(buffer.size(),slice.offset(),slice.length());
         if(data.remaining()>slice.length())throw new IllegalArgumentException("Write exceeds buffer slice");
         if(buffer.mappings!=0)throw new IllegalStateException("Writing a mapped buffer");
-        MetalNative.synchronize(device.context);
+        // Small buffers are CPU-written and GPU-read. Give each write its own
+        // backing storage so already-encoded draws keep their original data.
+        // Large buffers retain the bounded-memory synchronous path.
+        if(buffer.size()<=64*1024){
+            long previous=buffer.handle;
+            long replacement=MetalNative.cloneBuffer(device.context,previous,buffer.size());
+            if(replacement!=0){
+                buffer.handle=replacement;
+                MetalNative.release(previous);
+            }else MetalNative.synchronize(device.context);
+        }else MetalNative.synchronize(device.context);
         MemoryUtil.memByteBuffer(MetalNative.bufferAddress(buffer.handle)+slice.offset(),data.remaining()).put(data.duplicate());
     }
     public GpuBuffer.MappedView mapBuffer(GpuBufferSlice slice,boolean read,boolean write){
