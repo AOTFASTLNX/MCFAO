@@ -7,9 +7,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class HighRefreshTests(unittest.TestCase):
     def test_phone_promotion_is_enabled_in_world_device_plist(self):
-        project = (ROOT / "ios/C0Harness/C0Harness.xcodeproj/project.pbxproj").read_text()
-        self.assertIn("INFOPLIST_FILE = Info.plist;", project)
-        with (ROOT / "ios/C0Harness/Info.plist").open("rb") as stream:
+        config = (ROOT / "ios/C0Harness/WorldDevice.xcconfig").read_text()
+        self.assertIn("INFOPLIST_FILE = Info.WorldSimulator.plist", config)
+        with (ROOT / "ios/C0Harness/Info.WorldSimulator.plist").open("rb") as stream:
             self.assertIs(plistlib.load(stream)["CADisableMinimumFrameDurationOnPhone"], True)
 
     def test_default_and_existing_fps_options_allow_120(self):
