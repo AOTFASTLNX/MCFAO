@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 # One-shot build of the FabricAOT (Minecraft 26.1.2) iOS game IPA on an arm64 Mac.
 #
-#   MCFAO_TOKEN=<github PAT with repo scope> bash build_mac.sh
+#   SOURCE_REF=integration/aot-and-performance-20261113 bash build_mac.sh
 #
 # Requirements: Apple silicon macOS with Xcode 16+ and >= 16 GiB RAM.
 # Produces: $WORK/FabricAOT-game.ipa (unsigned), $WORK/build.log
 set -euo pipefail
 
 WORK="${WORK:-$HOME/mcfao-build}"
-CI_REPO="${CI_REPO:-https://github.com/zhangrongxue/mc-aot-ios}"
-UPSTREAM="${UPSTREAM:-https://github.com/kexinOvO/MCFAO}"
-SOURCE_REF="${SOURCE_REF:-}"   # optional: branch of a public copy of the source
+CI_REPO="${CI_REPO:-https://github.com/AOTFASTLNX/MCFAO}"
+UPSTREAM="${UPSTREAM:-https://github.com/AOTFASTLNX/MCFAO}"
+SOURCE_REF="${SOURCE_REF:-integration/aot-and-performance-20261113}"
+SOURCE_SHA="${SOURCE_SHA:-}" # CircleCI sets this to the triggering commit
 HEAP_GIB="${HEAP_GIB:-8}"
 JOBS="${JOBS:-4}"
 AOT_PAR="${AOT_PAR:-4}"
@@ -18,7 +19,6 @@ AOT_PAR="${AOT_PAR:-4}"
 log() { printf '\n=== [%s] %s ===\n' "$(date +%H:%M:%S)" "$*"; }
 die() { printf 'FATAL: %s\n' "$*" >&2; exit 1; }
 
-[ -n "${MCFAO_TOKEN:-}" ] || die "set MCFAO_TOKEN to a PAT with repo scope"
 [ "$(uname -m)" = "arm64" ] || die "this must run on Apple silicon"
 MEM=$(( $(sysctl -n hw.memsize) / 1073741824 ))
 [ "$MEM" -ge 15 ] || die "need >=16 GiB RAM, this machine has ${MEM} GiB"
@@ -30,21 +30,25 @@ exec > >(tee -a build.log) 2>&1
 log "host: $(uname -m) ${MEM} GiB, $(xcodebuild -version | head -1), workdir $WORK"
 
 # ---------------------------------------------------------------- sources
-log "fetch sources"
+log "fetch sources (public, commit-pinned; no token)"
 if [ ! -d repo/.git ]; then
   git clone --depth 1 "$CI_REPO" repo
 fi
 if [ ! -d src/.git ]; then
-  if [ -n "$SOURCE_REF" ]; then
-    git clone --depth 1 --branch "$SOURCE_REF" "$UPSTREAM" src
-  else
-    git clone --depth 1 "https://x-access-token:${MCFAO_TOKEN}@${UPSTREAM#https://}" src
-  fi
+  git clone --depth 1 --branch "$SOURCE_REF" "$UPSTREAM" src
 fi
-cd repo && git pull --ff-only -q || true
-cd "$WORK"
+REPO_HEAD="$(git -C repo rev-parse HEAD)"
+SRC_HEAD="$(git -C src rev-parse HEAD)"
+if [ -n "$SOURCE_SHA" ] && [ "$SRC_HEAD" != "$SOURCE_SHA" ]; then
+  die "source branch moved during CI: actual $SRC_HEAD, requested $SOURCE_SHA"
+fi
+if [ -n "$SOURCE_SHA" ] && [ "$REPO_HEAD" != "$SOURCE_SHA" ]; then
+  die "CI helper sources do not match build source SHA ($REPO_HEAD != $SOURCE_SHA)"
+fi
+log "pinned source commit: $SRC_HEAD"
 python3 "$WORK/repo/ci/patch_src.py" src
-log "upstream commit: $(git -C src rev-parse --short HEAD)"
+# All source changes are CI portability patches, never pushed upstream.
+git -C src diff --stat
 
 mkdir -p .ci/bin
 printf '#!/bin/sh\necho "{}"\n' > .ci/bin/aar
@@ -239,8 +243,19 @@ fi
 rm -rf dist Payload
 mkdir -p dist/Payload
 cp -R "$APP" dist/Payload/
+# Do not publish a placebo IPA: the complete embedded AOT client, native
+# graphics libraries and game resources are required for a standalone build.
+PACKAGE_APP="$(find dist/Payload -maxdepth 1 -type d -name '*.app' -print -quit)"
+test -n "$PACKAGE_APP" || die "missing packaged .app"
+for required in   "$PACKAGE_APP/Frameworks/client-graph.dylib"   "$PACKAGE_APP/Frameworks/libglfw.dylib"   "$PACKAGE_APP/Frameworks/liblwjgl.dylib"   "$PACKAGE_APP/Frameworks/libfaot_metal.dylib"   "$PACKAGE_APP/Frameworks/libopenal.dylib"   "$PACKAGE_APP/assets/indexes/30.json"; do
+  test -s "$required" || die "INCOMPLETE IPA: $required"
+done
+test -d "$PACKAGE_APP/assets/objects" || die "INCOMPLETE IPA: game asset objects missing"
+test -n "$(find "$PACKAGE_APP/assets/objects" -type f -print -quit)" || die "INCOMPLETE IPA: game asset objects empty"
+test -s "$PACKAGE_APP/Frameworks/fabricaot-shaders/index.json" || die "INCOMPLETE IPA: shader index missing"
 (cd dist && /usr/bin/zip -qry "$WORK/FabricAOT-game.ipa" Payload)
-/usr/bin/shasum -a 256 "$WORK/FabricAOT-game.ipa"
+unzip -tq "$WORK/FabricAOT-game.ipa" > "$WORK/ipa-zip-test.txt"
+shasum -a 256 "$WORK/FabricAOT-game.ipa" | tee "$WORK/ipa-sha256.txt"
+printf '%s\n' "$SRC_HEAD" > "$WORK/source-sha.txt"
 du -sh dist/Payload || true
-
-log "DONE: $WORK/FabricAOT-game.ipa"
+log "DONE: $WORK/FabricAOT-game.ipa (unsigned; personal signing required)"
