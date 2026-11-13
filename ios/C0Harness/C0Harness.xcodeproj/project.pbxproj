@@ -231,7 +231,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "/bin/sh \"$SRCROOT/embed_graphics_libraries.sh\"\n";
+			shellScript = "if [ \"${PLATFORM_NAME:-}\" != iphonesimulator ] || [ \"${TARGET_DEVICE_PLATFORM_NAME:-iphonesimulator}\" != iphonesimulator ]; then\n  echo \"error: FabricAOTWorld requires an iOS Simulator destination.\" >&2\n  exit 1\nfi\n/bin/sh \"$SRCROOT/embed_graphics_libraries.sh\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

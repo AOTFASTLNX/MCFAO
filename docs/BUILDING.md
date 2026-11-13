@@ -197,14 +197,6 @@ python3 -B tools/stage_device_xcode.py --client "$g/main-link-ios-world-01" --gl
 xcodebuild -project ios/C0Harness/C0Harness.xcodeproj -scheme WorldDevice -destination 'generic/platform=iOS' -derivedDataPath "$g/world-device-signed-02/DerivedData" build
 ```
 
-## iPad Pro 原生与妙控键盘测试
-
-PR #2 的真机失败根因、修复、包契约检查和触控板验收步骤见 [IPAD_INPUT](IPAD_INPUT.md)。关键点：
-
-- `WorldDevice` 必须由 `TARGETED_DEVICE_FAMILY=1,2` 构建，最终 `Info.plist` 的 `UIDeviceFamily` 必须是 `[1,2]`；构建阶段和 `tools/verify_ipad_bundle.py` 会拒绝 iPhone-only 包。
-- 只有 iPad 全屏场景才能获得指针锁定；窗口化、分屏或 iPhone 兼容模式会记录 `fullScreen=0`，此时相机使用相对位移 fallback，不能把“光标移动”误当作视角已修复。
-- 进入世界后检查 `Documents/c0-logs/input-*.log` 的 `locked`、`fullScreen`、`scene/screen/drawable` 和 `source=gcmouse|hover|touch-drag`；菜单中应看到锁定释放。
-
 ## 专用模拟器调试
 
 本轮用单独 iPhone18Pro / iOS27.2模拟器，ID YOUR_DEVICE_UDID。创建、安装、启动和原始结果见 evidence。模拟器结果不提升真机 Gate。
