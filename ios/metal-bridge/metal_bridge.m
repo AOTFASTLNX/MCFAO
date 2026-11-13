@@ -79,6 +79,8 @@
 @property(nonatomic) dispatch_semaphore_t presentationSlots;
 @property(nonatomic) NSUInteger snapshotBytesThisFrame;
 @property(nonatomic) NSUInteger snapshotCopies;
+@property(nonatomic) NSUInteger largeSnapshotCopies;
+@property(nonatomic) uint64_t snapshotSampleBytes;
 @property(nonatomic) NSUInteger snapshotFallbacks;
 @property(nonatomic,strong) id<MTLRenderCommandEncoder> renderEncoder;
 @property(nonatomic,strong) id<MTLTexture> activeColor;
@@ -179,7 +181,7 @@ JNIEXPORT jlong JNICALL Java_fabricaot_metal_MetalNative_cloneBuffer(JNIEnv *env
     (void)cls;@autoreleasepool {
         FAOTMetalContext *ctx=context(handle);if(!outsidePass(env,ctx))return 0;
         id<MTLBuffer> source=buffer(sourceHandle);
-        if(!source||bytes<=0||bytes>64*1024||(uint64_t)bytes>source.length){failure(env,"Invalid buffer snapshot");return 0;}
+        if(!source||bytes<=0||bytes>1024*1024||(uint64_t)bytes>source.length){failure(env,"Invalid buffer snapshot");return 0;}
         NSUInteger length=((NSUInteger)bytes+15)&~(NSUInteger)15;
         if(ctx.snapshotBytesThisFrame+length>16*1024*1024){ctx.snapshotFallbacks++;return 0;}
         id<MTLBuffer> snapshot=[ctx.device newBufferWithLength:length options:MTLResourceStorageModeShared];
@@ -188,6 +190,8 @@ JNIEXPORT jlong JNICALL Java_fabricaot_metal_MetalNative_cloneBuffer(JNIEnv *env
         if(length>(NSUInteger)bytes)memset((uint8_t *)snapshot.contents+bytes,0,length-(NSUInteger)bytes);
         ctx.snapshotBytesThisFrame+=length;
         ctx.snapshotCopies++;
+        if(bytes>64*1024)ctx.largeSnapshotCopies++;
+        ctx.snapshotSampleBytes+=length;
         return keep(snapshot);
     }
 }
@@ -423,14 +427,15 @@ JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_presentFrame(JNIEnv *env
             double now=CACurrentMediaTime(), factor=1000.0/ctx.sampleFrames;
             double gpuSeconds,fenceSeconds;NSUInteger gpuCompleted,gpuUnavailable,fenceCount;
             [ctx.perf takeGPUSeconds:&gpuSeconds completed:&gpuCompleted unavailable:&gpuUnavailable fenceSeconds:&fenceSeconds fenceCount:&fenceCount];
-            fprintf(stderr,"[MetalPerf] submitted=%lu submit_interval_ms=%.3f cpu_sync_wait_ms=%.3f slot_wait_ms=%.3f drawable_wait_ms=%.3f fence_wait_ms_per_submit=%.3f fence_wait_count=%lu gpu_command_sum_ms_per_submit=%.3f gpu_completed=%lu gpu_unavailable=%lu texel_shared=%.2f texel_private=%.2f texel_upload_wait_ms=%.3f buffer_snapshots=%.2f snapshot_fallbacks=%.2f sync_count=%lu readback_count=%lu readback_wait_ms=%.3f fence_reused=%lu\n",
+            fprintf(stderr,"[MetalPerf] submitted=%lu submit_interval_ms=%.3f cpu_sync_wait_ms=%.3f slot_wait_ms=%.3f drawable_wait_ms=%.3f fence_wait_ms_per_submit=%.3f fence_wait_count=%lu gpu_command_sum_ms_per_submit=%.3f gpu_completed=%lu gpu_unavailable=%lu texel_shared=%.2f texel_private=%.2f texel_upload_wait_ms=%.3f buffer_snapshots=%.2f snapshot_fallbacks=%.2f sync_count=%lu readback_count=%lu readback_wait_ms=%.3f fence_reused=%lu large_snapshots=%lu snapshot_mib_per_submit=%.3f\n",
                 (unsigned long)ctx.sampleFrames,(now-ctx.sampleStarted)*factor,ctx.syncWaitSeconds*factor,
                 ctx.slotWaitSeconds*factor,ctx.drawableWaitSeconds*factor,fenceSeconds*factor,(unsigned long)fenceCount,gpuSeconds*factor,(unsigned long)gpuCompleted,(unsigned long)gpuUnavailable,
                 (double)ctx.sharedTexelBindings/ctx.sampleFrames,(double)ctx.privateTexelBindings/ctx.sampleFrames,ctx.uploadWaitSeconds*factor,
                 (double)ctx.snapshotCopies/ctx.sampleFrames,(double)ctx.snapshotFallbacks/ctx.sampleFrames,
-                (unsigned long)ctx.syncWaitCount,(unsigned long)ctx.readbackWaitCount,ctx.readbackWaitSeconds*factor,(unsigned long)ctx.fenceReuseCount);
+                (unsigned long)ctx.syncWaitCount,(unsigned long)ctx.readbackWaitCount,ctx.readbackWaitSeconds*factor,(unsigned long)ctx.fenceReuseCount,
+                (unsigned long)ctx.largeSnapshotCopies,(double)ctx.snapshotSampleBytes/(1024.0*1024.0*ctx.sampleFrames));
             ctx.sampleFrames=0;ctx.sharedTexelBindings=0;ctx.privateTexelBindings=0;
-            ctx.syncWaitSeconds=0;ctx.syncWaitCount=0;ctx.readbackWaitCount=0;ctx.readbackWaitSeconds=0;ctx.fenceReuseCount=0;ctx.slotWaitSeconds=0;ctx.drawableWaitSeconds=0;ctx.uploadWaitSeconds=0;ctx.snapshotCopies=0;ctx.snapshotFallbacks=0;ctx.sampleStarted=now;
+            ctx.syncWaitSeconds=0;ctx.syncWaitCount=0;ctx.readbackWaitCount=0;ctx.readbackWaitSeconds=0;ctx.fenceReuseCount=0;ctx.slotWaitSeconds=0;ctx.drawableWaitSeconds=0;ctx.uploadWaitSeconds=0;ctx.snapshotCopies=0;ctx.snapshotFallbacks=0;ctx.largeSnapshotCopies=0;ctx.snapshotSampleBytes=0;ctx.sampleStarted=now;
         }
         if(!ctx.presentationLogged){ctx.presentationLogged=YES;fprintf(stderr,"[Metal] TEXTURE_FRAME_PRESENTED %lux%lu\n",(unsigned long)width,(unsigned long)height);}
     }

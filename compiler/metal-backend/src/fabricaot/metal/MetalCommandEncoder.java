@@ -32,17 +32,18 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
             MetalNative.clearRectangle(device.context,c.handle,argb,d.handle,value,x,y,width,height);
         }
     }
+    private static final long MAX_BUFFER_SNAPSHOT_BYTES=1024L*1024;
     private void prepareCpuWrite(MetalDevice.MetalBuffer buffer){
         // No GPU read has been encoded since this storage was created/renamed or
         // the last global completion. Repeated CPU writes can safely reuse it.
         if(!device.bufferHazards.needsProtection(buffer.hazard)){
             device.recordBufferWrite(false,false);return;
         }
-        device.recordBufferWrite(true,buffer.size()>64*1024);
-        // Small buffers are CPU-written and GPU-read. Give each write its own
+        device.recordBufferWrite(true,buffer.size()>MAX_BUFFER_SNAPSHOT_BYTES);
+        // Eligible buffers are CPU-written and GPU-read. Give each write its own
         // backing storage so already-encoded draws keep their original data.
         // Large buffers retain the bounded-memory synchronous path.
-        if(buffer.size()<=64*1024){
+        if(buffer.size()<=MAX_BUFFER_SNAPSHOT_BYTES){
             long previous=buffer.handle;
             long replacement=MetalNative.cloneBuffer(device.context,previous,buffer.size());
             if(replacement!=0){
