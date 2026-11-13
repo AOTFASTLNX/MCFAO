@@ -108,13 +108,16 @@ static void FAOTApplyLanguageToOptions(NSString *path, NSString *language) {
     NSMutableArray<NSString *> *updated = [NSMutableArray arrayWithCapacity:lines.count + 1];
     BOOL replaced = NO;
     BOOL vsyncPresent = NO;
+    BOOL fpsPresent = NO;
     for (NSString *line in lines) {
         if ([line hasPrefix:@"lang:"]) {
             if (!replaced) { [updated addObject:[NSString stringWithFormat:@"lang:%@", language]]; replaced = YES; }
+        } else if ([line hasPrefix:@"maxFps:"]) {
+            NSInteger fps = [[line substringFromIndex:@"maxFps:".length] integerValue];
+            [updated addObject:fps > 120 ? line : @"maxFps:120"];
+            fpsPresent = YES;
         } else if ([line hasPrefix:@"enableVsync:"]) {
-            // Keep presentation cadence tied to the display. The old false default allowed
-            // unpaced submissions on 120 Hz panels and caused visible 30/60 Hz oscillation.
-            [updated addObject:@"enableVsync:true"];
+            [updated addObject:line];
             vsyncPresent = YES;
         } else if (line.length > 0) {
             [updated addObject:line];
@@ -122,6 +125,7 @@ static void FAOTApplyLanguageToOptions(NSString *path, NSString *language) {
     }
     if (!replaced) [updated addObject:[NSString stringWithFormat:@"lang:%@", language]];
     if (!vsyncPresent) [updated addObject:@"enableVsync:true"];
+    if (!fpsPresent) [updated addObject:@"maxFps:120"];
     NSString *result = [[updated componentsJoinedByString:@"\n"] stringByAppendingString:@"\n"];
     [result writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil];
 }
@@ -426,7 +430,7 @@ static void FAOTProbeReservations(FILE *logFile) {
 #if TARGET_OS_SIMULATOR || defined(FAOT_DEVICE_WORLD)
         // Seed a modest profile on first launch. Minecraft owns this file after it exists.
         NSString *options = [game stringByAppendingPathComponent:@"options.txt"];
-                NSData *worldDefaults = [@"renderDistance:8\nsimulationDistance:5\nmaxFps:60\n"
+                NSData *worldDefaults = [@"renderDistance:8\nsimulationDistance:5\nmaxFps:120\n"
                                  @"graphicsMode:1\nclouds:false\nentityShadows:false\n"
                                  @"particles:2\nbiomeBlendRadius:0\nao:false\n"
                                  @"mipmapLevels:4\nenableVsync:true\n"
