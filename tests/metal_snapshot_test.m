@@ -68,5 +68,19 @@ int main(void) { @autoreleasepool {
     if(bufferCommand.status!=MTLCommandBufferStatusCompleted){fprintf(stderr,"%s\n",bufferCommand.error.description.UTF8String);return 1;}
     uint32_t expectedOld[4]={10,20,30,40},expectedNew[4]={10,20,99,40};
     if(memcmp(oldOutput.contents,expectedOld,16)||memcmp(newOutput.contents,expectedNew,16)){fprintf(stderr,"Buffer snapshot data mismatch\n");return 1;}
+    // A 40-byte uniform needs 48 bytes of backing storage for Metal's 16-byte
+    // struct alignment. Verify cloning keeps those padding bytes addressable.
+    NSUInteger logicalSize=40, alignedSize=(logicalSize+15)&~(NSUInteger)15;
+    id<MTLBuffer> padded=[device newBufferWithLength:alignedSize options:MTLResourceStorageModeShared];
+    memset(padded.contents,0x5a,logicalSize);
+    memset((uint8_t *)padded.contents+logicalSize,0,alignedSize-logicalSize);
+    id<MTLBuffer> paddedOutput=[device newBufferWithLength:alignedSize options:MTLResourceStorageModeShared];
+    id<MTLCommandBuffer> paddedCommand=[queue commandBuffer];
+    id<MTLComputeCommandEncoder> paddedEncoder=[paddedCommand computeCommandEncoder];
+    [paddedEncoder setComputePipelineState:bufferPipeline];[paddedEncoder setBuffer:padded offset:0 atIndex:0];[paddedEncoder setBuffer:paddedOutput offset:0 atIndex:1];
+    [paddedEncoder dispatchThreads:MTLSizeMake(alignedSize/4,1,1) threadsPerThreadgroup:MTLSizeMake(1,1,1)];[paddedEncoder endEncoding];
+    [paddedCommand commit];[paddedCommand waitUntilCompleted];
+    if(paddedCommand.status!=MTLCommandBufferStatusCompleted){fprintf(stderr,"%s\n",paddedCommand.error.description.UTF8String);return 1;}
+    if(memcmp(paddedOutput.contents,padded.contents,alignedSize)){fprintf(stderr,"Aligned snapshot data mismatch\n");return 1;}
     puts("METAL_SNAPSHOT_PASS");return 0;
 }}

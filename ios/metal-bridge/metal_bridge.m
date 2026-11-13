@@ -33,6 +33,8 @@
 // preventing unbounded command-buffer growth and drawable starvation on slower devices.
 @property(nonatomic) dispatch_semaphore_t presentationSlots;
 @property(nonatomic) NSUInteger snapshotBytesThisFrame;
+@property(nonatomic) NSUInteger snapshotCopies;
+@property(nonatomic) NSUInteger snapshotFallbacks;
 @property(nonatomic,strong) id<MTLRenderCommandEncoder> renderEncoder;
 @property(nonatomic,strong) id<MTLTexture> activeColor;
 @property(nonatomic,strong) id<MTLTexture> activeDepth;
@@ -123,11 +125,14 @@ JNIEXPORT jlong JNICALL Java_fabricaot_metal_MetalNative_cloneBuffer(JNIEnv *env
         FAOTMetalContext *ctx=context(handle);if(!outsidePass(env,ctx))return 0;
         id<MTLBuffer> source=buffer(sourceHandle);
         if(!source||bytes<=0||bytes>64*1024||(uint64_t)bytes>source.length){failure(env,"Invalid buffer snapshot");return 0;}
-        if(ctx.snapshotBytesThisFrame+(NSUInteger)bytes>16*1024*1024)return 0;
-        id<MTLBuffer> snapshot=[ctx.device newBufferWithLength:(NSUInteger)bytes options:MTLResourceStorageModeShared];
+        NSUInteger length=((NSUInteger)bytes+15)&~(NSUInteger)15;
+        if(ctx.snapshotBytesThisFrame+length>16*1024*1024){ctx.snapshotFallbacks++;return 0;}
+        id<MTLBuffer> snapshot=[ctx.device newBufferWithLength:length options:MTLResourceStorageModeShared];
         if(!snapshot){failure(env,"Metal buffer snapshot allocation failed");return 0;}
         memcpy(snapshot.contents,source.contents,(NSUInteger)bytes);
-        ctx.snapshotBytesThisFrame+=(NSUInteger)bytes;
+        if(length>(NSUInteger)bytes)memset((uint8_t *)snapshot.contents+bytes,0,length-(NSUInteger)bytes);
+        ctx.snapshotBytesThisFrame+=length;
+        ctx.snapshotCopies++;
         return keep(snapshot);
     }
 }
@@ -351,12 +356,13 @@ JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_presentFrame(JNIEnv *env
             ctx.finalGpuSeconds+=pending.GPUEndTime-pending.GPUStartTime;
         if(ctx.sampleFrames>=300){
             double now=CACurrentMediaTime(), factor=1000.0/ctx.sampleFrames;
-            fprintf(stderr,"[MetalPerf] frames=%lu interval_ms=%.3f submit_wait_ms=%.3f drawable_wait_ms=%.3f final_command_gpu_ms=%.3f texel_shared=%.2f texel_private=%.2f texel_upload_wait_ms=%.3f\n",
+            fprintf(stderr,"[MetalPerf] frames=%lu interval_ms=%.3f submit_wait_ms=%.3f drawable_wait_ms=%.3f final_command_gpu_ms=%.3f texel_shared=%.2f texel_private=%.2f texel_upload_wait_ms=%.3f buffer_snapshots=%.2f snapshot_fallbacks=%.2f\n",
                 (unsigned long)ctx.sampleFrames,(now-ctx.sampleStarted)*factor,ctx.syncWaitSeconds*factor,
                 ctx.drawableWaitSeconds*factor,ctx.finalGpuSeconds*factor,
-                (double)ctx.sharedTexelBindings/ctx.sampleFrames,(double)ctx.privateTexelBindings/ctx.sampleFrames,ctx.uploadWaitSeconds*factor);
+                (double)ctx.sharedTexelBindings/ctx.sampleFrames,(double)ctx.privateTexelBindings/ctx.sampleFrames,ctx.uploadWaitSeconds*factor,
+                (double)ctx.snapshotCopies/ctx.sampleFrames,(double)ctx.snapshotFallbacks/ctx.sampleFrames);
             ctx.sampleFrames=0;ctx.sharedTexelBindings=0;ctx.privateTexelBindings=0;
-            ctx.syncWaitSeconds=0;ctx.drawableWaitSeconds=0;ctx.uploadWaitSeconds=0;ctx.finalGpuSeconds=0;ctx.sampleStarted=now;
+            ctx.syncWaitSeconds=0;ctx.drawableWaitSeconds=0;ctx.uploadWaitSeconds=0;ctx.finalGpuSeconds=0;ctx.snapshotCopies=0;ctx.snapshotFallbacks=0;ctx.sampleStarted=now;
         }
         if(!ctx.presentationLogged){ctx.presentationLogged=YES;fprintf(stderr,"[Metal] TEXTURE_FRAME_PRESENTED %lux%lu\n",(unsigned long)width,(unsigned long)height);}
     }

@@ -40,6 +40,7 @@ jobs:
           python3 -m unittest discover -s tests -p test_c0_harness.py -v
           python3 -m unittest discover -s tests -p test_dragon_phase_reflection.py -v
           python3 -m unittest discover -s tests -p test_high_refresh.py -v
+          python3 -m unittest discover -s tests -p test_harness_autostart.py -v
 
   screenshots:
     runs-on: macos-15

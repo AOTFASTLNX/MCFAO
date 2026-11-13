@@ -162,8 +162,6 @@ static void FAOTInstallCrashHandlers(int fd) {
 @interface FAOTHarnessController : UIViewController
 @property(nonatomic, strong) UITextView *console;
 @property(nonatomic, strong) UILabel *status;
-@property(nonatomic, strong) UITextField *extraArgs;
-@property(nonatomic, strong) UISegmentedControl *spacePicker;
 @property(nonatomic, assign) BOOL started;
 @property(nonatomic, assign) BOOL finished;
 @property(nonatomic, strong) NSFileHandle *logHandle;
@@ -180,34 +178,6 @@ static void FAOTInstallCrashHandlers(int fd) {
     self.status.font = [UIFont monospacedSystemFontOfSize:12 weight:UIFontWeightMedium];
     self.status.translatesAutoresizingMaskIntoConstraints = NO;
 
-    self.spacePicker = [[UISegmentedControl alloc] initWithItems:@[@"1G", @"2G", @"4G", @"6G"]];
-    // The resource probe starts with a smaller reservation than a full world.
-#if defined(FAOT_DEVICE_WORLD)
-    self.spacePicker.selectedSegmentIndex = 1;
-#else
-    self.spacePicker.selectedSegmentIndex = TARGET_OS_SIMULATOR ? 1 : 0;
-    NSInteger saved = [NSUserDefaults.standardUserDefaults integerForKey:@"reservedGiB"];
-    if (saved == 2) {
-        self.spacePicker.selectedSegmentIndex = 1;
-    }
-#endif
-    self.spacePicker.translatesAutoresizingMaskIntoConstraints = NO;
-
-    self.extraArgs = [UITextField new];
-    self.extraArgs.placeholder = @"额外参数（可留空）";
-    self.extraArgs.borderStyle = UITextBorderStyleRoundedRect;
-    self.extraArgs.font = [UIFont monospacedSystemFontOfSize:11 weight:UIFontWeightRegular];
-    self.extraArgs.autocorrectionType = UITextAutocorrectionTypeNo;
-    self.extraArgs.autocapitalizationType = UITextAutocapitalizationTypeNone;
-    self.extraArgs.text = [NSUserDefaults.standardUserDefaults stringForKey:@"extraArgs"];
-    self.extraArgs.translatesAutoresizingMaskIntoConstraints = NO;
-
-    UIButton *run = [UIButton buttonWithType:UIButtonTypeSystem];
-    [run setTitle:@"启动客户端" forState:UIControlStateNormal];
-    run.titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleHeadline];
-    [run addTarget:self action:@selector(runTapped) forControlEvents:UIControlEventTouchUpInside];
-    run.translatesAutoresizingMaskIntoConstraints = NO;
-
     UIButton *copy = [UIButton buttonWithType:UIButtonTypeSystem];
     [copy setTitle:@"复制日志" forState:UIControlStateNormal];
     [copy addTarget:self action:@selector(copyTapped) forControlEvents:UIControlEventTouchUpInside];
@@ -220,7 +190,7 @@ static void FAOTInstallCrashHandlers(int fd) {
     self.console.textContainerInset = UIEdgeInsetsMake(6, 6, 6, 6);
     self.console.translatesAutoresizingMaskIntoConstraints = NO;
 
-    for (UIView *view in @[self.status, self.spacePicker, self.extraArgs, run, copy, self.console]) {
+    for (UIView *view in @[self.status, copy, self.console]) {
         [self.view addSubview:view];
     }
     UILayoutGuide *safe = self.view.safeAreaLayoutGuide;
@@ -229,22 +199,9 @@ static void FAOTInstallCrashHandlers(int fd) {
         [self.status.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:16],
         [self.status.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-16],
 
-        [self.spacePicker.topAnchor constraintEqualToAnchor:self.status.bottomAnchor constant:10],
-        [self.spacePicker.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:16],
-        [self.spacePicker.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-16],
-
-        [self.extraArgs.topAnchor constraintEqualToAnchor:self.spacePicker.bottomAnchor constant:8],
-        [self.extraArgs.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:16],
-        [self.extraArgs.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-16],
-        [self.extraArgs.heightAnchor constraintEqualToConstant:30],
-
-        [run.topAnchor constraintEqualToAnchor:self.extraArgs.bottomAnchor constant:10],
-        [run.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:16],
-        [copy.centerYAnchor constraintEqualToAnchor:run.centerYAnchor],
+        [copy.topAnchor constraintEqualToAnchor:self.status.bottomAnchor constant:10],
         [copy.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-16],
-        [copy.leadingAnchor constraintEqualToAnchor:run.trailingAnchor constant:16],
-
-        [self.console.topAnchor constraintEqualToAnchor:run.bottomAnchor constant:10],
+        [self.console.topAnchor constraintEqualToAnchor:copy.bottomAnchor constant:10],
         [self.console.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:12],
         [self.console.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-12],
         [self.console.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor constant:-12],
@@ -297,19 +254,9 @@ static void FAOTInstallCrashHandlers(int fd) {
                    dispatch_get_main_queue(), ^{ [self refreshStatus]; });
 }
 
-- (void)runTapped {
-    if (self.started) {
-        self.status.text = @"本次进程已运行过一次。iOS 一个进程只能建一个 isolate：\n请在后台划掉本 App 再重新打开。";
-        return;
-    }
-    [self start];
-}
-
 - (void)start {
     if (self.started) return;
     self.started = YES;
-    [self.extraArgs resignFirstResponder];
-    [NSUserDefaults.standardUserDefaults setObject:self.extraArgs.text ?: @"" forKey:@"extraArgs"];
 
     unsigned long long reserved = [self reservedBytes];
     NSTimeInterval stamp = NSDate.date.timeIntervalSince1970;
@@ -338,9 +285,8 @@ static void FAOTInstallCrashHandlers(int fd) {
     self.status.text = [NSString stringWithFormat:@"启动中 · 预留 %llu GiB · 日志 %@",
                         reserved >> 30, name];
 
-    NSString *extra = self.extraArgs.text ?: @"";
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        [self runImageReserving:reserved logPath:logPath extraArgs:extra];
+        [self runImageReserving:reserved logPath:logPath];
     });
 }
 
@@ -371,7 +317,7 @@ static void FAOTProbeReservations(FILE *logFile) {
     }
 }
 
-- (void)runImageReserving:(unsigned long long)reserved logPath:(NSString *)logPath extraArgs:(NSString *)extra {
+- (void)runImageReserving:(unsigned long long)reserved logPath:(NSString *)logPath {
     @autoreleasepool {
         // Append + flush per line: when the image aborts (as it does on a failed isolate) anything
         // still sitting in a buffer is lost, which is exactly the diagnostic we need.
@@ -458,9 +404,6 @@ static void FAOTProbeReservations(FILE *logFile) {
             @"--uuid", @"00000000000000000000000000000000",
             @"--accessToken", @"0", @"--userType", @"legacy", @"--versionType", @"release",
         ]];
-        if (extra.length) {
-            [argvList addObjectsFromArray:[extra componentsSeparatedByString:@" "]];
-        }
 #if TARGET_OS_SIMULATOR
         // Exercise an existing test save through Minecraft's own Quick Play path on a headless host.
         // Pass a save directory name as one argument, including any spaces.

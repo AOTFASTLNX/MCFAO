@@ -32,11 +32,7 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
             MetalNative.clearRectangle(device.context,c.handle,argb,d.handle,value,x,y,width,height);
         }
     }
-    public void writeToBuffer(GpuBufferSlice slice,ByteBuffer data){
-        device.outsidePass();MetalDevice.MetalBuffer buffer=device.buffer(slice.buffer());
-        TextureSpec.range(buffer.size(),slice.offset(),slice.length());
-        if(data.remaining()>slice.length())throw new IllegalArgumentException("Write exceeds buffer slice");
-        if(buffer.mappings!=0)throw new IllegalStateException("Writing a mapped buffer");
+    private void prepareCpuWrite(MetalDevice.MetalBuffer buffer){
         // Small buffers are CPU-written and GPU-read. Give each write its own
         // backing storage so already-encoded draws keep their original data.
         // Large buffers retain the bounded-memory synchronous path.
@@ -48,6 +44,13 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
                 MetalNative.release(previous);
             }else MetalNative.synchronize(device.context);
         }else MetalNative.synchronize(device.context);
+    }
+    public void writeToBuffer(GpuBufferSlice slice,ByteBuffer data){
+        device.outsidePass();MetalDevice.MetalBuffer buffer=device.buffer(slice.buffer());
+        TextureSpec.range(buffer.size(),slice.offset(),slice.length());
+        if(data.remaining()>slice.length())throw new IllegalArgumentException("Write exceeds buffer slice");
+        if(buffer.mappings!=0)throw new IllegalStateException("Writing a mapped buffer");
+        prepareCpuWrite(buffer);
         MemoryUtil.memByteBuffer(MetalNative.bufferAddress(buffer.handle)+slice.offset(),data.remaining()).put(data.duplicate());
     }
     public GpuBuffer.MappedView mapBuffer(GpuBufferSlice slice,boolean read,boolean write){
@@ -55,7 +58,8 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         if(!read&&!write)throw new IllegalArgumentException("Map must allow read or write");
         TextureSpec.range(buffer.size(),slice.offset(),slice.length());
         if(slice.length()>Integer.MAX_VALUE||buffer.mappings!=0)throw new IllegalStateException("Buffer map too large or already mapped");
-        MetalNative.synchronize(device.context);
+        if(write&&!read)prepareCpuWrite(buffer);
+        else MetalNative.synchronize(device.context);
         ByteBuffer bytes=MemoryUtil.memByteBuffer(MetalNative.bufferAddress(buffer.handle)+slice.offset(),(int)slice.length()).order(ByteOrder.nativeOrder());
         ByteBuffer view=write?bytes:bytes.asReadOnlyBuffer().order(ByteOrder.nativeOrder());buffer.mappings++;
         return new GpuBuffer.MappedView(){private boolean closed;
