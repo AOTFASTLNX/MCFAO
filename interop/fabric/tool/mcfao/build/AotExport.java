@@ -780,6 +780,41 @@ public final class AotExport implements Opcodes {
                 put(jar, names, api.getKey(), api.getValue());
                 pinnedFabricApi.add(api.getKey());
             }
+            // Some Mods directly use Mixin's relocated Guava. Keep the pinned value-library
+            // namespace intact: remapping to another Guava version would change its ABI.
+            for (var library : shadedGuavaTypes().entrySet()) {
+                if (names.contains(library.getKey())) continue;
+                put(jar, names, library.getKey(), library.getValue());
+                pinnedFabricApi.add(library.getKey());
+            }
+            // Immutable per-Mod files preserve resource-pack identity in the closed image.
+            var catalog = new TreeMap<String, Object>();
+            for (var mod : loader.getAllMods()) {
+                var meta = mod.getMetadata();
+                String id = meta.getId();
+                var files = new TreeSet<String>();
+                var snapshot = ModSnapshot.capture(mod, files);
+                @SuppressWarnings("unchecked")
+                var iconPaths = new TreeSet<>(((Map<String,String>) snapshot.get("icons")).values());
+                for (Path root : (meta.getType().equals("builtin") ? List.<Path>of() : mod.getRootPaths())) {
+                    try (var tree = Files.walk(root)) {
+                        for (Path file : tree.filter(Files::isRegularFile).toList()) {
+                            String relative = root.relativize(file).toString().replace('\\', '/');
+                            if (!(relative.startsWith("assets/") || relative.startsWith("data/")
+                                    || relative.startsWith("resourcepacks/") || relative.equals("pack.mcmeta")
+                                    || relative.equals("fabric.mod.json") || iconPaths.contains(relative))) continue;
+                            if (!files.add(relative)) continue;
+                            String resource = "mcfao/mod-files/" + id + "/" + relative;
+                            put(jar, names, resource, Files.readAllBytes(file));
+                            resources.add(resource);
+                        }
+                    }
+                }
+                catalog.put(id, snapshot);
+            }
+            String catalogPath = "mcfao/mod-catalog.json";
+            put(jar, names, catalogPath, utf8(ModSnapshot.json(catalog)));
+            resources.add(catalogPath);
             // The generated dispatch list hands out objects through the Loader's own container
             // interface, so that interface and the type it reports have to exist in the image.
             // Both are inert declarations: no Loader instance, no discovery, no class loading.
@@ -791,6 +826,7 @@ public final class AotExport implements Opcodes {
                 }
             }
             for (String name : new TreeSet<>(RuntimeLowering.PURE_LOADER_TYPES)) {
+                if (names.contains(name + ".class")) continue;
                 try (var resource = target.getResourceAsStream(name + ".class")) {
                     if (resource == null) throw new IllegalStateException("Pinned version value type missing: " + name);
                     put(jar, names, name + ".class", resource.readAllBytes());
@@ -878,7 +914,15 @@ public final class AotExport implements Opcodes {
                         "methods", List.of(Map.of("name", "<init>", "parameterTypes", List.of()))));
             }
             var metadata = new TreeMap<String, Object>();
-            metadata.put("resources", resources.stream().map(name -> Map.of("glob", name)).toList());
+            var resourcePatterns = new ArrayList<Map<String, String>>();
+            for (String name : resources) {
+                if (!name.startsWith("mcfao/mod-files/") && !name.startsWith("assets/")
+                        && !name.startsWith("data/")) resourcePatterns.add(Map.of("glob", name));
+            }
+            resourcePatterns.add(Map.of("glob", "mcfao/mod-files/**"));
+            resourcePatterns.add(Map.of("glob", "assets/**"));
+            resourcePatterns.add(Map.of("glob", "data/**"));
+            metadata.put("resources", resourcePatterns);
             if (!reflection.isEmpty()) metadata.put("reflection", reflection);
             put(jar, names, METADATA + "native-image.properties",
                     utf8("Args = --initialize-at-run-time=" + String.join(",", modClasses) + "\n"));
@@ -1878,6 +1922,29 @@ public final class AotExport implements Opcodes {
         provider.visitInsn(ATHROW);
         provider.visitMaxs(0, 0);
         provider.visitEnd();
+        var values = writer.visitMethod(ACC_PUBLIC | ACC_STATIC, "stageValues",
+                "(Ljava/lang/Object;Ljava/lang/String;Ljava/lang/Class;)Ljava/util/List;", null, null);
+        values.visitCode();
+        values.visitTypeInsn(NEW, "java/util/ArrayList"); values.visitInsn(DUP);
+        values.visitMethodInsn(INVOKESPECIAL,"java/util/ArrayList","<init>","()V",false);
+        values.visitVarInsn(ASTORE,3);
+        values.visitVarInsn(ALOAD,0); values.visitVarInsn(ALOAD,1); values.visitVarInsn(ALOAD,2);
+        values.visitMethodInsn(INVOKESTATIC,STATIC_HOOKS,"stage",
+                "(Ljava/lang/Object;Ljava/lang/String;Ljava/lang/Class;)Ljava/util/List;",false);
+        values.visitMethodInsn(INVOKEINTERFACE,"java/util/List","iterator","()Ljava/util/Iterator;",true);
+        values.visitVarInsn(ASTORE,4);
+        var loop=new Label(); var done=new Label(); values.visitLabel(loop);
+        values.visitVarInsn(ALOAD,4);
+        values.visitMethodInsn(INVOKEINTERFACE,"java/util/Iterator","hasNext","()Z",true);
+        values.visitJumpInsn(IFEQ,done);
+        values.visitVarInsn(ALOAD,3); values.visitVarInsn(ALOAD,4);
+        values.visitMethodInsn(INVOKEINTERFACE,"java/util/Iterator","next","()Ljava/lang/Object;",true);
+        values.visitTypeInsn(CHECKCAST,"net/fabricmc/loader/api/entrypoint/EntrypointContainer");
+        values.visitMethodInsn(INVOKEINTERFACE,"net/fabricmc/loader/api/entrypoint/EntrypointContainer",
+                "getEntrypoint","()Ljava/lang/Object;",true);
+        values.visitMethodInsn(INVOKEVIRTUAL,"java/util/ArrayList","add","(Ljava/lang/Object;)Z",false);
+        values.visitInsn(POP); values.visitJumpInsn(GOTO,loop); values.visitLabel(done);
+        values.visitVarInsn(ALOAD,3); values.visitInsn(ARETURN); values.visitMaxs(0,0); values.visitEnd();
         writer.visitEnd();
         return writer.toByteArray();
     }
@@ -1939,12 +2006,14 @@ public final class AotExport implements Opcodes {
         entry.visitInsn(ARETURN);
         entry.visitMaxs(0, 0);
         entry.visitEnd();
-        // No ModContainer exists at runtime. Callers that only read the definition string, which
-        // is how Mod-provided entrypoint stages report themselves, are unaffected.
+        // Provider identity comes from the same immutable catalog as Loader queries.
         var provider = writer.visitMethod(ACC_PUBLIC, "getProvider",
                 "()Lnet/fabricmc/loader/api/ModContainer;", null, null);
         provider.visitCode();
-        provider.visitInsn(ACONST_NULL);
+        provider.visitVarInsn(ALOAD, 0);
+        provider.visitFieldInsn(GETFIELD, name, "modId", "Ljava/lang/String;");
+        provider.visitMethodInsn(INVOKESTATIC, "mcfao/aot/ModCatalog", "required",
+                "(Ljava/lang/String;)Lnet/fabricmc/loader/api/ModContainer;", false);
         provider.visitInsn(ARETURN);
         provider.visitMaxs(0, 0);
         provider.visitEnd();
@@ -2062,16 +2131,17 @@ public final class AotExport implements Opcodes {
         try {
             Path root = Path.of(location.toURI());
             if (Files.isDirectory(root)) {
-                try (var tree = Files.walk(root.resolve("net/fabricmc/api"))) {
-                    for (Path file : tree.filter(path -> path.toString().endsWith(".class")).toList()) {
-                        result.put(root.relativize(file).toString().replace('\\', '/'),
-                                Files.readAllBytes(file));
+                try (var tree = Files.walk(root.resolve("net/fabricmc"))) {
+                    for (Path file : tree.filter(Files::isRegularFile).toList()) {
+                        String name = root.relativize(file).toString().replace('\\', '/');
+                        if (name.matches("net/fabricmc/(api/.*|loader/api/metadata/.*|loader/impl/util/version/.*)\\.class"))
+                            result.put(name, Files.readAllBytes(file));
                     }
                 }
             } else {
                 try (var loader = new ZipFile(root.toFile())) {
                     for (var entry : loader.stream().filter(item -> item.getName()
-                            .startsWith("net/fabricmc/api/") && item.getName().endsWith(".class")).toList()) {
+                            .matches("net/fabricmc/(api/.*|loader/api/metadata/.*|loader/impl/util/version/.*)\\.class")).toList()) {
                         try (var input = loader.getInputStream(entry)) {
                             result.put(entry.getName(), input.readAllBytes());
                         }
@@ -2082,6 +2152,25 @@ public final class AotExport implements Opcodes {
             throw new IllegalStateException("Cannot read pinned Fabric API from " + location, problem);
         }
         if (result.isEmpty()) throw new IllegalStateException("Pinned Fabric API is empty: " + location);
+        return result;
+    }
+
+    static Map<String, byte[]> shadedGuavaTypes() {
+        String prefix = "org/spongepowered/include/com/google/";
+        var resource = AotExport.class.getResource("/" + prefix + "common/collect/ImmutableList.class");
+        if (resource == null) throw new IllegalStateException("Pinned Mixin Guava is missing");
+        var result = new TreeMap<String, byte[]>();
+        try {
+            var connection = (java.net.JarURLConnection) resource.openConnection();
+            try (var source = new ZipFile(Path.of(connection.getJarFileURL().toURI()).toFile())) {
+                for (var entry : source.stream().filter(e -> e.getName().startsWith(prefix)
+                        && e.getName().endsWith(".class")).toList()) {
+                    try (var input = source.getInputStream(entry)) {
+                        result.put(entry.getName(), input.readAllBytes());
+                    }
+                }
+            }
+        } catch (Exception error) { throw new IllegalStateException("Cannot read pinned Mixin Guava", error); }
         return result;
     }
 

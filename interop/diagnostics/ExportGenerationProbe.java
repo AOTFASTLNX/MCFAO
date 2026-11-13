@@ -26,6 +26,19 @@ public final class ExportGenerationProbe {
     }
 
     public static void main(String[] args) throws Exception {
+        var relocated = AotExport.shadedGuavaTypes();
+        var guavaLoader = new ClassLoader(null) {
+            protected Class<?> findClass(String name) throws ClassNotFoundException {
+                byte[] bytes=relocated.get(name.replace('.', '/')+".class");
+                if(bytes==null)throw new ClassNotFoundException(name);
+                return defineClass(name,bytes,0,bytes.length);
+            }
+        };
+        var immutable=guavaLoader.loadClass("org.spongepowered.include.com.google.common.collect.ImmutableList");
+        var builder=immutable.getMethod("builder").invoke(null);
+        builder.getClass().getMethod("add",Object.class).invoke(builder,"template");
+        var built=(List<?>)builder.getClass().getMethod("build").invoke(builder);
+        if(!built.equals(List.of("template")))throw new AssertionError("Relocated Guava closure");
         var hooks = AotExport.class.getDeclaredMethod("staticHooks", List.class, Set.class,
                 Map.class, Map.class, Set.class, Map.class, Map.class, Map.class, Set.class);
         hooks.setAccessible(true);
@@ -162,6 +175,11 @@ public final class ExportGenerationProbe {
         if (one != SingletonProvider.INSTANCE || plainOne != plainTwo || PlainProvider.creations != 1) {
             throw new AssertionError("Entrypoint identity changed");
         }
+        var valuesMethod=type.getMethod("stageValues",Object.class,String.class,Class.class);
+        var values=(List<?>)valuesMethod.invoke(null,null,"proof",Object.class);
+        if(values.size()!=2 || values.get(0)!=one || values.get(1)!=plainOne) throw new AssertionError("Entrypoint values returned containers or changed identity");
+        if(!((List<?>)valuesMethod.invoke(null,null,"absent",Object.class)).isEmpty()) throw new AssertionError("Unknown stage not empty");
+        if(PlainProvider.creations!=1 || singletonCreations!=1)throw new AssertionError("Providers recreated by value query");
         var owner = Class.forName("probe.ProviderIdentity", true, loader).getMethod("id", Object.class)
                 .invoke(null, first.get(0));
         if (!owner.equals("demo")) throw new AssertionError("Entrypoint owner id lost");

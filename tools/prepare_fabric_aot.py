@@ -587,9 +587,19 @@ def prepare(prepared, client, mods, output, audited):
     output_jar = output / "client.jar"
     merge_client(client, work / "overlay.jar", output_jar, transform["gameTransforms"],
                  transform.get("overriddenResources", []))
+    record["semanticCompatibility"] = semantic_compatibility(transform)
     record.update(status="FABRIC_AOT_INPUT_PREPARED", sandbox="file and network denial controls passed",
                   transform=transform, clientSHA256=sha256(client), outputJarSHA256=sha256(output_jar))
     (output / "result.json").write_text(json.dumps(record, indent=2) + "\n")
+
+
+def semantic_compatibility(transform):
+    """Code generation and behavioral compatibility are deliberately separate verdicts."""
+    methods = sorted(set(transform.get("stubbedMethods", [])))
+    return {"status": "REQUIRES_REVIEW" if methods else "NO_RESIDUE_REPORTED",
+            "scope": "Loader residue report only; not proof of functional equivalence",
+            "unsupportedMethods": methods,
+            "runtimeVerified": False}
 
 
 def main(argv=None):

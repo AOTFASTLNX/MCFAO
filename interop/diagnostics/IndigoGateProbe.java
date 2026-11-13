@@ -54,8 +54,8 @@ public final class IndigoGateProbe implements Opcodes {
             var method = new MethodNode(ACC_PUBLIC | (constructor ? 0 : ACC_STATIC), methodName,
                     constructor ? "()V" : "()Ljava/util/List;", null, null);
             method.instructions.add(new InsnNode(ACONST_NULL));
-            method.instructions.add(new MethodInsnNode(INVOKEINTERFACE, "net/fabricmc/loader/api/ModContainer",
-                    "getMetadata", "()Lnet/fabricmc/loader/api/metadata/ModMetadata;", true));
+            method.instructions.add(new MethodInsnNode(INVOKEINTERFACE, "net/fabricmc/loader/api/FabricLoader",
+                    "getObjectShare", "()Lnet/fabricmc/loader/api/ObjectShare;", true));
             method.maxLocals = constructor ? 1 : 0;
             method.maxStack = 3;
             fallback.methods.add(method);

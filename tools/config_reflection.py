@@ -590,10 +590,14 @@ def reflection_from_jar(path):
     forname = []
     with zipfile.ZipFile(path) as jar:
         entries = jar.infolist()
-        if len(entries) > 100000 or sum(item.file_size for item in entries) > 2 * 1024**3:
+        # The exporter additionally preserves per-Mod resource roots. Bound those separately
+        # instead of counting generated resource copies as new program definitions.
+        originals = [item for item in entries if not item.filename.startswith("mcfao/mod-files/")]
+        if (len(entries) > 200000 or len(originals) > 100000
+                or sum(item.file_size for item in entries) > 2 * 1024**3):
             raise ValueError("Configuration scan archive exceeds budget")
         for item in entries:
-            if not item.filename.endswith(".class") or item.filename.startswith("META-INF/"):
+            if not item.filename.endswith(".class") or item.filename.startswith(("META-INF/", "mcfao/mod-files/")):
                 continue
             shape = class_shape(jar.read(item))
             if shape["name"] + ".class" != item.filename:

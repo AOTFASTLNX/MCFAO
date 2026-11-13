@@ -168,9 +168,12 @@ final class RuntimeLowering implements Opcodes {
     private RuntimeLowering() {}
 
     static boolean isValueCall(MethodInsnNode call) {
-        return PURE_LOADER_TYPES.contains(call.owner) || (call.owner.equals(
+        return call.owner.equals("net/fabricmc/loader/api/ModContainer")
+                || call.owner.startsWith("net/fabricmc/loader/api/metadata/")
+                || PURE_LOADER_TYPES.contains(call.owner) || (call.owner.equals(
                 "net/fabricmc/loader/api/entrypoint/EntrypointContainer") && Set.of(
-                "getEntrypoint()Ljava/lang/Object;", "getDefinition()Ljava/lang/String;")
+                "getEntrypoint()Ljava/lang/Object;", "getDefinition()Ljava/lang/String;",
+                "getProvider()Lnet/fabricmc/loader/api/ModContainer;")
                 .contains(call.name + call.desc));
     }
 
@@ -850,17 +853,13 @@ final class RuntimeLowering implements Opcodes {
                     method.instructions.remove(next);
                     adaptations.add(location + "getEnvironmentType=CLIENT");
                 } else if (isQuery(nextReal(next), "getModContainer", "(Ljava/lang/String;)Ljava/util/Optional;")) {
-                    // Same answer when the id is computed: `Optional.empty` takes no argument, so
-                    // POP discards the id the caller already pushed and the stack shape is the
-                    // Optional the rest of the method expects.
                     var lookup = nextReal(next);
-                    var absent = new MethodInsnNode(INVOKESTATIC,
-                            "java/util/Optional", "empty", "()Ljava/util/Optional;", false);
-                    method.instructions.set(instance, absent);
-                    method.instructions.set(lookup, new InsnNode(POP));
-                    dropConsumers(method.instructions, absent, node.name, deadLambdas);
-                    adaptations.add(location + "getModContainer(query)=absent");
-                                } else if (isQuery(next, "getGameDir", "()Ljava/nio/file/Path;")) {
+                    method.instructions.set(instance, new InsnNode(ACONST_NULL));
+                    method.instructions.set(lookup, new MethodInsnNode(INVOKESTATIC,
+                            "mcfao/aot/ModCatalog", "lookup",
+                            "(Ljava/lang/Object;Ljava/lang/String;)Ljava/util/Optional;", false));
+                    adaptations.add(location + "getModContainer(query)=build snapshot");
+                } else if (isQuery(next, "getGameDir", "()Ljava/nio/file/Path;")) {
                     // The hook receives the same launch directory the Loader would report.
                     method.instructions.set(instance, new FieldInsnNode(GETSTATIC, HOOKS,
                             "GAME_DIR", "Ljava/nio/file/Path;"));
@@ -872,28 +871,11 @@ final class RuntimeLowering implements Opcodes {
                     method.instructions.remove(next);
                     adaptations.add(location + "getConfigDir=launch directory/config");
                 } else if (isQuery(next, "getAllMods", "()Ljava/util/Collection;")) {
-                    // Every mod in this world is fixed at build time and the game never lists
-                    // them, so the collection is constant. Callers that build a name list from it
-                    // iterate zero times and their lambdas are stubbed by the residue pass.
-                    // `List` is an interface, so the call site must be an InterfaceMethodref -
-                    // Native Image rejects a plain Methodref pointing at an interface method.
                     method.instructions.set(instance, new MethodInsnNode(INVOKESTATIC,
-                            "java/util/List", "of", "()Ljava/util/List;", true));
+                            "mcfao/aot/ModCatalog", "all", "()Ljava/util/Collection;", false));
                     method.instructions.remove(next);
-                    adaptations.add(location + "getAllMods=empty");
-                } else if (next instanceof LdcInsnNode constant && constant.cst instanceof String id
-                        && isQuery(nextReal(next), "getModContainer", "(Ljava/lang/String;)Ljava/util/Optional;")) {
-                    // The closed world holds no ModContainer at runtime, so reported absence is the
-                    // only answer that does not smuggle Loader metadata into the image.
-                    var lookup = nextReal(next);
-                    var absent = new MethodInsnNode(INVOKESTATIC,
-                            "java/util/Optional", "empty", "()Ljava/util/Optional;", false);
-                    method.instructions.set(instance, absent);
-                    method.instructions.remove(next);
-                    method.instructions.remove(lookup);
-                    dropConsumers(method.instructions, absent, node.name, deadLambdas);
-                    adaptations.add(location + "getModContainer(" + id + ")=absent");
-                                } else if (next instanceof LdcInsnNode constant && constant.cst instanceof String stage
+                    adaptations.add(location + "getAllMods=build snapshot");
+                } else if (next instanceof LdcInsnNode constant && constant.cst instanceof String stage
                         && (isQuery(nextReal(nextReal(next)),
                                 "getEntrypointContainers", "(Ljava/lang/String;Ljava/lang/Class;)Ljava/util/List;")
                             || isQuery(nextReal(nextReal(next)),
@@ -905,7 +887,8 @@ final class RuntimeLowering implements Opcodes {
                     var call = nextReal(classLiteral);
                     var receiver = new InsnNode(ACONST_NULL);
                     method.instructions.set(instance, receiver);
-                    method.instructions.set(call, new MethodInsnNode(INVOKESTATIC, HOOKS, "stage",
+                    method.instructions.set(call, new MethodInsnNode(INVOKESTATIC, HOOKS,
+                            ((MethodInsnNode) call).name.equals("getEntrypoints") ? "stageValues" : "stage",
                             "(Ljava/lang/Object;Ljava/lang/String;Ljava/lang/Class;)Ljava/util/List;", false));
                     adaptations.add(location + "entrypoints(" + stage + ")=generated dispatch");
                 } else if (next instanceof LdcInsnNode constant && constant.cst instanceof String id
@@ -915,6 +898,38 @@ final class RuntimeLowering implements Opcodes {
                     method.instructions.remove(nextReal(next));
                     method.instructions.remove(next);
                     adaptations.add(location + "isModLoaded(" + id + ")=" + loaded);
+                }
+            }
+            // Locate the receiver from stack provenance rather than adjacent instructions:
+            // IDs may come from fields, method calls, or multi-instruction expressions.
+            boolean hasContainerQuery = method.instructions.iterator().hasNext() &&
+                    java.util.Arrays.stream(method.instructions.toArray()).anyMatch(insn ->
+                        insn instanceof MethodInsnNode call && isQuery(call, "getModContainer",
+                                "(Ljava/lang/String;)Ljava/util/Optional;"));
+            if (hasContainerQuery) {
+                try {
+                    var analyzer = new org.objectweb.asm.tree.analysis.Analyzer<>(
+                            new org.objectweb.asm.tree.analysis.SourceInterpreter());
+                    var frames = analyzer.analyzeAndComputeMaxs(node.name, method);
+                    var instructions = method.instructions.toArray();
+                    for (int index = 0; index < instructions.length; index++) {
+                        if (!(instructions[index] instanceof MethodInsnNode call)
+                                || !isQuery(call, "getModContainer", "(Ljava/lang/String;)Ljava/util/Optional;")) continue;
+                        var frame = frames[index];
+                        if (frame == null || frame.getStackSize() < 2) continue;
+                        var sources = frame.getStack(frame.getStackSize()-2).insns;
+                        if (sources.isEmpty() || !sources.stream().allMatch(source ->
+                                source instanceof MethodInsnNode factory && factory.owner.equals(LOADER)
+                                && factory.name.equals("getInstance") && factory.getOpcode()==INVOKESTATIC)) continue;
+                        for (var source : sources) if (method.instructions.indexOf(source)>=0)
+                            method.instructions.set(source, new InsnNode(ACONST_NULL));
+                        method.instructions.set(call, new MethodInsnNode(INVOKESTATIC,
+                                "mcfao/aot/ModCatalog", "lookup",
+                                "(Ljava/lang/Object;Ljava/lang/String;)Ljava/util/Optional;", false));
+                        adaptations.add(node.name + "#" + method.name + " getModContainer(expression)=build snapshot");
+                    }
+                } catch (org.objectweb.asm.tree.analysis.AnalyzerException error) {
+                    throw new IllegalArgumentException("Cannot analyze Loader query in " + node.name + "#" + method.name, error);
                 }
             }
             // A query whose id is not a literal cannot be folded. Route it to the generated
@@ -1276,7 +1291,8 @@ final class RuntimeLowering implements Opcodes {
     static void lowerGlitchCoreEvents(ClassNode node, String sourceHash,
             List<String> adaptations) {
         if (node.name.equals(GLITCHCORE_MANAGER)) {
-            if (!GLITCHCORE_MANAGER_SHA256.equals(sourceHash)) {
+            if (!Set.of(GLITCHCORE_MANAGER_SHA256,
+                    "e7fdef73b3935532e931fc48c452c7e1b5406bc6c7673dbf204c837fd08e1dc9").contains(sourceHash)) {
                 throw new IllegalArgumentException("Unaudited GlitchCore EventManager: " + sourceHash);
             }
             MethodNode original = node.methods.stream()

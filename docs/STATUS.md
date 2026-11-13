@@ -468,3 +468,29 @@ pack-88 之后工作重心从「找下一个崩溃」转成「让探针真正在
 **pack-92 冒烟与功能探针均通过。** `artifacts/mcfao/fabric-pack-92-simulator/result.json` → `SIMULATOR_WORLD_SMOKE_PASS`：F1 `game.log:159`、`TEXTURE_FRAME_PRESENTED 2622x1206` `:377`、`Dev joined the game` `:1010`、F3 `:1014`，1787 行日志、崩溃报告 0、83 条 `[MCFAO_ENTRYPOINT]`（与 `transform.entrypoints` 逐条对齐）。Jade 两条入口点 `:80`/`:155` 派发完成，`:332-334` 加载 `CorePlugin`/`VanillaPlugin`/`UniversalPlugin`。随后功能探针 `SIMULATOR_FUNCTION_PROBE_PASS`（`fabric-pack-92-simulator/probe/result.json`，7 张截图）：对准沙地时 Jade 提示框显示 `Sand` + 蓝色 `Minecraft`（`probe-aim-down_0_….png`），创造物品栏悬停显示 `Service Door` + `Minecraft`（`probe-inventory_0_….png`）——这是 `FUNCTION_PASS` 的第一条，矩阵升到 56 `BUILD_PASS` / 57 `LOAD_PASS` / 1 `FUNCTION_PASS` / 13 `BLOCKED`。顺带修了探针工具的一处自欺：`xcresulttool` 把附件导出成 UUID 文件名，原来的「缺附件」检查拿 UUID 去匹配测试标签，7 张图全被判缺失；现在按 `suggestedHumanReadableName` 还原成 `probe-*` 名字（+2 项回归）。
 
 **未签名 IPA（Gate D2 的导出半边）。** 新增 `tools/package_unsigned_ipa.py`（+4 项回归测试）：核对 `.app` 与 `appFilesSHA256` 逐字节一致后，删 `_CodeSignature`/`embedded.mobileprovision`/各 Mach-O 的 LC_CODE_SIGNATURE，按 `Payload/` 打包，并拒绝 `__MACOSX` 资源叉条目。产物 `artifacts/mcfao/fabric-pack-92-unsigned-ipa/C0Harness-unsigned.ipa`，602,702,176 字节，sha256 `502c6b8c…`，arm64 / iOS 17.0 / 无签名。**它没有在任何设备上运行过（`deviceRun = NOT RUN`），Gate D 的安装与存档保留仍为 NOT RUN**——导出一份 IPA 不等于 D2 通过。IPA 用的是 device 构建，而冒烟/探针跑的是同一 AOT 镜像的模拟器产物，两者不等价。
+
+## 2026-11-12 TechReborn 模组查询接口修复
+
+用户首包真机在 `RebornCoreClient:81` 因查询被置空失败。现用构建期 `ModCatalog` 快照返回真实存在的容器及名称/版本/资源根目录，保留 Fabric 内置包注册行为。285 项回归通过，`artifacts/mcfao/techreborn-interface-build-02` 为 `SIGNED_DEVICE_APP`，模组未被排除。模拟器 RebornCore/TechReborn client 入口返回，但随后在 MTLSimDriver/XPC 提交中 signal 6，世界烟测不通过；修复版真机 NOT RUN。通用能力缺口与实现顺序见 [玩法模组适配路线](MOD_ADAPTATION_PLAN.md)。
+
+修复版签名 IPA 已导出并验签：`artifacts/mcfao/techreborn-interface-signed-ipa-01/export/FabricAOT World.ipa`（470,792,773 字节，SHA-256 `a27a4b43b3a081458f137a6e39ba51b100055772c7edae98f7af7a548d5cfb6e`）。该包供用户真机复验接口修复；不得据导出成功提升玩法兼容状态。
+
+## 2026-11-13 内容样本集与 Loader 快照扩展
+
+已生成 26.1.2 Fabric 内容样本 mrpack：TechReborn、BetterEnd、BetterNether、Biomes O’ Plenty、YUNG’s Better Dungeons，共 12 个根 JAR、80 个嵌套 JAR。真实 Loader 依赖 RESOLVED；整包 AOT/游戏 NOT RUN。AE2 目标发行版为 NeoForge，不混入 Fabric。通用元数据/模组枚举/provider 快照扩展经对照测试和 TechReborn 隔离转换验证，未做本轮完整 AOT。见 [样本包](CONTENT_SAMPLE_PACK.md) 和 [适配路线](MOD_ADAPTATION_PLAN.md)。
+
+## 2026-11-13 内容样本 AOT 测试包
+
+`content-samples-build-04` 完成 AOT（2m31s）、iPhoneOS 链接及签名。五个主模组全部保留；导出器排除了含运行时类生成/代理代码的嵌套 Javassist 和 Reflections 库，不能据此宣称完整功能兼容。修复新版 GlitchCore EventManager 的精确指纹（审阅字节码差异，RegistryHelper 与原版相同）及两处扫描器对生成资源副本的重复计数；资源 metadata 改用 assets/data 目录 glob。前序失败/被替代构建保留。用户要求仅交签名 IPA 自测，本轮未运行游戏或模拟器。
+
+## 2026-11-13 World Weaver ModCore 构造器修复
+
+用户真机日志 run-1794501579373.log 在 Bootstrap 阶段由 BetterEnd 的属性 Mixin 触发 ModCore(String,String)，构造器因未识别 getInstance→ALOAD/GETFIELD→getModContainer 查询而被 residue 替换为抛错。RuntimeLowering 现用 ASM SourceInterpreter 分析接收者栈来源，保留任意 ID 表达式求值并路由目录快照。复杂 Map 表达式查询执行断言及目录相关 3 项测试通过；实际转换中 ModCore 构造器不再 stub。content-samples-build-05 AOT（2m38s）、iPhoneOS 链接和签名通过。用户指定真机自行测试，本轮未运行游戏或模拟器；两项嵌套动态库排除仍保留，不宣称整包功能通过。
+
+## 2026-11-13 自定义入口值/容器语义修复
+
+用户日志 run-1794502414023.log 显示已越过 ModCore，随后 World Weaver DatapackRegistryBuilderImpl 将 Entrypoints$Container 强转 DatapackRegistryEntrypoint 失败。根因是 getEntrypoints 与 getEntrypointContainers 被统一改写到返回容器的 stage。现前者使用生成的 stageValues，解包真实实例并保留 provider 缓存身份；后者仍返回容器。11 项相关回归通过，涵盖实例列表、未知 stage 和实例缓存；content-samples-build-06 已完成 AOT、iOS 链接与签名。本轮按用户要求不运行游戏/模拟器，真机仍需复验。两项嵌套动态库排除限制仍在。
+
+## 2026-11-13 Mixin 重定位 Guava 闭包修复
+
+用户 run-1794503860221.log 显示 wover/bclib 主入口已返回，BetterEnd 在 SmithingTemplates.combine 初始化缺 org.spongepowered.include.com.google.common.collect.ImmutableList。AotExport 现从固定 Mixin JAR 打包完整重定位 Guava 值库命名空间，保留其 ABI，不引入运行时类加载器。11 项相关回归通过，含隔离类加载器从该闭包创建 ImmutableList 的断言。content-samples-build-07 AOT（2m18s）、iOS 链接与签名通过；本轮不运行游戏或模拟器，真机待用户复验，原两项嵌套库排除仍在。
