@@ -10,7 +10,7 @@ from pathlib import Path
 
 from build_c0_harness import sha256, validate_dylib, validate_shader_bundle
 from capture import ROOT
-from graphics_common import register_tree
+from graphics_common import register_tree,verify_metal_artifact
 
 
 def main(argv=None):
@@ -45,6 +45,9 @@ def main(argv=None):
         (args.openal, "libopenal.dylib", "OPENAL_SOFT_BUILT"),
     ):
         report = read_report(directory, {status})
+        if directory.resolve() == args.metal.resolve():
+            try:report=verify_metal_artifact(directory)
+            except (OSError,ValueError,KeyError) as error:parser.error(f"Invalid Metal build: {error}")
         add(directory / name, report["binarySHA256"], dylib=True)
         if directory == args.metal:
             add(directory / "fabricaot-present.metallib", report["metallibSHA256"])

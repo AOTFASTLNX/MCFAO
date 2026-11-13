@@ -10,7 +10,7 @@ from pathlib import Path
 from bootstrap_toolchain import sha256
 from capture import ROOT,capture
 from build_c0_harness import validate_dylib
-from graphics_common import bridge_overlays,register_tree
+from graphics_common import bridge_overlays,metal_source_hashes,register_tree
 from run_b0_reference import sandbox_policy
 
 def main(argv=None):
@@ -41,7 +41,7 @@ def main(argv=None):
     target="arm64-apple-ios17.0"+("-simulator" if args.sdk=="iphonesimulator" else "")
     result={"status":"BLOCKED","gateC0a":"BLOCKED","target":target,
             "scope":"Metal resources and precompiled vanilla pipelines with draw/bind/scissor paths; full game integration remains experimental",
-            "sourcesSHA256":{str(f.relative_to(ROOT)):sha256(f) for f in [*sources,ROOT/"ios/metal-bridge/metal_bridge.m",ROOT/"ios/metal-bridge/present.metal",ROOT/"ios/metal-bridge/texture_transfer.h",ROOT/"interop/graphics/TextureSpecProbe.java",ROOT/"interop/graphics/texture_transfer_test.c"]},
+            "sourcesSHA256":metal_source_hashes(),
             "classpathSHA256":{str(f):sha256(f) for f in cp},"glfwSHA256":sha256(glfw)}
     compiled=capture([str(home/"bin/javac"),"-proc:none","-cp",os.pathsep.join(map(str,cp)),"-d",str(classes),*map(str,sources)],out/"javac",180)
     result["javac"]=compiled

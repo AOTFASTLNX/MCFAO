@@ -15,7 +15,7 @@ from bootstrap_toolchain import sha256
 from capture import ROOT, capture
 from run_b0_reference import execute, require_run, sandbox_policy
 from client_graph_diagnostics import audit_metadata, parse_time_rss, read_analysis_statistics, summarize_gc_logs
-from graphics_common import bridge_overlays
+from graphics_common import bridge_overlays,verify_metal_artifact
 from lwjgl_codegen import CALLBACKS
 from config_reflection import reflection_from_jar
 
@@ -138,9 +138,8 @@ def main(argv=None):
         libraries=[*overlays,*(p for p in libraries if p.name not in replaced)]
     if args.metal_bootstrap:
         metal=args.metal_bootstrap.resolve(strict=True)
-        report=json.loads((metal/"result.json").read_text())
-        if report.get("status")!="METAL_BOOTSTRAP_BUILT" or sha256(metal/"metal-backend.jar")!=report.get("jarSHA256"):
-            parser.error("Metal bootstrap missing or modified")
+        try:verify_metal_artifact(metal)
+        except (OSError,ValueError,KeyError) as error:parser.error("Invalid Metal bootstrap: "+str(error))
         libraries.insert(0,metal/"metal-backend.jar")
     if args.client_jar:
         candidate = args.client_jar.resolve(strict=True)

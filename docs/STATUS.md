@@ -1,5 +1,11 @@
 # 当前状态（2026-11-10）
 
+## 2026-11-14 Metal 垂直同步初始化崩溃修复
+
+日志 `run-1794586027178.log` 中的启动致命异常是 `Metal backend not implemented: disable display synchronization on iOS`，调用链为 `MetalDevice.setVsync` → `GpuDevice.setVsync` → `Window.updateVsync`。Metal 后端已在源码中改为通过 `CAMetalLayer.setDisplaySyncEnabled` 设置显示同步，并在构建入口、图分析及设备 staging 校验 Metal 源码和产物指纹，防止旧后端 JAR/库被误用。当前配置指向 `metal-ios-world-08`；该工件完整指纹校验通过，旧版 `metal-ios-world-07` 被校验器拒绝。4 项源码指纹单测、Python 编译与 `git diff --check` 通过。
+
+本轮未完成包含修复的 Minecraft AOT 镜像与模拟器重链：并行任务 `main-ipa-20261114b` 仍占用 AOT 编译资源，`fabric-pack-94` 也处于未完成的 AOT 阶段；二者均不能作为运行验证证据。模拟器与真机均未启动。因此修复已落实在源码和构建输入，但游戏启动修复仍待模拟器验证，设备状态未验证。
+
 2026-11-12 末地修复：pack-92 真机日志在创建龙时因 `DragonHoverPhase(EnderDragon)` 反射查询失败退出。现已补齐 11 个阶段的精确构造注册，pack-93 最终 AOT 配置为 149 条、阶段覆盖 11/11；构建为 `SIGNED_DEVICE_APP`，签名导出为 `DEVELOPMENT_IPA_VERIFIED`。IPA：`artifacts/mcfao/fabric-pack-93-end-fix-signed-ipa/export/FabricAOT World.ipa`。助手按用户要求未运行测试、模拟器或手机；用户于 2026-11-12 安装复测后明确确认“确实修好了”，本次末地加载闪退按用户真机反馈记为已修复。完整战斗、复活及长时稳定性不由此推定通过。新复测日志确认末地已就绪并可见，随后出现后台 GPU 提交被拒绝的独立崩溃，前后台渲染生命周期问题仍 OPEN。调查与后续加固见 [末地加载崩溃](END_DIMENSION_CRASH_PLAN.md)。
 
 **EXPERIMENTAL。A0/A1/B0/B1 PASS。原版单人玩法已在模拟器验证，正式真机 C0 仍为 BLOCKED。**

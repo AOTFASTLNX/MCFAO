@@ -18,7 +18,7 @@ from uuid import uuid4
 from bootstrap_toolchain import sha256
 from build_c0_harness import binary_platform, validate_dylib, validate_shader_bundle
 from capture import ROOT, capture
-from graphics_common import bridge_overlays
+from graphics_common import bridge_overlays, verify_metal_artifact
 from prepare_fabric_aot import TOOL as FABRIC_TOOL, mod_files
 from stage_game_assets import verified_assets
 
@@ -185,6 +185,8 @@ def inputs(config: dict) -> tuple[dict, Path, list[Path]]:
         ("openal", "libopenal.dylib", "OPENAL_SOFT_BUILT"),
     ):
         report = read_json(config[key] / "result.json")
+        if key == "metal":
+            verify_metal_artifact(config[key])
         if (report["status"] != status
                 or validate_dylib(config[key] / filename)["sha256"] != report["binarySHA256"]):
             raise ValueError(f"Invalid graphics input: {config[key] / filename}")
