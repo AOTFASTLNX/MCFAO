@@ -26,6 +26,7 @@
 #import <sys/sysctl.h>
 #import <unistd.h>
 #include "log_file.h"
+#import "FAOTLauncherViewController.h"
 
 // A single process can only ever host one Graal isolate; later attempts return an error.
 // The reservation must be bounded because Graal otherwise asks for at least 32 GiB, which
@@ -36,6 +37,38 @@ typedef int (*faot_create_isolate_t)(void *params, void **isolate, void **thread
 typedef int (*faot_run_main_t)(int argc, char **argv);
 typedef int (*faot_tear_down_t)(void *thread);
 
+
+/* Clamped so a 4 GiB phone keeps its native/Metal headroom. */
+
+/* The Metal budget holds textures, buffers and pipeline caches. 768 MiB suited a 4 GiB phone;
+   larger devices can keep more resident and stop re-uploading atlas pages every frame. */
+static long FAOTMetalBudgetMiB(void) {
+    double physicalGiB = (double)NSProcessInfo.processInfo.physicalMemory / 1073741824.0;
+    double budget = physicalGiB * 0.15 * 1024.0;
+    if (budget < 768) budget = 768;
+    /* fabricaot.metal.ResourceBudget rejects anything outside 256..1024, and a rejected budget
+       aborts device creation before the first frame. */
+    if (budget > 1024) budget = 1024;
+    return (long)budget;
+}
+
+static long FAOTSelectedHeapGiB(void) {
+    NSInteger gib = [NSUserDefaults.standardUserDefaults integerForKey:@"FAOTMemoryGiB"];
+    if (gib <= 0) gib = 2;
+    if (gib < 1) gib = 1;
+    double physicalGiB = (double)NSProcessInfo.processInfo.physicalMemory / 1073741824.0;
+    NSInteger cap = (NSInteger)floor(physicalGiB * 0.55);
+    if (cap < 1) cap = 1;
+    if (gib > cap) gib = cap;
+    return (long)gib;
+}
+
+/* GraalVM refuses a heap larger than the reserved address space, so reserve the heap plus one
+   GiB of headroom and take both numbers from this single place. */
+static unsigned long long FAOTReservedAddressSpaceBytes(void) {
+    unsigned long long heap = (unsigned long long)FAOTSelectedHeapGiB() * (1ULL << 30);
+    return heap + (1ULL << 30);
+}
 static NSString *FAOTDocuments(void) {
     return NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
 }
@@ -59,6 +92,42 @@ static NSString *FAOTNewestLog(void) {
 static NSString *FAOTPhysicalMemoryText(void) {
     unsigned long long bytes = NSProcessInfo.processInfo.physicalMemory;
     return [NSString stringWithFormat:@"%.1f GiB", bytes / 1073741824.0];
+}
+
+static NSString *FAOTSelectedLanguageCode(void) {
+    NSString *value = [NSUserDefaults.standardUserDefaults stringForKey:@"FAOTLanguage"];
+    if ([value isEqualToString:@"zh_cn"] || [value isEqualToString:@"ja_jp"] || [value isEqualToString:@"en_us"]) return value;
+    return @"en_us";
+}
+
+/* Minecraft persists the client language in options.txt. Update only that one key so the
+   original options, resource-pack choices and all vanilla UI assets remain untouched. */
+static void FAOTApplyLanguageToOptions(NSString *path, NSString *language) {
+    NSString *existing = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil] ?: @"";
+    NSArray<NSString *> *lines = [existing componentsSeparatedByString:@"\n"];
+    NSMutableArray<NSString *> *updated = [NSMutableArray arrayWithCapacity:lines.count + 1];
+    BOOL replaced = NO;
+    BOOL vsyncPresent = NO;
+    BOOL fpsPresent = NO;
+    for (NSString *line in lines) {
+        if ([line hasPrefix:@"lang:"]) {
+            if (!replaced) { [updated addObject:[NSString stringWithFormat:@"lang:%@", language]]; replaced = YES; }
+        } else if ([line hasPrefix:@"maxFps:"]) {
+            NSInteger fps = [[line substringFromIndex:@"maxFps:".length] integerValue];
+            [updated addObject:fps > 120 ? line : @"maxFps:120"];
+            fpsPresent = YES;
+        } else if ([line hasPrefix:@"enableVsync:"]) {
+            [updated addObject:line];
+            vsyncPresent = YES;
+        } else if (line.length > 0) {
+            [updated addObject:line];
+        }
+    }
+    if (!replaced) [updated addObject:[NSString stringWithFormat:@"lang:%@", language]];
+    if (!vsyncPresent) [updated addObject:@"enableVsync:true"];
+    if (!fpsPresent) [updated addObject:@"maxFps:120"];
+    NSString *result = [[updated componentsJoinedByString:@"\n"] stringByAppendingString:@"\n"];
+    [result writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil];
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -93,8 +162,6 @@ static void FAOTInstallCrashHandlers(int fd) {
 @interface FAOTHarnessController : UIViewController
 @property(nonatomic, strong) UITextView *console;
 @property(nonatomic, strong) UILabel *status;
-@property(nonatomic, strong) UITextField *extraArgs;
-@property(nonatomic, strong) UISegmentedControl *spacePicker;
 @property(nonatomic, assign) BOOL started;
 @property(nonatomic, assign) BOOL finished;
 @property(nonatomic, strong) NSFileHandle *logHandle;
@@ -111,34 +178,6 @@ static void FAOTInstallCrashHandlers(int fd) {
     self.status.font = [UIFont monospacedSystemFontOfSize:12 weight:UIFontWeightMedium];
     self.status.translatesAutoresizingMaskIntoConstraints = NO;
 
-    self.spacePicker = [[UISegmentedControl alloc] initWithItems:@[@"1G", @"2G", @"4G", @"6G"]];
-    // The resource probe starts with a smaller reservation than a full world.
-#if defined(FAOT_DEVICE_WORLD)
-    self.spacePicker.selectedSegmentIndex = 1;
-#else
-    self.spacePicker.selectedSegmentIndex = TARGET_OS_SIMULATOR ? 1 : 0;
-    NSInteger saved = [NSUserDefaults.standardUserDefaults integerForKey:@"reservedGiB"];
-    if (saved == 2) {
-        self.spacePicker.selectedSegmentIndex = 1;
-    }
-#endif
-    self.spacePicker.translatesAutoresizingMaskIntoConstraints = NO;
-
-    self.extraArgs = [UITextField new];
-    self.extraArgs.placeholder = @"额外参数（可留空）";
-    self.extraArgs.borderStyle = UITextBorderStyleRoundedRect;
-    self.extraArgs.font = [UIFont monospacedSystemFontOfSize:11 weight:UIFontWeightRegular];
-    self.extraArgs.autocorrectionType = UITextAutocorrectionTypeNo;
-    self.extraArgs.autocapitalizationType = UITextAutocapitalizationTypeNone;
-    self.extraArgs.text = [NSUserDefaults.standardUserDefaults stringForKey:@"extraArgs"];
-    self.extraArgs.translatesAutoresizingMaskIntoConstraints = NO;
-
-    UIButton *run = [UIButton buttonWithType:UIButtonTypeSystem];
-    [run setTitle:@"启动客户端" forState:UIControlStateNormal];
-    run.titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleHeadline];
-    [run addTarget:self action:@selector(runTapped) forControlEvents:UIControlEventTouchUpInside];
-    run.translatesAutoresizingMaskIntoConstraints = NO;
-
     UIButton *copy = [UIButton buttonWithType:UIButtonTypeSystem];
     [copy setTitle:@"复制日志" forState:UIControlStateNormal];
     [copy addTarget:self action:@selector(copyTapped) forControlEvents:UIControlEventTouchUpInside];
@@ -151,7 +190,7 @@ static void FAOTInstallCrashHandlers(int fd) {
     self.console.textContainerInset = UIEdgeInsetsMake(6, 6, 6, 6);
     self.console.translatesAutoresizingMaskIntoConstraints = NO;
 
-    for (UIView *view in @[self.status, self.spacePicker, self.extraArgs, run, copy, self.console]) {
+    for (UIView *view in @[self.status, copy, self.console]) {
         [self.view addSubview:view];
     }
     UILayoutGuide *safe = self.view.safeAreaLayoutGuide;
@@ -160,22 +199,9 @@ static void FAOTInstallCrashHandlers(int fd) {
         [self.status.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:16],
         [self.status.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-16],
 
-        [self.spacePicker.topAnchor constraintEqualToAnchor:self.status.bottomAnchor constant:10],
-        [self.spacePicker.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:16],
-        [self.spacePicker.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-16],
-
-        [self.extraArgs.topAnchor constraintEqualToAnchor:self.spacePicker.bottomAnchor constant:8],
-        [self.extraArgs.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:16],
-        [self.extraArgs.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-16],
-        [self.extraArgs.heightAnchor constraintEqualToConstant:30],
-
-        [run.topAnchor constraintEqualToAnchor:self.extraArgs.bottomAnchor constant:10],
-        [run.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:16],
-        [copy.centerYAnchor constraintEqualToAnchor:run.centerYAnchor],
+        [copy.topAnchor constraintEqualToAnchor:self.status.bottomAnchor constant:10],
         [copy.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-16],
-        [copy.leadingAnchor constraintEqualToAnchor:run.trailingAnchor constant:16],
-
-        [self.console.topAnchor constraintEqualToAnchor:run.bottomAnchor constant:10],
+        [self.console.topAnchor constraintEqualToAnchor:copy.bottomAnchor constant:10],
         [self.console.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:12],
         [self.console.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-12],
         [self.console.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor constant:-12],
@@ -190,17 +216,7 @@ static void FAOTInstallCrashHandlers(int fd) {
 }
 
 - (unsigned long long)reservedBytes {
-#if TARGET_OS_SIMULATOR
-    // An explicit test override does not persist into the user's settings.
-    NSString *requested = NSProcessInfo.processInfo.environment[@"FABRICAOT_SIMULATOR_HEAP_GIB"];
-    if ([@[@"1", @"2", @"4", @"6"] containsObject:requested ?: @""]) {
-        return requested.longLongValue * 1024ULL * 1024 * 1024;
-    }
-#endif
-    NSInteger index = self.spacePicker.selectedSegmentIndex;
-    NSInteger gib = index == 0 ? 1 : index == 1 ? 2 : index == 2 ? 4 : 6;
-    [NSUserDefaults.standardUserDefaults setInteger:gib forKey:@"reservedGiB"];
-    return (unsigned long long)gib * 1024 * 1024 * 1024;
+    return FAOTReservedAddressSpaceBytes();
 }
 
 - (void)refreshStatus {
@@ -238,19 +254,9 @@ static void FAOTInstallCrashHandlers(int fd) {
                    dispatch_get_main_queue(), ^{ [self refreshStatus]; });
 }
 
-- (void)runTapped {
-    if (self.started) {
-        self.status.text = @"本次进程已运行过一次。iOS 一个进程只能建一个 isolate：\n请在后台划掉本 App 再重新打开。";
-        return;
-    }
-    [self start];
-}
-
 - (void)start {
     if (self.started) return;
     self.started = YES;
-    [self.extraArgs resignFirstResponder];
-    [NSUserDefaults.standardUserDefaults setObject:self.extraArgs.text ?: @"" forKey:@"extraArgs"];
 
     unsigned long long reserved = [self reservedBytes];
     NSTimeInterval stamp = NSDate.date.timeIntervalSince1970;
@@ -279,9 +285,8 @@ static void FAOTInstallCrashHandlers(int fd) {
     self.status.text = [NSString stringWithFormat:@"启动中 · 预留 %llu GiB · 日志 %@",
                         reserved >> 30, name];
 
-    NSString *extra = self.extraArgs.text ?: @"";
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        [self runImageReserving:reserved logPath:logPath extraArgs:extra];
+        [self runImageReserving:reserved logPath:logPath];
     });
 }
 
@@ -312,7 +317,7 @@ static void FAOTProbeReservations(FILE *logFile) {
     }
 }
 
-- (void)runImageReserving:(unsigned long long)reserved logPath:(NSString *)logPath extraArgs:(NSString *)extra {
+- (void)runImageReserving:(unsigned long long)reserved logPath:(NSString *)logPath {
     @autoreleasepool {
         // Append + flush per line: when the image aborts (as it does on a failed isolate) anything
         // still sitting in a buffer is lost, which is exactly the diagnostic we need.
@@ -366,10 +371,15 @@ static void FAOTProbeReservations(FILE *logFile) {
         NSString *assets = [FAOTDocuments() stringByAppendingPathComponent:@"assets"];
 #endif
         [NSFileManager.defaultManager createDirectoryAtPath:game withIntermediateDirectories:YES attributes:nil error:nil];
+        NSString *language = FAOTSelectedLanguageCode();
+        FAOTApplyLanguageToOptions([game stringByAppendingPathComponent:@"options.txt"], language);
 #if TARGET_OS_SIMULATOR || defined(FAOT_DEVICE_WORLD)
         // Seed a modest profile on first launch. Minecraft owns this file after it exists.
         NSString *options = [game stringByAppendingPathComponent:@"options.txt"];
-        NSData *worldDefaults = [@"renderDistance:8\nsimulationDistance:5\nmaxFps:30\n"
+                NSData *worldDefaults = [@"renderDistance:8\nsimulationDistance:5\nmaxFps:120\n"
+                                 @"graphicsMode:1\nclouds:false\nentityShadows:false\n"
+                                 @"particles:2\nbiomeBlendRadius:0\nao:false\n"
+                                 @"mipmapLevels:4\nenableVsync:true\n"
                                  dataUsingEncoding:NSUTF8StringEncoding];
         [worldDefaults writeToFile:options options:NSDataWritingWithoutOverwriting error:nil];
 #endif
@@ -377,23 +387,37 @@ static void FAOTProbeReservations(FILE *logFile) {
         NSMutableArray<NSString *> *argvList = [NSMutableArray arrayWithArray:@[
             @"fabricaot-c0",
             [NSString stringWithFormat:@"-XX:ReservedAddressSpaceSize=%llu", reserved],
+            /* The launcher's memory picker becomes the runtime heap cap. The image defaults to a
+               fixed maximum, so without this the picker had no effect at all. */
+            [NSString stringWithFormat:@"-Xmx%ldm", (long)(FAOTSelectedHeapGiB() * 1024)],
             [NSString stringWithFormat:@"-Dorg.lwjgl.librarypath=%@", frameworks],
             @"-Dorg.lwjgl.system.allocator=system",
+            [NSString stringWithFormat:@"-Duser.language=%@", [language substringToIndex:2]],
+            [NSString stringWithFormat:@"-Duser.country=%@", [language substringFromIndex:3].uppercaseString],
 #if TARGET_OS_SIMULATOR || defined(FAOT_DEVICE_WORLD)
             // 26.1.2 allocates 416 MiB of terrain heaps before drawing the first chunk.
-            @"-Dfabricaot.metal.resourceBudgetMiB=768",
+            [NSString stringWithFormat:@"-Dfabricaot.metal.resourceBudgetMiB=%ld",
+                (long)FAOTMetalBudgetMiB()],
 #endif
-            @"--username", @"Dev", @"--version", @"26.1.2",
+            @"--username", [NSUserDefaults.standardUserDefaults stringForKey:@"FAOTPlayerName"] ?: @"Dev", @"--version", @"26.1.2",
             @"--gameDir", game, @"--assetsDir", assets, @"--assetIndex", @"30",
             @"--uuid", @"00000000000000000000000000000000",
             @"--accessToken", @"0", @"--userType", @"legacy", @"--versionType", @"release",
         ]];
-        if (extra.length) {
-            [argvList addObjectsFromArray:[extra componentsSeparatedByString:@" "]];
-        }
 #if TARGET_OS_SIMULATOR
+        // A dedicated server address lets XCUITest exercise the real multiplayer path without
+        // typing into the UI or persisting a server entry in the simulator's save directory.
+        NSString *quickServer = NSProcessInfo.processInfo.environment[@"FABRICAOT_SIMULATOR_QUICK_SERVER"];
+        if (quickServer.length) {
+            [argvList addObjectsFromArray:@[@"--quickPlayMultiplayer", quickServer]];
+        }
         // Exercise an existing test save through Minecraft's own Quick Play path on a headless host.
         // Pass a save directory name as one argument, including any spaces.
+        // Preserve the simulator-only AOT test argument channel without changing the launcher UI.
+        NSString *simulatorArgs = NSProcessInfo.processInfo.environment[@"FABRICAOT_SIMULATOR_EXTRA_ARGS"];
+        if (simulatorArgs.length) {
+            [argvList addObjectsFromArray:[simulatorArgs componentsSeparatedByString:@" "]];
+        }
         NSString *quickWorld = NSProcessInfo.processInfo.environment[@"FABRICAOT_SIMULATOR_QUICK_WORLD"];
         if (quickWorld.length) {
             BOOL isName = [quickWorld isEqualToString:quickWorld.lastPathComponent]
@@ -468,7 +492,20 @@ static void FAOTProbeReservations(FILE *logFile) {
       options:(UISceneConnectionOptions *)options {
     if (![scene isKindOfClass:UIWindowScene.class]) return;
     self.window = [[UIWindow alloc] initWithWindowScene:(UIWindowScene *)scene];
-    self.window.rootViewController = [FAOTHarnessController new];
+    FAOTLauncherViewController *launcher = [FAOTLauncherViewController new];
+    __weak FAOTLauncherViewController *weakLauncher = launcher;
+    launcher.onLaunch = ^(NSString *playerName, NSInteger memoryGiB, NSString *layoutName, NSString *languageCode) {
+        NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+        [defaults setObject:playerName forKey:@"FAOTPlayerName"];
+        [defaults setInteger:memoryGiB forKey:@"FAOTMemoryGiB"];
+        [defaults setInteger:memoryGiB forKey:@"reservedGiB"];  // the harness picker reads this
+        [defaults setObject:layoutName forKey:@"FAOTControlLayout"];
+        [defaults setObject:languageCode forKey:@"FAOTLanguage"];
+        FAOTHarnessController *harness = [FAOTHarnessController new];
+        harness.modalPresentationStyle = UIModalPresentationFullScreen;
+        [weakLauncher presentViewController:harness animated:YES completion:nil];
+    };
+    self.window.rootViewController = launcher;
     [self.window makeKeyAndVisible];
 }
 @end

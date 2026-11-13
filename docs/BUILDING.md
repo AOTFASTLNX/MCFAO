@@ -36,6 +36,8 @@
 
 构建输出本地签名的 `.app`，位置见 `result.json` 的 `app` 字段。Xcode 沿用 WorldDevice 设置和本机已安装的签名资料，目标为 `generic/platform=iOS`。设备验证检查包内哈希、Mach-O 平台、签名、JIT 权限及描述文件。使用现有 Team 的开发导出配置可以从同一构建导出 IPA。
 
+签名团队不再依赖 Xcode 的隐式账号状态。工程里保留 `DEVELOPMENT_TEAM = ""`（仓库不携带个人 Team ID），打包阶段由 `tools/mcfao.py` 自行解析并以 `DEVELOPMENT_TEAM=<TeamID>` 形式加到 `xcodebuild` 命令行：优先读环境变量 `MCFAO_DEVELOPMENT_TEAM`，否则在本机已安装的 `.mobileprovision` 里找**同时覆盖 `org.fabricaot.research.c0.kexin` 且未过期**的描述文件，取到期时间最晚者的团队。两者都没有时直接报「没有可用的描述文件」而不是让 `xcodebuild` 抛 `requires a development team`。此前两轮参数完全相同的构建里，Team 一次被隐式解析到、一次没有，属于不可复现的构建输入。
+
 ```bash
 ./mcfao export --target ios-arm64 --build artifacts/mcfao/my-vanilla \
   --export-options ios/C0Harness/ExportOptions.plist \
@@ -128,7 +130,7 @@ xcodebuild -project ios/A1Harness/A1Harness.xcodeproj -scheme A1Harness -configu
 账户恢复后已成功生成开发签名归档并由 Xcode 导出 IPA。使用新的输出目录复现：
 
 ```bash
-xcodebuild -project ios/A1Harness/A1Harness.xcodeproj -scheme A1Harness -configuration Release -destination 'generic/platform=iOS' -derivedDataPath artifacts/a1/xcode-handoff-new -archivePath artifacts/a1/handoff-new/A1Harness.xcarchive DEVELOPMENT_TEAM=YOUR_TEAM_ID -allowProvisioningUpdates archive
+xcodebuild -project ios/A1Harness/A1Harness.xcodeproj -scheme A1Harness -configuration Release -destination 'generic/platform=iOS' -derivedDataPath artifacts/a1/xcode-handoff-new -archivePath artifacts/a1/handoff-new/A1Harness.xcarchive DEVELOPMENT_TEAM=P57SZ9Z7G2 -allowProvisioningUpdates archive
 xcodebuild -exportArchive -archivePath artifacts/a1/handoff-new/A1Harness.xcarchive -exportPath artifacts/a1/handoff-new/export -exportOptionsPlist ios/A1Harness/ExportOptions.plist -allowProvisioningUpdates
 ```
 
@@ -199,7 +201,7 @@ xcodebuild -project ios/C0Harness/C0Harness.xcodeproj -scheme WorldDevice -desti
 
 ## 专用模拟器调试
 
-本轮用单独 iPhone18Pro / iOS27.2模拟器，ID YOUR_DEVICE_UDID。创建、安装、启动和原始结果见 evidence。模拟器结果不提升真机 Gate。
+本轮用单独 iPhone18Pro / iOS27.2模拟器，ID BD25D247-F3BF-4883-A779-D2D46015616D。创建、安装、启动和原始结果见 evidence。模拟器结果不提升真机 Gate。
 
 Simulator 必须重新编译上游原生库，不能重标记设备 archive：
 
@@ -213,7 +215,7 @@ JNI 辅助库亦以 SDK iphonesimulator、target arm64-apple-ios17.0-simulator �
 运行结果采集：
 
 ```bash
-python3 -B tools/collect_probe_result.py --container-file artifacts/evidence/a1-simulator-container/stdout.log --simulator YOUR_DEVICE_UDID --output artifacts/evidence/simulator-run-new
+python3 -B tools/collect_probe_result.py --container-file artifacts/evidence/a1-simulator-container/stdout.log --simulator BD25D247-F3BF-4883-A779-D2D46015616D --output artifacts/evidence/simulator-run-new
 ```
 
 采集器限定所选模拟器及测试 Bundle ID，并同时检查原生生命周期退出码与 Java 成功标记。
@@ -237,13 +239,73 @@ python3 -B tools/verify_evidence.py --output artifacts/evidence/verification-new
 
 当前151项单元/安全回归通过，见artifacts/graphics/regression-06/stderr.log（79/123/133项为历史轮次）。Mac脚本由助手执行，真机由用户负责。verify_evidence 检查其支持的命令输出、报告及二进制字段；图形库另有构建指纹及Xcode嵌入核对，当前源清单含 docs/.codex。它不认证游戏或设备行为。
 
-AAR 只使用 $HOME/Documents/Codex/monitor/registry.sqlite。可靠可再取得的固定缓存带 regenerable；历史运行记录、耦合的源构建状态和设备状态保留。安全删除标志均 false，不执行清理。新产物需重新核验登记。外部专用测试目录可显式提供 --external-build-root，不能用主目录或系统目录作项目。
+AAR 只使用 /Users/kexin/Documents/Codex/monitor/registry.sqlite。可靠可再取得的固定缓存带 regenerable；历史运行记录、耦合的源构建状态和设备状态保留。安全删除标志均 false，不执行清理。新产物需重新核验登记。外部专用测试目录可显式提供 --external-build-root，不能用主目录或系统目录作项目。
 
 tools/register_artifacts.py 用于不含符号链接的实验树，发现链接会明确拒绝递归登记。Xcode 归档构建目录含有指向实际 App 的符号链接，按独立 BUILD 目录登记且不跟随该链接，方式与含内部链接的 JDK 缓存相同。device-handoff 的归档/解包文件和 evidence 可分别 include-files 登记；导出目录以 DISTRIBUTION 再登记，记录 xcodebuild 导出命令。不得为登记改动或删除 Xcode 的链接。
 
 本地Git提交保存第一方源码与文档，`git log -1`查看；原始游戏/玩家数据和生成物未纳入。建立Git后中央AAR项目身份须重新登记同步，不能继续沿用旧身份。
 
 真实客户端分析支持有界6/8 GiB与Mac构建GC对照，命令及测量限制见[CLIENT_GRAPH_DIAGNOSTICS](CLIENT_GRAPH_DIAGNOSTICS.md)。构建JFR会改变目标JFR配置，08保留提前失败记录，09/10/11均OOM——这三轮是"加堆无解"的原始证据；分析墙最终由构建期方法拆分（`compiler/splitter`，18类/28方法→358段）解决，第28轮 6 GiB 下完整分析通过。C0 现只剩图形层阻断（见 WORK_HANDOFF §1.2）。
+
+### artifacts 去重（APFS clone）
+
+`tools/dedup_artifacts.py` 把字节相同的产物收敛成 APFS clone：路径、内容、签名都不变，inode 独立，首次写入时自动分裂。**只做 clone，不做硬链接**——`ios/C0Harness/embed_graphics_libraries.sh` 会对 `*.app/Frameworks/*.dylib` 执行 `codesign --force`（就地改写 Mach-O），硬链接会让一次签名污染所有共用该 inode 的实验。
+
+```bash
+python3 -B tools/dedup_artifacts.py --suffix .dylib --dry          # 先看清单
+python3 -B tools/dedup_artifacts.py --suffix .dylib --log artifacts/dedup-dylib.json
+python3 -B tools/dedup_artifacts.py --suffix .jar                  # mod/客户端 jar 同样适用
+```
+
+`--min-age` 默认 900 秒，构建正在写的文件不会被替换；已处理的路径记进 `artifacts/.dedup-state.json`，重跑不会重复计数。测量有两个坑：`du` 看不见 clone 共享块（3 份 100 MB 克隆仍报 300 MB），只有 `df` 反映真实回收；并发 AOT 构建时 `df` 波动可达 1.8 GB/分钟，验证必须在构建停下后做。副本来源不同结果也不同：`ditto` 本来就是克隆（0 成本），`cp` 与 `shutil.copy2` 是真复制（每份 222 MB 真占盘）。
+
+### 归档旧构建到外接盘
+
+`mcfao build` 每跑一次就新建 `artifacts/mcfao/fabric-pack-NN`（2.6–2.9 GB）与可选的 `fabric-pack-NN-simulator`（约 0.95 GB），编号单调递增且没有自动轮转。一天几十次构建就能把本地盘吃满（2026-11-11：25.8 GB → 99.9 GB，磁盘 99%）。
+
+历史构建仍有价值（`result.json` 含完整 AOT 命令与所有产物 sha256），因此**优先迁到外接盘而不是删掉**。归档在 `/Volumes/K/Xcode-备份/buildAOT/`，每个目录一份 `README.md` 说明来源、恢复命令与已知差异。
+
+```bash
+# 1. 逐目录复制（-L 解引用符号链接，ExFAT 存不了 symlink）
+rsync -rltL --no-perms --no-owner --no-group \
+  artifacts/mcfao/<dir>/ "/Volumes/K/Xcode-备份/buildAOT/<dir>/"
+
+# 2. 校验通过后才删本地（脚本只删 (文件数, 字节, 抽样 sha256) 全部一致的目录）
+python3 -B tools/verify_moved_builds.py --manifest <清单.json> \
+  --src artifacts/mcfao --dst "/Volumes/K/Xcode-备份/buildAOT"
+python3 -B tools/verify_moved_builds.py ... --delete
+```
+
+外接盘是 **ExFAT**，有三个必知代价：
+
+| 项 | 影响 |
+|---|---|
+| 扩展属性 | `rsync`/`ditto` 都会把 xattr 写成 `._name` 伴生文件，实测 14.8 万文件产生 16.2 万个伴生文件、20.3 GB。复制后必须 `find <dst> -name "._*" -delete`，并让校验忽略它们 |
+| 符号链接 | 只能解引用；断链会被跳过 |
+| 簇大小 | 87 GiB 实际占用对应 78 GiB 逻辑，小文件簇内碎片约占 12% |
+
+**删之前必须查引用**，且要用词边界匹配（`fabric-pack-4` 会误命中 `fabric-pack-44`）。`artifacts/mcfao/curated-verification-mods-01` 是 `mcfao build --mods` 的输入，文档引用的实验目录（`docs/FABRIC_AOT.md`、`docs/STATUS.md` 等）一旦删除会让文档断链。
+
+**要真省物理空间，还是得删目录**：2026-11-11 删掉 61 GB 逻辑体积，`df` 只回收约 18.5 GB——被删的很多是共享块的 APFS 克隆副本，删一份不释放任何块。
+
+### .app 产物与「存储空间」里的幽灵条目
+
+每次构建都会在 `fabric-pack-NN/package/<hash>/product/Build/Products/World Device-iphoneos/` 下产出一个 800 MB 左右的 `C0Harness.app`，另外 `*-simulator`、`mp-diag-sim-*`、`vanilla-ui-01` 等目录还有 200–400 MB 的模拟器版本。2026-11-11 盘点时 `artifacts` 内有 50 个 `.app` 共 14.1 GB。
+
+这些包会被 LaunchServices 登记，于是 macOS「系统设置 → 通用 → 存储空间 → 应用程序」把它们列成一条条 `C0Harness`（「较早版本」），看起来像装了六个 App。大小能对上：`du` 的 846 MiB × 1.048576 = 887.0 MB，正是面板显示的数字。**它们不是安装的 App，删了不影响系统。**
+
+```bash
+# 盘点：所有 .app 及其体积（不深入 .app 内部）
+find artifacts -name "*.app" -type d -prune -exec du -sm {} +
+
+# 清掉 LaunchServices 里的死链（-kill 在新版 macOS 已移除）
+lsr=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+$lsr -dump | grep -oE "/你的路径/artifacts[^ ]*\.app" | sort -u   # 找记录
+$lsr -u <已删路径>...                                             # 注销死链
+$lsr -gc                                                          # 压缩数据库
+```
+
+清理原则：`.xcarchive` 里的 `.app` 是归档本体，删掉等于让归档失效——`c0/harness`、`a1/device-handoff*`、`b1/device-handoff` 这些 Gate A 证据一律不动；`.xcarchive` 旁边还有 `xcodearchive/../export/*.ipa`，那才是真正该留的分发物。`unpacked/Payload/*.app` 是 IPA 解包后的临时副本，纯冗余，可以直接删。
 
 ## 图形启动探针与Xcode调试
 
@@ -256,3 +318,19 @@ tools/register_artifacts.py 用于不含符号链接的实验树，发现链接�
 完整命令与逐步失败证据见[GRAPHICS_BOOTSTRAP](GRAPHICS_BOOTSTRAP.md)。以修正后的`client-split-04`为输入执行`tools/inject_metal_backend.py`；真实Main构建传`--include-game-resources`，自动启用HTTP/HTTPS协议。`tools/stage_game_assets.py`按26.1.2版本元数据固定索引30与对象SHA1复制资源；可用`--fetch-missing`只从固定官方源补齐不匹配对象，不覆盖启动器缓存。模拟器运行库通过`build_ios_runtime.py --with-extnet --sdk iphonesimulator`补充真实Darwin扩展套接字JNI。音频库由`build_openal_soft.py --sdk iphonesimulator`在隔离环境编译固定OpenAL Soft1.25.2，要求CoreAudio。音频PCM探针验证真实后端和播放推进，保持静音。
 
 设备诊断、原版单人模拟器与 iPhone 原版单人测试各用独立方案。手机安装和运行由测试者执行。
+
+
+### 策划整合包的验证夹具
+
+F1/F3 来自 `interop/fabric/fixture`，普通 Fabric 包不自带该标记。先用上文 `prepare_fabric_aot.py --fixture` 构建第一方夹具，将其 `mods/mcfao-fixture.jar` 加入**整合包的独立副本**，再以副本构建和执行默认冒烟。原包不修改；本轮副本为 `artifacts/mcfao/curated-verification-mods-01`。
+
+未带夹具的临时诊断可以显式指定 `--require-marker`，结果为 `SIMULATOR_WORLD_DIAGNOSTIC_PASS`，不算 F1/F3 完整验证。
+
+AppleSkin 持久配置独立回归（仅使用本地用户构建中的 JAR）：
+
+```sh
+python3 -B tools/probe_appleskin_config.py --build artifacts/mcfao/fabric-pack-50 \
+  --native-image --output artifacts/mcfao/appleskin-config-aot-new
+```
+
+该回归检查默认值、修改后的布尔值及浮点值在序列化/反序列化后保持；JVM/桌面 AOT 通过不代替 iOS 启动验证。

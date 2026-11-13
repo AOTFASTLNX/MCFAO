@@ -1,11 +1,16 @@
 #import <UIKit/UIKit.h>
 #import <QuartzCore/CAMetalLayer.h>
 #import <Metal/Metal.h>
+#import <GameController/GameController.h>
+#include "pointer_motion.h"
 #include "glfw_lite.h"
 #include "input_mapping.h"
 
 enum { CONTROL_BREAK=-1, CONTROL_PLACE=-2, CONTROL_PREVIOUS=-3, CONTROL_NEXT=-4, CONTROL_PICK=-5,
        CONTROL_ESCAPE=256, CONTROL_DEBUG=292 /* GLFW_KEY_F3 */ };
+/* Private special band, identical to FAOTControlLayout.h in C0Harness. */
+enum { CONTROL_KEYBOARD=-101, CONTROL_TOGGLECTRL=-102, CONTROL_PRIMARY=-103, CONTROL_SECONDARY=-104,
+       CONTROL_VIRTUALMOUSE=-105, CONTROL_MIDDLE=-106, CONTROL_SCROLLUP=-107, CONTROL_SCROLLDOWN=-108 };
 static void onMain(dispatch_block_t block) {
     if (NSThread.isMainThread) block(); else dispatch_sync(dispatch_get_main_queue(),block);
 }
@@ -16,20 +21,92 @@ static UIWindowScene *activeScene(void) {
     return nil;
 }
 
-@interface FAOTMetalView : UIView <UIKeyInput>
+/* Documents/controlmap/<FAOTControlLayout>.json - the same file the launcher editor writes. */
+static NSString *FAOTLayoutPath(void) {
+    NSString *name = [NSUserDefaults.standardUserDefaults stringForKey:@"FAOTControlLayout"];
+    if (!name.length) name = @"default";
+    NSString *documents = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
+    return [[documents stringByAppendingPathComponent:@"controlmap"]
+            stringByAppendingPathComponent:[name stringByAppendingPathExtension:@"json"]];
+}
+
+/* The XCUITest suite addresses controls by these labels, so keep them stable for the keys the
+   tests press even when a user renames or reorders a layout. */
+static NSString *FAOTAccessibilityLabel(NSInteger code, NSString *fallback) {
+    switch (code) {
+        case 'W': return @"Move forward";
+        case 'A': return @"Move left";
+        case 'S': return @"Move backward";
+        case 'D': return @"Move right";
+        case CONTROL_ESCAPE: return @"Pause";
+        case CONTROL_PRIMARY: case CONTROL_BREAK: return @"Break or attack";
+        case CONTROL_SECONDARY: case CONTROL_PLACE: return @"Place or use";
+        case CONTROL_MIDDLE: case CONTROL_PICK: return @"Pick block";
+        case CONTROL_DEBUG: return @"Toggle debug screen";
+        case 'E': return @"Inventory";
+        case ' ': return @"Jump";
+        case CONTROL_PREVIOUS: return @"Previous hotbar slot";
+        case CONTROL_NEXT: return @"Next hotbar slot";
+        default: return fallback.length ? fallback : [NSString stringWithFormat:@"key %ld", (long)code];
+    }
+}
+
+/* Used when no layout file exists yet: the thirteen controls this surface shipped with. */
+static NSArray<NSDictionary *> *FAOTBuiltinControlModels(void) {
+    const CGFloat W = 844.0, H = 390.0, size = 44.0, step = 48.0, left = 8.0;
+    const CGFloat right = W - size - 8.0, bottom = H - size - 32.0;
+    struct { const char *title; const char *label; NSInteger code; CGFloat x, y, s; } rows[] = {
+        {"^", "Move forward", 'W', left + step, bottom - 2 * step, size},
+        {"<", "Move left", 'A', left, bottom - step, size},
+        {"v", "Move backward", 'S', left + step, bottom - step, size},
+        {">", "Move right", 'D', left + 2 * step, bottom - step, size},
+        {"Jump", "Jump", ' ', right, bottom - step, size},
+        {"Items", "Inventory", 'E', right - step, bottom - step, size},
+        {"Place", "Place or use", CONTROL_SECONDARY, right, bottom - 2 * step, size},
+        {"Break", "Break or attack", CONTROL_PRIMARY, right - step, bottom - 2 * step, size},
+        {"<", "Previous hotbar slot", CONTROL_PREVIOUS, right - step, bottom, size},
+        {">", "Next hotbar slot", CONTROL_NEXT, right, bottom, size},
+        {"Pick", "Pick block", CONTROL_MIDDLE, left, bottom, size},
+        {"||", "Pause", CONTROL_ESCAPE, right, 8, size},
+        {"F3", "Toggle debug screen", CONTROL_DEBUG, left, 8, 36},
+    };
+    NSMutableArray *models = [NSMutableArray array];
+    for (unsigned i = 0; i < sizeof(rows) / sizeof(rows[0]); i++) {
+        [models addObject:@{
+            @"name": @(rows[i].title),
+            @"label": @(rows[i].label),
+            @"keycode": @(rows[i].code),
+            @"x": @(rows[i].x / W), @"y": @(rows[i].y / H),
+            @"width": @(rows[i].s / W), @"height": @(rows[i].s / W),
+        }];
+    }
+    return models;
+}
+
+@interface FAOTMetalView : UIView <UIKeyInput> {
+    FAOTPointerMotion _hoverMotion;
+}
 @property(nonatomic,assign) GLFWwindow *handle;
 @property(nonatomic,assign) BOOL textEnabled;
 @property(nonatomic,assign) BOOL captured;
 @property(nonatomic,assign) BOOL hasCapturedGame;
+@property(nonatomic,assign) BOOL nativeMouseConnected;
+@property(nonatomic,assign) BOOL pointerIsLocked;
+@property(nonatomic,assign) unsigned heldNativeMouseButtons;
 @property(nonatomic,strong) UIView *noKeyboard;
 @property(nonatomic,strong) UITouch *primaryTouch;
 @property(nonatomic,assign) int primaryButton;
 @property(nonatomic,strong) NSMutableIndexSet *forwardedKeys;
 @property(nonatomic,strong) NSArray<UIButton *> *controls;
+@property(nonatomic,strong) NSArray<NSDictionary *> *controlModels;
 @property(nonatomic,strong) NSMutableSet<NSNumber *> *heldControls;
 - (void)installControls;
 - (void)setGameCapture:(BOOL)captured;
 - (void)releaseGameControls;
+- (void)releaseNativeMouseButtons;
+- (void)nativeMouseButton:(int)index pressed:(BOOL)pressed;
+- (void)pointerHovered:(UIHoverGestureRecognizer *)recognizer;
+- (void)resetHoverMotion;
 - (void)controlDown:(UIButton *)button;
 - (void)controlUp:(UIButton *)button;
 - (BOOL)sendControl:(int)code pressed:(BOOL)pressed;
@@ -80,51 +157,68 @@ static UIWindowScene *activeScene(void) {
     if(self.handle)faot_glfw_resize(self.handle,(int)self.bounds.size.width,(int)self.bounds.size.height,
                                   (int)layer.drawableSize.width,(int)layer.drawableSize.height);
     CGRect safe=UIEdgeInsetsInsetRect(self.bounds,self.safeAreaInsets);
-    const CGFloat size=44,step=48,left=CGRectGetMinX(safe)+8,right=CGRectGetMaxX(safe)-size-8;
-    const CGFloat bottom=CGRectGetMaxY(safe)-size-32;
-    /* Debug toggle mirrors the pause button in the top-left corner: out of thumb reach and
-       deliberately smaller, so it neither competes with combat controls nor hides much HUD. */
-    const CGFloat debugSize=36,debugX=left,debugY=CGRectGetMinY(safe)+8+(size-debugSize)/2;
-    CGPoint points[]={{left+step,bottom-2*step},{left,bottom-step},{left+step,bottom-step},{left+2*step,bottom-step},
-                      {right,bottom-step},{right-step,bottom-step},{right,bottom-2*step},{right-step,bottom-2*step},
-                      {right-step,bottom},{right,bottom},{left,bottom},{right,CGRectGetMinY(safe)+8},
-                      {debugX,debugY}};
-    for(NSUInteger i=0;i<self.controls.count;i++){
+    for(NSUInteger i=0;i<self.controls.count&&i<self.controlModels.count;i++){
         UIButton *button=self.controls[i];
-        CGFloat side=button.tag==CONTROL_DEBUG?debugSize:size;
-        button.frame=CGRectMake(points[i].x,points[i].y,side,side);
+        NSDictionary *model=self.controlModels[i];
+        CGFloat width=MAX(28.0,[model[@"width"] doubleValue]*safe.size.width);
+        CGFloat height=MAX(28.0,[model[@"height"] doubleValue]*safe.size.height);
+        CGFloat x=safe.origin.x+[model[@"x"] doubleValue]*safe.size.width;
+        CGFloat y=safe.origin.y+[model[@"y"] doubleValue]*safe.size.height;
+        x=MIN(MAX(x,CGRectGetMinX(safe)),CGRectGetMaxX(safe)-width);
+        y=MIN(MAX(y,CGRectGetMinY(safe)),CGRectGetMaxY(safe)-height);
+        button.frame=CGRectMake(x,y,width,height);
+        button.layer.cornerRadius=MIN(8.0,width/2);
     }
 }
 - (void)installControls {
-    NSArray<NSString *> *titles=@[@"↑",@"←",@"↓",@"→",@"Jump",@"Items",@"Place",@"Break",@"◀",@"▶",@"Pick",@"Ⅱ",@"F3"];
-    NSArray<NSString *> *labels=@[@"Move forward",@"Move left",@"Move backward",@"Move right",
-                                   @"Jump",@"Inventory",@"Place or use",@"Break or attack",
-                                   @"Previous hotbar slot",@"Next hotbar slot",@"Pick block",@"Pause",
-                                   @"Toggle debug screen"];
-    const int codes[]={'W','A','S','D',' ','E',CONTROL_PLACE,CONTROL_BREAK,CONTROL_PREVIOUS,CONTROL_NEXT,CONTROL_PICK,CONTROL_ESCAPE,CONTROL_DEBUG};
-    NSMutableArray<UIButton *> *controls=[NSMutableArray arrayWithCapacity:titles.count];
+    /* The launcher editor owns the layout. When its file is absent (fresh install, or a run
+       started before the launcher ever saved one) fall back to the built-in thirteen. */
+    NSMutableArray<NSDictionary *> *models=[NSMutableArray array];
+    NSData *data=[NSData dataWithContentsOfFile:FAOTLayoutPath()];
+    if(data){
+        id root=[NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+        id list=[root isKindOfClass:NSDictionary.class]?((NSDictionary *)root)[@"controls"]:root;
+        if([list isKindOfClass:NSArray.class]){
+            for(id item in list)
+                if([item isKindOfClass:NSDictionary.class]&&[item[@"keycode"] isKindOfClass:NSNumber.class])
+                    [models addObject:item];
+        }
+    }
+    if(models.count==0)models=[FAOTBuiltinControlModels() mutableCopy];
+    self.controlModels=models;
+
+    NSMutableArray<UIButton *> *controls=[NSMutableArray arrayWithCapacity:models.count];
     self.heldControls=[NSMutableSet set];
-    for(NSUInteger i=0;i<titles.count;i++){
+    for(NSDictionary *model in models){
         UIButton *button=[UIButton buttonWithType:UIButtonTypeSystem];
-        button.tag=codes[i];button.accessibilityLabel=labels[i];
-        [button setTitle:titles[i] forState:UIControlStateNormal];
+        button.tag=[model[@"keycode"] integerValue];
+        NSString *title=model[@"name"];
+        NSString *label=[model[@"label"] isKindOfClass:NSString.class]?model[@"label"]:title;
+        button.accessibilityLabel=FAOTAccessibilityLabel(button.tag,label);
+        button.accessibilityValue=title;
+        [button setTitle:title forState:UIControlStateNormal];
         [button setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
-        button.titleLabel.font=[UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
-        button.backgroundColor=[UIColor colorWithWhite:0 alpha:0.55];
+        button.titleLabel.font=[UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
+        button.backgroundColor=[UIColor colorWithWhite:0 alpha:([model[@"opacity"] doubleValue]?:0.55)];
         button.layer.cornerRadius=8;button.layer.borderWidth=1;
         button.layer.borderColor=[UIColor colorWithWhite:1 alpha:0.65].CGColor;
-        if(codes[i]==CONTROL_DEBUG)button.backgroundColor=[UIColor colorWithWhite:0 alpha:0.4];
         button.hidden=YES;
         [button addTarget:self action:@selector(controlDown:) forControlEvents:UIControlEventTouchDown];
         [button addTarget:self action:@selector(controlUp:) forControlEvents:UIControlEventTouchUpInside|UIControlEventTouchUpOutside|UIControlEventTouchCancel];
         [self addSubview:button];[controls addObject:button];
     }
     self.controls=controls;
+    // Menu pointer positions are independent of clicks. UIKit touches alone cannot track hover.
+    UIHoverGestureRecognizer *hover=[[UIHoverGestureRecognizer alloc] initWithTarget:self action:@selector(pointerHovered:)];
+    hover.cancelsTouchesInView=NO;
+    [self addGestureRecognizer:hover];
 }
 - (BOOL)sendControl:(int)code pressed:(BOOL)pressed {
     if(!self.handle)return NO;
     if(code<0){
-        int mouseButton=code==CONTROL_BREAK?0:code==CONTROL_PLACE?1:code==CONTROL_PICK?2:-1;
+        if(code==CONTROL_SCROLLUP||code==CONTROL_SCROLLDOWN)
+        return faot_glfw_enqueue(self.handle,FAOT_EVENT_SCROLL,0,code==CONTROL_SCROLLUP?1:-1,0,0)!=0;
+    int mouseButton=(code==CONTROL_BREAK||code==CONTROL_PRIMARY)?0:(code==CONTROL_PLACE||code==CONTROL_SECONDARY)?1:(code==CONTROL_PICK||code==CONTROL_MIDDLE)?2:-1;
         return mouseButton>=0&&faot_glfw_enqueue(self.handle,FAOT_EVENT_BUTTON,mouseButton,pressed,0,0)!=0;
     }
     if([self.forwardedKeys containsIndex:(NSUInteger)code])return YES;
@@ -157,15 +251,48 @@ static UIWindowScene *activeScene(void) {
     if([self.heldControls containsObject:key]&&[self sendControl:(int)button.tag pressed:NO])
         [self.heldControls removeObject:key];
 }
+- (void)releaseNativeMouseButtons {
+    if(self.handle)for(int i=0;i<3;i++)if(self.heldNativeMouseButtons&(1u<<i))
+        faot_glfw_enqueue(self.handle,FAOT_EVENT_BUTTON,i,0,0,0);
+    self.heldNativeMouseButtons=0;
+}
+- (void)nativeMouseButton:(int)index pressed:(BOOL)pressed {
+    if(!self.handle||!self.captured||index<0||index>2)return;
+    unsigned bit=1u<<index;
+    if(((self.heldNativeMouseButtons&bit)!=0)==pressed)return;
+    if(!faot_glfw_enqueue(self.handle,FAOT_EVENT_BUTTON,index,pressed,0,0))return;
+    if(pressed)self.heldNativeMouseButtons|=bit;
+    else self.heldNativeMouseButtons&=~bit;
+}
 - (void)releaseGameControls {
+    [self releaseNativeMouseButtons];
     for(NSNumber *key in self.heldControls)[self sendControl:key.intValue pressed:NO];
     [self.heldControls removeAllObjects];
 }
+- (void)pointerHovered:(UIHoverGestureRecognizer *)recognizer {
+    if(!self.handle)return;
+    if(recognizer.state!=UIGestureRecognizerStateBegan&&recognizer.state!=UIGestureRecognizerStateChanged){
+        [self resetHoverMotion];return;
+    }
+    CGPoint p=[recognizer locationInView:self];
+    if(!self.captured){
+        [self resetHoverMotion];
+        faot_glfw_enqueue(self.handle,FAOT_EVENT_CURSOR,p.x,p.y,0,0);
+    }else if(!self.pointerIsLocked){
+        double dx,dy;
+        if(faot_pointer_hover_delta(&_hoverMotion,p.x,p.y,&dx,&dy))
+            faot_glfw_enqueue(self.handle,FAOT_EVENT_CURSOR_DELTA,dx,dy,0,0);
+    }else [self resetHoverMotion];
+}
+- (void)resetHoverMotion { faot_pointer_reset(&_hoverMotion); }
 - (void)setGameCapture:(BOOL)captured {
     if(self.captured==captured)return;
+    [self resetHoverMotion];
     if(!captured)[self releaseGameControls];
     self.captured=captured;
     self.hasCapturedGame|=captured;
+    // iPadOS may deny pointer lock (for example in Split View). Observe the actual lock state.
+    [(UIViewController *)self.window.rootViewController setNeedsUpdateOfPrefersPointerLocked];
     for(UIButton *button in self.controls){
         if(button.tag==CONTROL_ESCAPE){
             button.hidden=!self.hasCapturedGame;
@@ -178,6 +305,8 @@ static UIWindowScene *activeScene(void) {
 - (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
     if(!self.handle||self.primaryTouch)return;
     UITouch *touch=touches.anyObject;
+    // GCMouse supplies hardware mouse clicks in game; do not forward UIKit duplicates.
+    if(self.captured&&self.nativeMouseConnected&&touch.type==UITouchTypeIndirectPointer)return;
     self.primaryTouch=touch;
     CGPoint p=[touch locationInView:self];
     if(!self.captured)faot_glfw_enqueue(self.handle,FAOT_EVENT_CURSOR,p.x,p.y,0,0);
@@ -221,6 +350,11 @@ static UIWindowScene *activeScene(void) {
 @end
 @implementation FAOTGameController
 - (BOOL)prefersStatusBarHidden { return YES; }
+- (BOOL)prefersPointerLocked { return ((FAOTMetalView *)self.view).captured; }
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
+    [self setNeedsUpdateOfPrefersPointerLocked];
+}
 @end
 
 @interface FAOTSurface : NSObject
@@ -229,8 +363,61 @@ static UIWindowScene *activeScene(void) {
 @property(nonatomic,strong) FAOTMetalView *view;
 @property(nonatomic,strong) id foregroundToken;
 @property(nonatomic,strong) id backgroundToken;
+@property(nonatomic,strong) id pointerToken;
+@property(nonatomic,strong) id mouseConnectToken;
+@property(nonatomic,strong) id mouseDisconnectToken;
+@property(nonatomic,strong) GCMouse *mouse;
+- (void)attachMouse:(GCMouse *)mouse;
 @end
 @implementation FAOTSurface
+- (void)attachMouse:(GCMouse *)mouse {
+    if(self.mouse==mouse)return;
+    if(self.mouse){
+        GCMouseInput *old=self.mouse.mouseInput;
+        old.mouseMovedHandler=nil;
+        old.leftButton.valueChangedHandler=nil;
+        old.rightButton.valueChangedHandler=nil;
+        old.middleButton.valueChangedHandler=nil;
+        old.scroll.valueChangedHandler=nil;
+    }
+    [self.view releaseNativeMouseButtons];
+    self.mouse=mouse;
+    self.view.nativeMouseConnected=mouse!=nil;
+    if(!mouse)return;
+
+    __weak FAOTMetalView *weakView=self.view;
+    GCMouseInput *input=mouse.mouseInput;
+    // GameController reports unaccelerated relative motion; GLFW expects Y increasing down.
+    input.mouseMovedHandler=^(GCMouseInput *sender,float dx,float dy){
+        (void)sender;
+        dispatch_block_t forward=^{
+            FAOTMetalView *view=weakView;
+            if(view&&view.handle&&view.captured&&view.pointerIsLocked)
+                faot_glfw_enqueue(view.handle,FAOT_EVENT_CURSOR_DELTA,dx,-dy,0,0);
+        };
+        if(NSThread.isMainThread)forward();else dispatch_async(dispatch_get_main_queue(),forward);
+    };
+    void (^bindButton)(GCControllerButtonInput *,int)=^(GCControllerButtonInput *button,int index){
+        if(!button)return;
+        button.valueChangedHandler=^(GCControllerButtonInput *sender,float value,BOOL pressed){
+            (void)sender;(void)value;
+            dispatch_block_t forward=^{ FAOTMetalView *view=weakView; if(view)[view nativeMouseButton:index pressed:pressed]; };
+            if(NSThread.isMainThread)forward();else dispatch_async(dispatch_get_main_queue(),forward);
+        };
+    };
+    bindButton(input.leftButton,0);
+    bindButton(input.rightButton,1);
+    bindButton(input.middleButton,2);
+    input.scroll.valueChangedHandler=^(GCControllerDirectionPad *sender,float dx,float dy){
+        (void)sender;
+        dispatch_block_t forward=^{
+            FAOTMetalView *view=weakView;
+            if(view&&view.handle)
+                faot_glfw_enqueue(view.handle,FAOT_EVENT_SCROLL,dx,dy,0,0);
+        };
+        if(NSThread.isMainThread)forward();else dispatch_async(dispatch_get_main_queue(),forward);
+    };
+}
 @end
 
 void faot_surface_screen(GLFWvidmode *mode) {
@@ -270,6 +457,24 @@ void *faot_surface_create(GLFWwindow *handle,int *width,int *height,int *pw,int 
         *width=(int)surface.view.bounds.size.width;*height=(int)surface.view.bounds.size.height;
         *pw=(int)layer.drawableSize.width;*ph=(int)layer.drawableSize.height;
         NSNotificationCenter *nc=NSNotificationCenter.defaultCenter;
+        __weak FAOTSurface *weakSurface=surface;
+        __weak FAOTMetalView *pointerView=surface.view;
+        surface.pointerToken=[nc addObserverForName:UIPointerLockStateDidChangeNotification object:scene.pointerLockState queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note){
+            (void)note;
+            FAOTMetalView *view=pointerView;
+            [view resetHoverMotion];
+            view.pointerIsLocked=scene.pointerLockState.isLocked;
+            fprintf(stderr,"[GLFW-lite] iPad pointer lock: %s\\n",view.pointerIsLocked?"locked":"unlocked");
+        }];
+        surface.view.pointerIsLocked=scene.pointerLockState.isLocked;
+        surface.mouseConnectToken=[nc addObserverForName:GCMouseDidConnectNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note){
+            [weakSurface attachMouse:(GCMouse *)note.object];
+        }];
+        surface.mouseDisconnectToken=[nc addObserverForName:GCMouseDidDisconnectNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note){
+            FAOTSurface *current=weakSurface;
+            if(current.mouse==note.object)[current attachMouse:[GCMouse mice].firstObject];
+        }];
+        [surface attachMouse:[GCMouse mice].firstObject];
         surface.foregroundToken=[nc addObserverForName:UISceneDidActivateNotification object:scene queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note){
             (void)note;faot_glfw_enqueue(handle,FAOT_EVENT_FOCUS,1,0,0,0);
         }];
@@ -278,6 +483,8 @@ void *faot_surface_create(GLFWwindow *handle,int *width,int *height,int *pw,int 
             (void)note;FAOTMetalView *view=inputView;
             if(view.primaryTouch){if(view.primaryButton>=0)faot_glfw_enqueue(handle,FAOT_EVENT_BUTTON,view.primaryButton,0,0,0);view.primaryTouch=nil;}
             [view releaseGameControls];
+            [view resetHoverMotion];
+            view.pointerIsLocked=NO;
             [view.forwardedKeys removeAllIndexes];faot_glfw_enqueue(handle,FAOT_EVENT_FOCUS,0,0,0,0);
         }];
     });
@@ -291,6 +498,10 @@ void faot_surface_destroy(void *raw) {
         NSNotificationCenter *nc=NSNotificationCenter.defaultCenter;
         if(surface.foregroundToken)[nc removeObserver:surface.foregroundToken];
         if(surface.backgroundToken)[nc removeObserver:surface.backgroundToken];
+        if(surface.pointerToken)[nc removeObserver:surface.pointerToken];
+        if(surface.mouseConnectToken)[nc removeObserver:surface.mouseConnectToken];
+        if(surface.mouseDisconnectToken)[nc removeObserver:surface.mouseDisconnectToken];
+        [surface attachMouse:nil];
         [surface.view resignFirstResponder];
         surface.window.hidden=YES;
         [surface.previous makeKeyAndVisible];

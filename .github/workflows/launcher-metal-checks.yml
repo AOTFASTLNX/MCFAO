@@ -1,0 +1,141 @@
+name: Launcher and Metal checks
+on:
+  push:
+    branches: [feature/performance-launcher-size-2026-11-13, integration/aot-and-performance-20261113]
+  workflow_dispatch:
+concurrency:
+  group: launcher-metal-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: AOT source and compatibility regression tests
+        run: |
+          python3 -m compileall -q tools tests
+          python3 -m unittest discover -s tests -p test_config_reflection.py -v
+          python3 -m unittest discover -s tests -p test_mod_matrix.py -v
+          python3 -m unittest discover -s tests -p test_scan_mod_evidence.py -v
+      - name: Compile launcher and both Metal target paths
+        run: |
+          set -euo pipefail
+          JDK=$(/usr/libexec/java_home)
+          for PLATFORM in iphoneos iphonesimulator; do
+            SDK=$(xcrun --sdk "$PLATFORM" --show-sdk-path)
+            TARGET=arm64-apple-ios17.0
+            if [ "$PLATFORM" = iphonesimulator ]; then TARGET=arm64-apple-ios17.0-simulator; fi
+            xcrun clang -fsyntax-only -fobjc-arc -fblocks -target "$TARGET" -isysroot "$SDK" \
+              -Werror=implicit-function-declaration -Werror=incompatible-pointer-types \
+              -Iios/C0Harness -Iios/glfw-lite -I"$JDK/include" -I"$JDK/include/darwin" \
+              ios/C0Harness/FAOTControlLayout.m ios/C0Harness/FAOTControlsOverlay.m \
+              ios/C0Harness/FAOTLauncherViewController.m ios/C0Harness/FAOTControlEditorViewController.m \
+              ios/metal-bridge/metal_bridge.m
+          done
+      - name: Execute Metal snapshot lifetime regression
+        run: |
+          clang -fobjc-arc tests/metal_snapshot_test.m -framework Foundation -framework Metal -o /tmp/metal-snapshot
+          /tmp/metal-snapshot
+      - name: Exercise buffer hazard state transitions
+        run: |
+          mkdir -p /tmp/buffer-hazards
+          javac -d /tmp/buffer-hazards compiler/metal-backend/src/fabricaot/metal/BufferHazardTracker.java tests/BufferHazardTrackerTest.java
+          java -cp /tmp/buffer-hazards fabricaot.metal.BufferHazardTrackerTest
+      - name: Verify presentation interval statistics
+        run: |
+          clang -std=c11 -Wall -Wextra -Werror -Iios/metal-bridge tests/perf_window_test.c -o /tmp/perf-window
+          /tmp/perf-window
+      - name: Graphics and input regression tests
+        run: |
+          python3 -m unittest discover -s tests -p test_graphics_bridge.py -v
+          python3 -m unittest discover -s tests -p test_pointer_input_source.py -v
+          python3 -m unittest discover -s tests -p test_c0_harness.py -v
+          python3 -m unittest discover -s tests -p test_dragon_phase_reflection.py -v
+          python3 -m unittest discover -s tests -p test_high_refresh.py -v
+          python3 -m unittest discover -s tests -p test_harness_autostart.py -v
+          python3 -m unittest discover -s tests -p test_summarize_metal_perf.py -v
+          python3 -m unittest discover -s tests -p test_buffer_sync_contract.py -v
+
+  screenshots:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build a minimal UIKit host for the launcher
+        run: |
+          set -euo pipefail
+          SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
+          APP="$PWD/build/FabricAOT.app"
+          mkdir -p "$APP"
+          cat > "$APP/Info.plist" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>CFBundleExecutable</key><string>FabricAOT</string>
+            <key>CFBundleIdentifier</key><string>dev.fabricaot.launcher.smoke</string>
+            <key>CFBundleName</key><string>FabricAOT</string>
+            <key>CFBundleShortVersionString</key><string>0.1</string>
+            <key>CFBundleVersion</key><string>1</string>
+            <key>MinimumOSVersion</key><string>17.0</string>
+            <key>UILaunchScreen</key><dict/>
+            <key>UISupportedInterfaceOrientations</key>
+            <array>
+              <string>UIInterfaceOrientationLandscapeLeft</string>
+              <string>UIInterfaceOrientationLandscapeRight</string>
+            </array>
+            <key>UIApplicationSceneManifest</key>
+            <dict><key>UIApplicationSupportsMultipleScenes</key><false/></dict>
+          </dict></plist>
+          PLIST
+          xcrun --sdk iphonesimulator clang \
+            -target arm64-apple-ios17.0-simulator -isysroot "$SDK" \
+            -fobjc-arc -O1 -Wall \
+            -I ios/C0Harness \
+            ios/C0Harness/FAOTControlLayout.m ios/C0Harness/FAOTControlsOverlay.m \
+            ios/C0Harness/FAOTLauncherViewController.m ios/C0Harness/FAOTControlEditorViewController.m \
+            tests/launcher_smoke_main.m \
+            -framework UIKit -framework Foundation -framework CoreGraphics -framework QuartzCore \
+            -o "$APP/FabricAOT"
+          codesign --force --sign - "$APP"
+          ls -la "$APP"
+
+      - name: Boot simulator and capture the screenshots
+        timeout-minutes: 15
+        run: |
+          set -euxo pipefail
+          # macOS has no coreutils `timeout`; perl's alarm is always present.
+          guard() { local seconds="$1"; shift; perl -e 'alarm shift; exec @ARGV' "$seconds" "$@"; }
+
+          RUNTIME=$(guard 240 xcrun simctl list runtimes available -j | python3 -c 'import json,sys; r=[x["identifier"] for x in json.load(sys.stdin)["runtimes"] if x.get("isAvailable") and "iOS" in x["identifier"]]; print(r[-1] if r else "")')
+          test -n "$RUNTIME"
+          UDID=$(guard 240 xcrun simctl create FabricAOTShot com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro "$RUNTIME")
+          echo "UDID=$UDID" >> "$GITHUB_ENV"
+          guard 120 xcrun simctl boot "$UDID" || true
+          guard 360 xcrun simctl bootstatus "$UDID" -b || true
+          xcrun simctl list devices | grep -i fabricaot || true
+          guard 120 xcrun simctl install "$UDID" "$PWD/build/FabricAOT.app"
+
+          echo "== launcher =="
+          guard 60 xcrun simctl launch "$UDID" dev.fabricaot.launcher.smoke
+          sleep 8
+          guard 60 xcrun simctl io "$UDID" screenshot launcher.png || true
+          xcrun simctl terminate "$UDID" dev.fabricaot.launcher.smoke || true
+
+          echo "== editor =="
+          SIMCTL_CHILD_FAOT_SMOKE_MODE=editor guard 60 xcrun simctl launch "$UDID" dev.fabricaot.launcher.smoke || true
+          sleep 8
+          guard 60 xcrun simctl io "$UDID" screenshot editor.png || true
+          ls -la *.png
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launcher-screenshots
+          path: |
+            launcher.png
+            editor.png
+          if-no-files-found: warn

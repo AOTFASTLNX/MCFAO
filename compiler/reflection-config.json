@@ -1,8 +1,70 @@
 [
   {
+    "name": "com.electronwill.nightconfig.toml.TomlFormat"
+  },
+  {
+    "name": "net.caffeinemc.mods.sodium.client.render.chunk.BlockEntityRenderHandlerImpl",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "net.caffeinemc.mods.sodium.client.render.texture.SpriteUtilImpl",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "net.caffeinemc.mods.sodium.client.render.vertex.VertexFormatRegistryImpl",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "net.caffeinemc.mods.sodium.client.render.vertex.serializers.VertexSerializerRegistryImpl",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "squeek.appleskin.gui.AutoConfigIntegration",
+    "allDeclaredConstructors": true,
+    "allPublicConstructors": true,
+    "allDeclaredFields": true,
+    "allPublicFields": true
+  },
+  {
+    "name": "squeek.appleskin.ModConfig",
+    "allDeclaredConstructors": true,
+    "allDeclaredFields": true
+  },
+  {
+    "name": "com.aizistral.nochatreports.common.config.NCRConfigClient",
+    "allDeclaredConstructors": true,
+    "allDeclaredFields": true
+  },
+  {
+    "name": "com.aizistral.nochatreports.common.config.NCRConfigCommon",
+    "allDeclaredConstructors": true,
+    "allDeclaredFields": true
+  },
+  {
+    "name": "com.aizistral.nochatreports.common.config.NCRServerPreferences",
+    "allDeclaredConstructors": true,
+    "allDeclaredFields": true
+  },
+  {
+    "name": "com.aizistral.nochatreports.common.config.JSONConfig",
+    "allDeclaredFields": true
+  },
+  {
+    "name": "com.aizistral.nochatreports.common.core.SigningMode",
+    "allDeclaredFields": true
+  },
+  {
     "name": "java.io.File",
     "allDeclaredConstructors": true,
     "allPublicConstructors": true
+  },
+  {
+    "name": "net.minecraft.world.level.block.state.BlockBehaviour$BlockStateBase",
+    "fields": [
+      {
+        "name": "cache"
+      }
+    ]
   },
   {
     "name": "java.lang.Integer",
@@ -58,17 +120,166 @@
   {
     "name": "com.mojang.authlib.yggdrasil.response.ErrorResponse",
     "fields": [
-      {"name": "path"},
-      {"name": "error"},
-      {"name": "errorMessage"},
-      {"name": "details"}
+      {
+        "name": "path"
+      },
+      {
+        "name": "error"
+      },
+      {
+        "name": "errorMessage"
+      },
+      {
+        "name": "details"
+      }
     ],
     "methods": [
-      {"name": "<init>", "parameterTypes": ["java.lang.String", "java.lang.String", "java.lang.String", "java.util.Map"]},
-      {"name": "path", "parameterTypes": []},
-      {"name": "error", "parameterTypes": []},
-      {"name": "errorMessage", "parameterTypes": []},
-      {"name": "details", "parameterTypes": []}
+      {
+        "name": "<init>",
+        "parameterTypes": [
+          "java.lang.String",
+          "java.lang.String",
+          "java.lang.String",
+          "java.util.Map"
+        ]
+      },
+      {
+        "name": "path",
+        "parameterTypes": []
+      },
+      {
+        "name": "error",
+        "parameterTypes": []
+      },
+      {
+        "name": "errorMessage",
+        "parameterTypes": []
+      },
+      {
+        "name": "details",
+        "parameterTypes": []
+      }
+    ]
+  },
+  {
+    "name": "net.minecraft.world.entity.boss.enderdragon.phases.DragonHoldingPatternPhase",
+    "methods": [
+      {
+        "name": "<init>",
+        "parameterTypes": [
+          "net.minecraft.world.entity.boss.enderdragon.EnderDragon"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "net.minecraft.world.entity.boss.enderdragon.phases.DragonStrafePlayerPhase",
+    "methods": [
+      {
+        "name": "<init>",
+        "parameterTypes": [
+          "net.minecraft.world.entity.boss.enderdragon.EnderDragon"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "net.minecraft.world.entity.boss.enderdragon.phases.DragonLandingApproachPhase",
+    "methods": [
+      {
+        "name": "<init>",
+        "parameterTypes": [
+          "net.minecraft.world.entity.boss.enderdragon.EnderDragon"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "net.minecraft.world.entity.boss.enderdragon.phases.DragonLandingPhase",
+    "methods": [
+      {
+        "name": "<init>",
+        "parameterTypes": [
+          "net.minecraft.world.entity.boss.enderdragon.EnderDragon"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "net.minecraft.world.entity.boss.enderdragon.phases.DragonTakeoffPhase",
+    "methods": [
+      {
+        "name": "<init>",
+        "parameterTypes": [
+          "net.minecraft.world.entity.boss.enderdragon.EnderDragon"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "net.minecraft.world.entity.boss.enderdragon.phases.DragonSittingFlamingPhase",
+    "methods": [
+      {
+        "name": "<init>",
+        "parameterTypes": [
+          "net.minecraft.world.entity.boss.enderdragon.EnderDragon"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "net.minecraft.world.entity.boss.enderdragon.phases.DragonSittingScanningPhase",
+    "methods": [
+      {
+        "name": "<init>",
+        "parameterTypes": [
+          "net.minecraft.world.entity.boss.enderdragon.EnderDragon"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "net.minecraft.world.entity.boss.enderdragon.phases.DragonSittingAttackingPhase",
+    "methods": [
+      {
+        "name": "<init>",
+        "parameterTypes": [
+          "net.minecraft.world.entity.boss.enderdragon.EnderDragon"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "net.minecraft.world.entity.boss.enderdragon.phases.DragonChargePlayerPhase",
+    "methods": [
+      {
+        "name": "<init>",
+        "parameterTypes": [
+          "net.minecraft.world.entity.boss.enderdragon.EnderDragon"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "net.minecraft.world.entity.boss.enderdragon.phases.DragonDeathPhase",
+    "methods": [
+      {
+        "name": "<init>",
+        "parameterTypes": [
+          "net.minecraft.world.entity.boss.enderdragon.EnderDragon"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "net.minecraft.world.entity.boss.enderdragon.phases.DragonHoverPhase",
+    "methods": [
+      {
+        "name": "<init>",
+        "parameterTypes": [
+          "net.minecraft.world.entity.boss.enderdragon.EnderDragon"
+        ]
+      }
     ]
   }
 ]

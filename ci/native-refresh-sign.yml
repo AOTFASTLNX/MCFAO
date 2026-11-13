@@ -1,0 +1,61 @@
+name: native-refresh-sign
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        required: true
+        description: Trusted artifact URL for the verified base IPA
+      base_source:
+        required: true
+        description: Exact source commit used for its AOT and graphics libraries
+      source_ref:
+        required: true
+        description: Exact organization source commit with the launcher changes
+permissions:
+  contents: read
+jobs:
+  refresh:
+    runs-on: macos-15
+    timeout-minutes: 20
+    outputs:
+      source: ${{ inputs.source_ref }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: AOTFASTLNX/MCFAO
+          ref: ${{ inputs.source_ref }}
+      - name: Rebuild the real launcher using verified runtime libraries
+        id: native
+        env:
+          BASE_IPA_URL: ${{ inputs.base_url }}
+          BASE_SOURCE_REF: ${{ inputs.base_source }}
+        run: bash ci/refresh_launcher.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-native-refresh
+          path: ${{ steps.native.outputs.unsigned }}
+          if-no-files-found: error
+  sign:
+    runs-on: ubuntu-latest
+    needs: refresh
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: unsigned-native-refresh
+      - name: Sign for the existing device
+        env:
+          CERT_PASSWORD: ${{ secrets.P12_PASSWORD }}
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 -o zsign.tgz https://github.com/zhlynn/zsign/releases/download/v1.1.3/zsign-linux-x86_64.tar.gz
+          tar -xzf zsign.tgz
+          chmod +x zsign
+          ./zsign -k cert.p12 -p "$CERT_PASSWORD" -m profile.mobileprovision -b app.badger212.aries5602 -o signed.ipa unsigned.ipa
+          sha256sum signed.ipa
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signed-native-refresh
+          path: signed.ipa
+          if-no-files-found: error

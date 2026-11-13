@@ -80,6 +80,7 @@ int glfwGetInputMode(GLFWwindow *, int);
 void glfwSetInputMode(GLFWwindow *, int, int);
 int glfwRawMouseMotionSupported(void);
 int glfwGetKey(GLFWwindow *, int);
+int glfwGetMouseButton(GLFWwindow *, int);
 const char *glfwGetKeyName(int, int);
 void glfwSetCursorPos(GLFWwindow *, double, double);
 void glfwGetCursorPos(GLFWwindow *, double *, double *);

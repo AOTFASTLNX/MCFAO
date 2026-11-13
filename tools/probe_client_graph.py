@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Analyze the real locally owned client entry graph; this is not a game runtime or C0 acceptance."""
 from __future__ import annotations
+import os
 
 import argparse
 import json
@@ -16,6 +17,7 @@ from run_b0_reference import execute, require_run, sandbox_policy
 from client_graph_diagnostics import audit_metadata, parse_time_rss, read_analysis_statistics, summarize_gc_logs
 from graphics_common import bridge_overlays
 from lwjgl_codegen import CALLBACKS
+from config_reflection import reflection_from_jar
 
 def verify_split_runtime_input(candidate: Path)->dict|None:
     manifest=candidate.parent/'result.json'
@@ -42,7 +44,7 @@ def main(argv=None):
     parser.add_argument("--runtime", type=Path, default=ROOT / "artifacts/b1/runtime-ios")
     parser.add_argument("--caps", type=Path, default=ROOT / "artifacts/b1/ios-probe-03/work/caps")
     parser.add_argument("--b1-evidence", type=Path, default=ROOT / "artifacts/evidence/b1-user-device-run-01/result.json")
-    parser.add_argument("--heap-gib", type=int, choices=(6, 8), default=6)
+    parser.add_argument("--heap-gib", type=int, choices=(6, 7, 8, 9), default=6)
     parser.add_argument("--builder-gc", choices=("parallel", "g1"), default="parallel")
     parser.add_argument("--oom-stack", action="store_true", help="Let the build JVM report the first OOM instead of immediately exiting")
     parser.add_argument("--census-agent",type=Path,help="Sandbox-verified first-party Mac JVMTI agent directory")
@@ -152,6 +154,13 @@ def main(argv=None):
                 replaced += 1
         if replaced != 1:
             parser.error("--client-jar replaced %d libraries, expected exactly 1" % replaced)
+        # The merged client jar carries Mixin-transformed copies of library classes (a Mixin may
+        # target a library class, and Fabric API's dimension module does exactly that). Native
+        # Image resolves a duplicated class from the first classpath entry, so the client jar has
+        # to precede the libraries it shadows. No library shares a class file with it otherwise,
+        # which is what makes the position free to choose.
+        libraries.remove(candidate)
+        libraries.insert(0, candidate)
         client_jar_override = {"path": str(candidate), "sha256": sha256(candidate),
                                "original": str(args.client_jar.parent),
                                "note": args.client_jar_note or None}
@@ -159,7 +168,8 @@ def main(argv=None):
     output = args.output.absolute()
     output.mkdir(parents=True, exist_ok=False)
     sources=output/"source"
-    for name in ["probe_client_graph.py","client_graph_diagnostics.py","run_b0_reference.py"]:
+    for name in ["probe_client_graph.py","client_graph_diagnostics.py","run_b0_reference.py",
+                 "config_reflection.py"]:
         sources.mkdir(exist_ok=True)
         shutil.copy2(ROOT/"tools"/name,sources/name)
     work = output / "work"
@@ -282,7 +292,12 @@ def main(argv=None):
             raise RuntimeError("Cannot establish host memory budget")
         result["hostMemory"]={"physicalBytes":int(physical.group(1)), "availablePercent":int(free.group(1)),
                               "heapLimitGiB":args.heap_gib, "check":"preflight only; not an RSS limit"}
-        if args.heap_gib*1024**3 > int(physical.group(1))*0.45 or int(free.group(1)) < (45 if args.heap_gib==8 else 35):
+        # The analysis peaked at 5.9 GiB of a 6 GiB heap (pack-43); packs 61-68 held ~4.96 GB
+        # live under 8 GiB. pack-69 (first pack without Iris) reached 7087M live against a 7337M
+        # old-gen capacity, so 9 GiB is now the working setting. Half of physical memory is the
+        # hard ceiling and 9 GiB is exactly that on an 18 GiB machine; anything larger has to
+        # come with a bigger host, not a bigger flag.
+        if args.heap_gib*1024**3 > int(physical.group(1))*0.50 or int(free.group(1)) < (45 if args.heap_gib==8 else 35):
             raise RuntimeError("Host memory headroom below bounded experiment threshold")
         if shutil.disk_usage(output).free < 8*1024**3:
             raise RuntimeError("Less than 8 GiB free disk headroom")
@@ -301,8 +316,21 @@ def main(argv=None):
         # The sandbox only opens the work directory for reads, so the reflection config is copied in
         # rather than referenced from compiler/ where it is maintained.
         reflection_config = work / "reflection-config.json"
-        shutil.copy2(ROOT / "compiler/reflection-config.json", reflection_config)
-        cmd=[*base,str(executable),"--no-fallback","-O1",f"--parallelism={args.parallelism}",f"-J-Xmx{args.heap_gib}g","-J-XX:-UsePerfData",
+        reflection_entries = json.loads((ROOT / "compiler/reflection-config.json").read_text())
+        inferred = reflection_from_jar(args.client_jar) if args.client_jar else []
+        by_name = {entry["name"]: entry for entry in reflection_entries}
+        for entry in inferred:
+            by_name.setdefault(entry["name"], {}).update(entry)
+        reflection_config.write_text(json.dumps(list(by_name.values()), indent=2) + "\n")
+        result["configurationReflection"] = [entry["name"] for entry in inferred]
+        # Name-based lookups Mods perform at run time. A closed world answers getDeclaredMethod
+        # from metadata only, so these are the members whose absence would look like a missing
+        # method rather than a missing registration.
+        result["reflectiveMembers"] = {
+            entry["name"]: sorted([item["name"] for item in entry.get("methods", ())] +
+                                  [item["name"] for item in entry.get("fields", ())])
+            for entry in inferred if entry.get("methods") or entry.get("fields")}
+        cmd=[*base,str(executable),"--no-fallback","-H:+SharedArenaSupport",os.environ.get("MCFAO_OPT_LEVEL","-O1"),f"--parallelism={args.parallelism}",f"-J-Xmx{args.heap_gib}g","-J-XX:-UsePerfData",
              "-J-Duser.home="+str(work/"home"),"-J-Djava.io.tmpdir="+str(work/"tmp"),"-H:+UnlockExperimentalVMOptions",
              "--shared","--verbose","--diagnostics-mode","-H:+PrintAnalysisStatistics",
              "-H:BuildOutputJSONFile="+str(work/"build-output.json"),
@@ -315,7 +343,7 @@ def main(argv=None):
              # Initialised at build time, that table is serialised into the image heap and the
              # Class-keyed lookups miss at run time, so the client died with
              # "class java.io.File is not a value type" before it ever looked at an asset.
-             "--initialize-at-run-time=net.minecraft,com.mojang,org.lwjgl,com.microsoft,io.netty,joptsimple",
+             "--initialize-at-run-time=net.minecraft,com.mojang,org.lwjgl,com.microsoft,io.netty,joptsimple,fabricaot",
              # Real cause of that message: joptsimple's constructorConverter calls
              # type.getConstructor(String.class) and swallows NoSuchMethodException. Native Image
              # ships no constructor metadata unless asked, so File had none. The config registers it.
@@ -337,8 +365,15 @@ def main(argv=None):
             cmd.insert(cmd.index("-cp"),"-H:JNIConfigurationFiles="+str(jni_config))
         if args.include_game_resources:
             resource_config=work/'game-resources.json'
+            # A root-level `*.toml` is a Mod's bundled default config: ForgeConfigAPIPort reads its
+            # own one through `Class.getResourceAsStream` and copies it into the game directory on
+            # first run, and `requireNonNull` makes a missing entry fatal. The OOM bisection
+            # cleared this pattern of suspicion: it died with and without it. What actually
+            # fixed the heap was narrowing the JAR resource merge (see AotExport), not this
+            # list - one root toml is kilobytes.
             resource_config.write_text(json.dumps({'resources':{'includes':[{'pattern':p} for p in
-                (r'assets/.*',r'data/.*',r'pack\.mcmeta',r'version\.json',r'com/ibm/icu/impl/data/.*')]}} ,indent=2)+'\n')
+                (r'assets/.*',r'data/.*',r'pack\.mcmeta',r'version\.json',r'com/ibm/icu/impl/data/.*',
+                 r'[^/]+\.toml')]}} ,indent=2)+'\n')
             cmd.insert(cmd.index('-cp'),'-H:ResourceConfigurationFiles='+str(resource_config))
             result['gameResourceConfigurationSHA256']=sha256(resource_config)
         if args.builder_gc=="g1":

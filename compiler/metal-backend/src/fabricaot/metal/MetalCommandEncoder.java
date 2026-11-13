@@ -8,7 +8,7 @@ import com.mojang.blaze3d.systems.*;
 import com.mojang.blaze3d.textures.*;
 import org.lwjgl.system.MemoryUtil;
 
-/** Transfers synchronize shared storage before CPU access. Game draw pipelines remain explicit. */
+/** Buffer contents are CPU-owned; GPU texture readback completes before updating them. */
 final class MetalCommandEncoder implements CommandEncoderBackend {
     private final MetalDevice device;
     MetalCommandEncoder(MetalDevice device){this.device=device;}
@@ -32,12 +32,32 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
             MetalNative.clearRectangle(device.context,c.handle,argb,d.handle,value,x,y,width,height);
         }
     }
+    private void prepareCpuWrite(MetalDevice.MetalBuffer buffer){
+        // No GPU read has been encoded since this storage was created/renamed or
+        // the last global completion. Repeated CPU writes can safely reuse it.
+        if(!device.bufferHazards.needsProtection(buffer.hazard)){
+            device.recordBufferWrite(false,false);return;
+        }
+        device.recordBufferWrite(true,buffer.size()>64*1024);
+        // Small buffers are CPU-written and GPU-read. Give each write its own
+        // backing storage so already-encoded draws keep their original data.
+        // Large buffers retain the bounded-memory synchronous path.
+        if(buffer.size()<=64*1024){
+            long previous=buffer.handle;
+            long replacement=MetalNative.cloneBuffer(device.context,previous,buffer.size());
+            if(replacement!=0){
+                buffer.handle=replacement;
+                device.bufferHazards.renamed(buffer.hazard);
+                MetalNative.release(previous);
+            }else device.waitForGpu();
+        }else device.waitForGpu();
+    }
     public void writeToBuffer(GpuBufferSlice slice,ByteBuffer data){
         device.outsidePass();MetalDevice.MetalBuffer buffer=device.buffer(slice.buffer());
         TextureSpec.range(buffer.size(),slice.offset(),slice.length());
         if(data.remaining()>slice.length())throw new IllegalArgumentException("Write exceeds buffer slice");
         if(buffer.mappings!=0)throw new IllegalStateException("Writing a mapped buffer");
-        MetalNative.synchronize(device.context);
+        prepareCpuWrite(buffer);
         MemoryUtil.memByteBuffer(MetalNative.bufferAddress(buffer.handle)+slice.offset(),data.remaining()).put(data.duplicate());
     }
     public GpuBuffer.MappedView mapBuffer(GpuBufferSlice slice,boolean read,boolean write){
@@ -45,7 +65,10 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         if(!read&&!write)throw new IllegalArgumentException("Map must allow read or write");
         TextureSpec.range(buffer.size(),slice.offset(),slice.length());
         if(slice.length()>Integer.MAX_VALUE||buffer.mappings!=0)throw new IllegalStateException("Buffer map too large or already mapped");
-        MetalNative.synchronize(device.context);
+        // All GPU buffer uses in this backend are reads. Texture readback waits for
+        // its staging transfer and performs the destination update on this thread.
+        // Consequently CPU reads need no GPU wait; writes still preserve in-flight data.
+        if(write)prepareCpuWrite(buffer);
         ByteBuffer bytes=MemoryUtil.memByteBuffer(MetalNative.bufferAddress(buffer.handle)+slice.offset(),(int)slice.length()).order(ByteOrder.nativeOrder());
         ByteBuffer view=write?bytes:bytes.asReadOnlyBuffer().order(ByteOrder.nativeOrder());buffer.mappings++;
         return new GpuBuffer.MappedView(){private boolean closed;
@@ -58,7 +81,9 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         if(source.length()>destination.length())throw new IllegalArgumentException("Copy exceeds destination slice");
         TextureSpec.range(s.size(),source.offset(),source.length());TextureSpec.range(d.size(),destination.offset(),source.length());
         if(s.mappings!=0||d.mappings!=0)throw new IllegalStateException("Copy uses mapped buffer");
-        MetalNative.synchronize(device.context);
+        // The source is CPU-owned; snapshot the destination before CPU memmove so
+        // pending GPU readers keep the previous contents. This also covers s == d.
+        prepareCpuWrite(d);
         org.lwjgl.system.libc.LibCString.nmemmove(MetalNative.bufferAddress(d.handle)+destination.offset(),MetalNative.bufferAddress(s.handle)+source.offset(),source.length());
     }
     public void writeToTexture(GpuTexture texture,ByteBuffer source,NativeImage.Format format,int mip,int layer,int x,int y,int width,int height){
@@ -83,6 +108,7 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         long bytes=Math.multiplyExact(Math.multiplyExact((long)width,height),t.getFormat().pixelSize());TextureSpec.range(b.size(),offset,bytes);
         if(b.mappings!=0)throw new IllegalStateException("Readback destination is mapped");
         MetalNative.readTexture(device.context,t.handle,mip,x,y,width,height,b.handle,offset);
+        device.bufferHazards.completed();
         // The initial transfer path waits for completion; callbacks execute on the caller's game thread.
         callback.run();
     }
