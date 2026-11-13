@@ -35,6 +35,12 @@ is compiled for physical iOS devices only; simulator builds do not emit `MetalPr
 Counters do not modify game
 rendering, world state or GPU synchronization.
 
+For local analysis, `python tools/summarize_metal_perf.py <log-or-zip> --discard 2 --last 3`
+selects the newest `c0-logs/run-<timestamp>.log` in a ZIP without extracting saves or uploading
+anything. Discard startup windows only after checking their timing; submitted and presented
+windows are independent. It preserves per-window P95/P99 instead of averaging them. The tool
+labels pre-instrumentation waits as combined and old zero GPU timings as unavailable.
+
 ## Completed validation and delivery
 
 - Native code at b28d508 passes device/simulator compilation, the Metal GPU snapshot lifetime regression, and existing graphics/input/C0 tests. Launcher/editor simulator screenshots were captured and inspected; the landscape layout now keeps the launch action and settings visible together.
