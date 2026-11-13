@@ -15,13 +15,23 @@ Apple references:
 
 ## Native timing telemetry
 
-Every 300 successfully presented frames, `[MetalPerf]` reports mean presentation interval,
-CPU submit-wait, drawable acquisition wait, GPU time for the final graphics command buffer,
-shared/private texel bindings per frame, and CPU time blocked on fallback uploads. Values are
-milliseconds per presented frame unless they are binding counts. The initial window includes
-loading; compare warmed-up windows in the same world/settings. Final-command GPU timing is
-not total GPU workload, and presentation interval includes pacing/GC and background pauses.
-These counters make bottlenecks inspectable without asking the user to transcribe F3 numbers.
+The earlier `final_command_gpu_ms` was sampled immediately after commit, before Metal's GPU
+timestamps are valid. Old zero values are therefore unavailable measurements, not proof that
+the GPU was idle. The old `submit_wait_ms` combined command completion and frame-slot waits.
+
+`[MetalPerf]` reports every 300 submissions: submission interval; CPU command-completion,
+frame-slot, drawable-acquisition and fence wait separately; completed command-buffer GPU time
+summed per submitted frame; command counts and unavailable timestamps; texel bindings and
+upload waits; and snapshot counts/fallbacks. The GPU sum is sampled on completion and may span
+adjacent reporting windows; it is not an end-to-end frame time, GPU utilization or a substitute
+for a Metal System Trace. CPU/GPU work can overlap and their durations must not be added.
+
+`[MetalPresented]` reports actual drawable presentation timestamps in independent windows of
+300 valid intervals: real presentation FPS, mean, P95 and P99 interval, and invalid, dropped
+or out-of-order callbacks observed in the window. Background pauses and loading are included;
+compare only equivalent warmed-up scenes and record thermal state, settings and duration.
+Zero presentation timestamps are not counted as displayed frames. Counters do not modify game
+rendering, world state or GPU synchronization.
 
 ## Completed validation and delivery
 

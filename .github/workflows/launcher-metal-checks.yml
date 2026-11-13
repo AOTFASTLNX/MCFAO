@@ -33,6 +33,10 @@ jobs:
         run: |
           clang -fobjc-arc tests/metal_snapshot_test.m -framework Foundation -framework Metal -o /tmp/metal-snapshot
           /tmp/metal-snapshot
+      - name: Verify presentation interval statistics
+        run: |
+          clang -std=c11 -Wall -Wextra -Werror -Iios/metal-bridge tests/perf_window_test.c -o /tmp/perf-window
+          /tmp/perf-window
       - name: Graphics and input regression tests
         run: |
           python3 -m unittest discover -s tests -p test_graphics_bridge.py -v
