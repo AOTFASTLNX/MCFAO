@@ -1,7 +1,8 @@
 # OpenGL 4.1 renderer on iOS (experimental)
 
-Status: **CODE INTEGRATED, BUILD AND DEVICE ACCEPTANCE PENDING**. This document describes the
-`FAOT_RENDERER=gl41` build profile. It is not evidence that the renderer runs or is faster.
+Status: **BUILD PASSED (vanilla client), DEVICE ACCEPTANCE PENDING**. This document describes the
+`FAOT_RENDERER=gl41` build profile. It is not evidence that the renderer runs on a device or is
+faster than the native Metal path.
 
 ## Why a translation stack is required
 
@@ -46,3 +47,20 @@ FAOT_RENDERER=gl41 FAOT_BUILD_LOADER=vanilla bash ci/build_mac.sh
 ```
 
 The resulting unsigned IPA is exported by the existing `tools/package_unsigned_ipa.py` step.
+
+## Build record: GL41 v1 (2026-11-14)
+
+- CircleCI job 104 (`build/gl41-renderer-2026-11-14`, source `79f3032`): **success**.
+- Stage 3a GLFW host state fixture: PASS. Stage 3c2: runtime fetched and verified; GL shim built
+  with 2,236 JNI exports (554,808 bytes). Stage 3d/3e: shader and Metal/OpenAL inputs built.
+- Stage 4d native-image analysis: 6m21s, object 168,365,440 bytes. Stage 4e link: only the
+  pre-existing `OperatingSystemImpl.initialize0` JDK management native was stubbed; no GL symbols
+  were stubbed. Stage 4g Xcode build: `BUILD SUCCEEDED`.
+- Unsigned IPA: `FabricAOT-game.ipa`, 441,611,541 bytes, SHA-256
+  `a4bf4e223b44f918ca954fcd670b5e35275a75f92f20998136a41e7feaf1b683`.
+- Package audit: `client-graph.dylib` contains `GlBackend`/`GlDevice` and no `MetalBackend`;
+  `liblwjgl_opengl.dylib` depends on `@rpath/libOSMesa.8.dylib` and exports the generated GL JNI
+  entries; `libOSMesa.8.dylib` and `libMoltenVK.dylib` are in `Payload/C0Harness.app/Frameworks`.
+- This is the **vanilla** 26.1.2 client. Fabric Recollection3 is still blocked by the separate
+  transformation exclusions documented in `RECOLLECTION3_CI_STATUS.md`; Sodium now has a renderer
+  path, but the remaining dynamic-class/native mods are not yet supported.
