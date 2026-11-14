@@ -32,7 +32,7 @@ log "host: $(uname -m) ${MEM} GiB, $(xcodebuild -version | head -1), workdir $WO
 # ---------------------------------------------------------------- sources
 log "fetch sources (public, commit-pinned; no token)"
 if [ ! -d repo/.git ]; then
-  git clone --depth 1 "$CI_REPO" repo
+  git clone --depth 1 --branch "$SOURCE_REF" "$CI_REPO" repo
 fi
 if [ ! -d src/.git ]; then
   git clone --depth 1 --branch "$SOURCE_REF" "$UPSTREAM" src
@@ -160,6 +160,10 @@ time python3 -B tools/split_methods.py \
   --tool artifacts/compiler/method-splitter-01 \
   --min-sites 200 --target-sites 64 --max-parts 64 --trigger-cost 50000 \
   --classpath-file /tmp/cp.txt
+
+log "verify: interface class files remain unchanged after splitting"
+python3 -B "$WORK/repo/ci/verify_interface_classes.py" \
+  artifacts/ci/mc/meta/versions/26.1.2/26.1.2.jar artifacts/ci/client-split.jar
 
 DUMP="$WORK/repo/ci/classdump.py"
 if [ -f "$DUMP" ]; then
