@@ -13,7 +13,7 @@ struct GLFWcursor { int shape; };
 struct GLFWwindow {
     void *surface;
     int width, height, pixelWidth, pixelHeight, close, focus, cursorMode, ime;
-    int glContext, swapInterval;
+    int glContext, swapInterval, wantsGL;
     double cursorX, cursorY;
     GLFWmonitor *monitor;
     GLFWwindowposfun pos; GLFWwindowsizefun size; GLFWframebuffersizefun framebuffer;
@@ -121,6 +121,7 @@ GLFWwindow *glfwCreateWindow(int width, int height, const char *title, GLFWmonit
     GLFWwindow *w = calloc(1, sizeof *w);
     if (!w) { fail(GLFW_PLATFORM_ERROR, "window allocation failed"); return NULL; }
     w->width=width; w->height=height; w->monitor=m; w->cursorMode=GLFW_CURSOR_NORMAL; w->focus=1;
+    w->wantsGL=(clientAPI!=GLFW_NO_API);
     pthread_mutex_lock(&mutex); live=w; pthread_mutex_unlock(&mutex);
     w->surface=faot_surface_create(w, &w->width, &w->height, &w->pixelWidth, &w->pixelHeight);
     if (!w->surface) {
@@ -229,6 +230,7 @@ void glfwMakeContextCurrent(GLFWwindow *w) {
     if(!w){current=NULL;return;}
     if(!valid(w))return;
     current=w;
+    if(!w->wantsGL)return;
     if(w->glContext)return;
     if(w->surface && faot_gl41_make_current(w->surface,w->pixelWidth,w->pixelHeight))w->glContext=1;
     else fail(GLFW_API_UNAVAILABLE,"OpenGL 4.1 context unavailable");
@@ -236,7 +238,8 @@ void glfwMakeContextCurrent(GLFWwindow *w) {
 GLFWwindow *glfwGetCurrentContext(void) { return current==live?current:NULL; }
 void glfwSwapBuffers(GLFWwindow *w) {
     if(!valid(w))return;
-    if(!w->glContext){fail(GLFW_API_UNAVAILABLE,"no OpenGL context to present");return;}
+    if(!w->wantsGL){fail(GLFW_API_UNAVAILABLE,"Metal presentFrame must present the drawable, not glfwSwapBuffers");return;}
+    if(!w->glContext){fail(GLFW_API_UNAVAILABLE,"OpenGL context was not created");return;}
     if(w->pixelWidth!=0 && w->pixelHeight!=0)faot_gl41_make_current(w->surface,w->pixelWidth,w->pixelHeight);
     faot_gl41_swap(w->surface);
 }

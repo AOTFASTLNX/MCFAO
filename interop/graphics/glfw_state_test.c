@@ -39,7 +39,12 @@ int main(void){
     const char *error;assert(glfwGetError(&error)==GLFW_NOT_INITIALIZED&&error);
     assert(glfwGetError(&error)==0&&error==NULL);
     assert(glfwInit());
-    assert(!glfwCreateWindow(1,1,"GL is unsupported",NULL,NULL));
+    /* The OpenGL client API is now accepted; its OSMesa context is created lazily by
+       MakeCurrent. An unknown API value still has to fail closed. */
+    window=glfwCreateWindow(1,1,"deferred GL context",NULL,NULL);assert(window);
+    glfwDestroyWindow(window);window=NULL;destroyed=0;
+    glfwWindowHint(GLFW_CLIENT_API,0x9999);
+    assert(!glfwCreateWindow(1,1,"unknown API",NULL,NULL));
     assert(glfwGetError(NULL)==GLFW_API_UNAVAILABLE);
     glfwWindowHint(GLFW_CLIENT_API,GLFW_NO_API);
     window=glfwCreateWindow(100,100,"fixture",NULL,NULL);assert(window);
