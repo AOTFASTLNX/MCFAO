@@ -27,6 +27,9 @@ def main(argv=None):
     required = ("metal", "shaders") if args.renderer == "metal" else ("gl41", "lwjgl_opengl")
     if any(getattr(args, name) is None for name in required):
         parser.error("Missing renderer inputs: " + ", ".join(required))
+    forbidden = ("gl41", "lwjgl_opengl") if args.renderer == "metal" else ("metal", "shaders")
+    if any(getattr(args, name) is not None for name in forbidden):
+        parser.error("Inputs belong to the other renderer: " + ", ".join(forbidden))
     reports = {}
     files = {}
 

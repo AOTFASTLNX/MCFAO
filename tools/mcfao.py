@@ -11,6 +11,7 @@ from pathlib import Path
 import platform
 import plistlib
 import re
+import shutil
 import subprocess
 import sys
 from uuid import uuid4
@@ -45,6 +46,7 @@ CONFIG_PATHS = (
 )
 OPTIONAL_CONFIG_PATHS = {"openjdkSource", "graalSource"}
 BACKEND_TOOLS = (
+    "mcfao", "import_instance",
     "split_methods", "build_method_splitter", "inject_metal_backend", "probe_client_graph",
     "build_ios_runtime", "link_c0_ios", "stage_device_xcode", "graphics_common",
     "stage_game_assets", "run_b0_reference", "capture", "inspect_ios_candidate",
@@ -328,6 +330,8 @@ def loader_client(pipeline, args, config, client, inputs):
         raise ValueError(f"Mod JARs changed after input resolution: {report}")
     if args.prepare_only:
         return client, report
+    if facts.get("excludedMods") or facts.get("retiredJars"):
+        raise ValueError(f"Requested Fabric instance contains excluded Mods; review {report}. Build an explicitly selected subset separately.")
     jar = prepared / "client.jar"
     if facts["status"] != "FABRIC_AOT_INPUT_PREPARED" or sha256(jar) != facts["outputJarSHA256"]:
         raise ValueError(f"Fabric preparation did not yield a verified AOT input: {report}")
@@ -485,7 +489,7 @@ def device_xcode(staged: Path, assets: Path, team: str | None = None, *, rendere
 
 def verify(output: Path, device: str | None) -> dict:
     report = read_json(output / "result.json")
-    if report["target"] != TARGET or report["status"] != "SIGNED_DEVICE_APP":
+    if report["target"] != TARGET or report["status"] not in ("SIGNED_DEVICE_APP", "UNSIGNED_DEVICE_APP"):
         raise ValueError("No completed iPhoneOS app manifest")
     if sha256(output / "inputs.json") != report["inputsSHA256"]:
         raise ValueError("Build input manifest changed")
@@ -502,7 +506,9 @@ def verify(output: Path, device: str | None) -> dict:
     if not app.resolve().is_relative_to(output) or tree_files(app) != report["appFilesSHA256"]:
         raise ValueError(f"Packaged app content differs from the build manifest: {app}")
     logs = output / "verify" / uuid4().hex
-    return app_facts(app, device, logs)
+    if report.get("ipa") and (sha256(Path(report["ipa"])) != report["sha256"] or Path(report["ipa"]).stat().st_size != report["bytes"]):
+        raise ValueError("IPA changed since packaging")
+    return app_facts(app, device, logs, report.get("renderer", "metal"), report["status"] == "SIGNED_DEVICE_APP")
 
 
 def export_ipa(args) -> dict:
@@ -537,7 +543,11 @@ def export_ipa(args) -> dict:
             raise RuntimeError(f"{name} failed. Logs: {log}")
 
     archive = output / "WorldDevice.xcarchive"
-    step("archive", [*device_xcode(staged, assets), "-derivedDataPath", output / "DerivedData",
+    renderer = manifest.get("renderer", "metal")
+    bundle_id = evidence.get("bundleID", BUNDLE_IDENTIFIER)
+    seed = build / "instance-seed"
+    step("archive", [*device_xcode(staged, assets, renderer=renderer, bundle_id=bundle_id),
+                     *([f"FAOT_INSTANCE_DATA_DIR={seed}"] if seed.is_dir() else []), "-derivedDataPath", output / "DerivedData",
                      "-archivePath", archive, "archive"])
     step("export-log", ["/usr/bin/xcodebuild", "-exportArchive", "-archivePath", archive,
                         "-exportOptionsPlist", options, "-exportPath", output / "export"])
@@ -550,13 +560,31 @@ def export_ipa(args) -> dict:
     apps = list((unpacked / "Payload").glob("*.app"))
     if len(apps) != 1:
         raise ValueError("Expected one exported iPhoneOS app")
-    validate_package(apps[0], staged, evidence["assetsSHA256"])
+    validate_package(apps[0], staged, evidence["assetsSHA256"], renderer)
     result = {"status": "DEVELOPMENT_IPA_VERIFIED", "target": TARGET, "ipa": str(ipa),
               "sha256": sha256(ipa), "bytes": ipa.stat().st_size, "build": str(build),
               "exportOptionsSHA256": sha256(options),
-              "verification": app_facts(apps[0], args.device, output / "verify")}
+              "renderer": renderer, "sourceCommit": manifest.get("sourceCommit"),
+              "verification": app_facts(apps[0], args.device, output / "verify", renderer)}
     write_json(output / "result.json", result)
     return result
+
+
+def instance_files(root):
+    """Require the exact first-party import manifest; never stage accounts or saves."""
+    from preflight import safe_archive_path
+    root = Path(root).resolve()
+    manifest = read_json(root / "import.json")
+    files = tree_files(root)
+    declared = manifest["files"]
+    if set(files) != set(declared) | {"import.json"}:
+        raise ValueError("Imported instance contains undeclared files")
+    for name, facts in declared.items():
+        if not safe_archive_path(name) or (name != "options.txt" and name.split("/", 1)[0] not in ("mods", "config", "resourcepacks")):
+            raise ValueError("Unsafe imported instance file")
+        if files[name] != facts["sha256"] or (root / name).stat().st_size != facts["bytes"]:
+            raise ValueError("Imported instance changed: " + name)
+    return files
 
 
 def build(args, config):
@@ -574,6 +602,12 @@ def build(args, config):
         manifest.update({"unsigned": getattr(args, "unsigned", False), "bundleID": getattr(args, "bundle_id", BUNDLE_IDENTIFIER),
                          "heapGiB": getattr(args, "heap_gib", 9), "parallelism": getattr(args, "parallelism", 4)})
         manifest["loader"] = args.loader
+        instance = getattr(args, "instance_data", None)
+        if instance:
+            instance = instance.resolve()
+            if args.loader != "fabric" or args.mods.resolve() != instance / "mods":
+                raise ValueError("Imported instance requires Fabric and its matching mods directory")
+            manifest["instanceSHA256"] = instance_files(instance)
         if args.loader == "fabric":
             lock = read_json(ROOT / "compiler/fabric.lock.json")
             manifest["fabricLoaderVersion"] = lock["fabricLoader"]
@@ -656,10 +690,24 @@ def build(args, config):
               for argument in ("--lwjgl-opengl" if name == "lwjglOpengl" else f"--{name}", config[name])),
             "--renderer", renderer,
             "--output", "{product}"))
+        seed = None
+        if instance:
+            if instance_files(instance) != manifest["instanceSHA256"]:
+                raise ValueError("Imported instance changed during build")
+            seed = output / "instance-seed"
+            seed.mkdir(exist_ok=True)
+            for directory in ("config", "resourcepacks"):
+                if (instance / directory).is_dir():
+                    shutil.copytree(instance / directory, seed / directory, dirs_exist_ok=True)
+            if (instance / "options.txt").is_file():
+                shutil.copy2(instance / "options.txt", seed / "options.txt")
         app = pipeline.step("package", [
-            *device_xcode(staged, config["assets"], renderer=renderer, unsigned=manifest["unsigned"], bundle_id=manifest["bundleID"]), "-derivedDataPath", "{product}", "build"],
+            *device_xcode(staged, config["assets"], renderer=renderer, unsigned=manifest["unsigned"], bundle_id=manifest["bundleID"]),
+            *([f"FAOT_INSTANCE_DATA_DIR={seed}"] if seed else []), "-derivedDataPath", "{product}", "build"],
             outputs=lambda attempt: attempt / "product/Build/Products/World Device-iphoneos/C0Harness.app")
         validate_package(app, staged, manifest["assetsSHA256"], renderer)
+        if seed and tree_files(seed) != tree_files(app / "instance-seed"):
+            raise ValueError("Packaged instance seed changed")
         facts = app_facts(app, args.device, output / "verify" / uuid4().hex, renderer, not manifest["unsigned"])
         ipa = output / "FabricAOT-game.ipa"
         with zipfile.ZipFile(ipa, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=1) as archive:
@@ -695,6 +743,7 @@ def main(argv=None):
     compile_command.add_argument("--loader", choices=("vanilla", "fabric"), required=True)
     compile_command.add_argument("--config", type=Path, required=True)
     compile_command.add_argument("--mods", type=Path)
+    compile_command.add_argument("--instance-data", type=Path, help="Verified first-party import root; seed config/resourcepacks without overwriting device files")
     compile_command.add_argument("--renderer", choices=("metal", "gl41"), default=os.environ.get("FAOT_RENDERER", "metal"))
     compile_command.add_argument("--unsigned", action="store_true")
     compile_command.add_argument("--bundle-id", default=BUNDLE_IDENTIFIER)

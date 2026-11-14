@@ -107,7 +107,7 @@ def needs_reference_remapping(archive, name):
 
 
 def mod_files(directory):
-    jars = sorted(directory.glob("*.jar"))
+    jars = sorted(p for p in directory.iterdir() if p.suffix.lower() == ".jar")
     if not jars or any(p.is_symlink() or not p.is_file() for p in jars):
         raise ValueError("Expected regular local .jar files in --mods")
     if len(jars) > 128:

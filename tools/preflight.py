@@ -346,7 +346,7 @@ def scan_pack(path: Path) -> dict:
             if selected.is_symlink() or not selected.resolve().is_relative_to(root):
                 findings.append(finding("error", "UNSAFE_MOD_DIRECTORY", str(selected)))
             else:
-                jar_paths = sorted(selected.glob("*.jar"))
+                jar_paths = sorted(p for p in selected.iterdir() if p.suffix.lower() == ".jar")
                 if len(jar_paths) > 2500:
                     findings.append(finding("error", "TOO_MANY_MODS", str(len(jar_paths))))
                     jar_paths = jar_paths[:2500]

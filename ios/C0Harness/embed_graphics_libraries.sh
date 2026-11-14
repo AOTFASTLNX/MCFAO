@@ -1,4 +1,7 @@
 set -eu
+if [ -n "${FAOT_INSTANCE_DATA_DIR:-}" ]; then
+  /usr/bin/ditto "$FAOT_INSTANCE_DATA_DIR" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/instance-seed"
+fi
 if [ -n "${FAOT_GAME_ASSETS_DIR:-}" ]; then
   if [ "${PLATFORM_NAME:-}" != iphoneos ] || [ "${TARGET_DEVICE_PLATFORM_NAME:-iphoneos}" != iphoneos ]; then
     echo "error: WorldDevice requires an iPhone device destination." >&2
