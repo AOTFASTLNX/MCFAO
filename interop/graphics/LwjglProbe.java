@@ -31,7 +31,11 @@ public final class LwjglProbe {
         glfwSetErrorCallback(error);
         if(!glfwInit())throw new AssertionError("init");
         glfwDefaultWindowHints();
-        if(glfwCreateWindow(10,10,"reject GL",0,0)!=0)throw new AssertionError("GL incorrectly accepted");
+        long glWindow=glfwCreateWindow(10,10,"deferred GL41 context",0,0);
+        if(glWindow==0)throw new AssertionError("GL41 window rejected before deferred context creation");
+        glfwDestroyWindow(glWindow);
+        glfwWindowHint(GLFW_CLIENT_API,GLFW_OPENGL_ES_API);
+        if(glfwCreateWindow(10,10,"reject GLES",0,0)!=0)throw new AssertionError("unsupported GLES accepted");
         if(errors[0]!=1)throw new AssertionError("native -> Java error callback");
         glfwGetError(null);
         glfwWindowHint(GLFW_CLIENT_API,GLFW_NO_API);

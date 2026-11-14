@@ -39,6 +39,7 @@ static GLFWerrorfun errorCallback;
 static GLFWmonitorfun monitorCallback;
 static int initialized, clientAPI = GLFW_OPENGL_API;
 static double gl41_scale_value(void) {
+    if (live && !live->wantsGL) return 1.0;
     const char *text = getenv("FAOT_GL41_SCALE");
     double value = text ? atof(text) : 0.8;
     if (!(value >= 0.5 && value <= 1.0)) value = 0.8;

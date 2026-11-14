@@ -51,10 +51,7 @@ python3 "$WORK/repo/ci/patch_src.py" src
 # All source changes are CI portability patches, never pushed upstream.
 git -C src diff --stat
 
-mkdir -p .ci/bin
-printf '#!/bin/sh\necho "{}"\n' > .ci/bin/aar
-chmod +x .ci/bin/aar
-export PATH="$WORK/.ci/bin:$PATH"
+# Missing AAR produces pending registration records, never a fake executable.
 
 # some tools spawn an absolute /Applications/Xcode.app
 XC=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1 || true)
@@ -179,6 +176,7 @@ PY
 elif [ "$RENDERER" != "metal" ]; then
   die "Unknown FAOT_RENDERER=$RENDERER"
 fi
+if [ "$RENDERER" = "metal" ]; then
 log "stage 3d: shader toolchain + catalog"
 time python3 -B tools/prepare_shader_toolchain.py --output artifacts/graphics/shader-toolchain-03
 time python3 -B tools/collect_shader_catalog.py --output artifacts/graphics/shader-catalog-03
@@ -187,16 +185,18 @@ time python3 -B tools/build_metal_backend.py --sdk iphoneos \
   --graphics-bridge artifacts/graphics/lwjgl-ios-world-01 \
   --glfw-library artifacts/graphics/glfw-ios-world-01/libglfw.dylib \
   --output artifacts/graphics/metal-ios-world-03
-time python3 -B tools/build_openal_soft.py --sdk iphoneos --output artifacts/graphics/openal-ios-world-01
 log "stage 3f: translate vanilla shaders"
 time python3 -B tools/translate_shaders.py --sdk iphoneos \
   --catalog artifacts/graphics/shader-catalog-03 \
   --toolchain artifacts/graphics/shader-toolchain-03 \
   --output artifacts/graphics/shaders-ios-world-01
 
+fi
+time python3 -B tools/build_openal_soft.py --sdk iphoneos --output artifacts/graphics/openal-ios-world-01
+
 # ---------------------------------------------------------------- stage 4
 log "stage 4a: split methods"
-python3 - <<'PY' > /tmp/cp.txt
+python3 - <<'PY' > "$WORK/cp.txt"
 import json
 prepared = json.load(open("artifacts/b0/prepared-04/result.json", encoding="utf-8"))
 print(":".join(row["path"] for row in prepared["referenceLibraries"]))
@@ -208,7 +208,7 @@ time python3 -B tools/split_methods.py \
   --report artifacts/ci/split-report.json \
   --tool artifacts/compiler/method-splitter-01 \
   --min-sites 200 --target-sites 64 --max-parts 64 --trigger-cost 50000 \
-  --classpath-file /tmp/cp.txt
+  --classpath-file "$WORK/cp.txt"
 
 log "verify: interface class files remain unchanged after splitting"
 python3 -B "$WORK/repo/ci/verify_interface_classes.py" \
@@ -224,7 +224,7 @@ fi
 VERIFY="$WORK/repo/ci/VerifyClasses.java"
 if [ -f "$VERIFY" ]; then
   log "verify: load every class in the split jar with the real JVM"
-  CP=$(cat /tmp/cp.txt)
+  CP=$(cat "$WORK/cp.txt")
   if [ ! -f "$WORK/verify-classes" ]; then
     "$GRAALVM_HOME/bin/javac" -d "$WORK/verify" "$VERIFY"
     cp -R "$WORK/verify" "$WORK/verify-classes" 2>/dev/null || true
@@ -287,15 +287,13 @@ PY
 fi
 
 log "stage 4f: stage WorldDevice inputs"
-python3 -B tools/stage_device_xcode.py \
-  --client artifacts/graphics/main-link-ios-world-01 \
-  --glfw artifacts/graphics/glfw-ios-world-01 \
-  --lwjgl artifacts/graphics/lwjgl-ios-world-01 \
-  --metal artifacts/graphics/metal-ios-world-03 \
-  --openal artifacts/graphics/openal-ios-world-01 \
-  --shaders artifacts/graphics/shaders-ios-world-01 \
-  $(if [ "$RENDERER" = "gl41" ]; then printf '%s' "--gl41 artifacts/graphics/gl41-ios-01 --lwjgl-opengl artifacts/graphics/lwjgl-opengl-ios-01"; fi) \
-  --output artifacts/graphics/world-device-input-02
+STAGE_RENDERER_ARGS=(--renderer "$RENDERER")
+if [ "$RENDERER" = "metal" ]; then
+  STAGE_RENDERER_ARGS+=(--metal artifacts/graphics/metal-ios-world-03 --shaders artifacts/graphics/shaders-ios-world-01)
+else
+  STAGE_RENDERER_ARGS+=(--gl41 artifacts/graphics/gl41-ios-01 --lwjgl-opengl artifacts/graphics/lwjgl-opengl-ios-01)
+fi
+python3 -B tools/stage_device_xcode.py   --client artifacts/graphics/main-link-ios-world-01   --glfw artifacts/graphics/glfw-ios-world-01   --lwjgl artifacts/graphics/lwjgl-ios-world-01   --openal artifacts/graphics/openal-ios-world-01   "${STAGE_RENDERER_ARGS[@]}"   --output artifacts/graphics/world-device-input-02
 
 log "stage 4g: xcodebuild + IPA"
 G=artifacts/graphics
@@ -303,7 +301,7 @@ xcodebuild -project ios/C0Harness/C0Harness.xcodeproj -scheme WorldDevice \
   -configuration "World Device" \
   -destination 'generic/platform=iOS' \
   -derivedDataPath "$G/world-device-01/DerivedData" \
-  CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+  FAOT_RENDERER="$RENDERER" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
   FAOT_GRAPHICS_NATIVE_DIR="$PWD/$G/world-device-input-02" \
   FAOT_CLIENT_LIBRARY="$PWD/$G/world-device-input-02/client-graph.dylib" \
   FAOT_GAME_ASSETS_DIR="$PWD/$G/game-assets-01/assets" \
@@ -322,12 +320,7 @@ cp -R "$APP" dist/Payload/
 # graphics libraries and game resources are required for a standalone build.
 PACKAGE_APP="$(find dist/Payload -maxdepth 1 -type d -name '*.app' -print -quit)"
 test -n "$PACKAGE_APP" || die "missing packaged .app"
-for required in   "$PACKAGE_APP/Frameworks/client-graph.dylib"   "$PACKAGE_APP/Frameworks/libglfw.dylib"   "$PACKAGE_APP/Frameworks/liblwjgl.dylib"   "$PACKAGE_APP/Frameworks/libfaot_metal.dylib"   "$PACKAGE_APP/Frameworks/libopenal.dylib"   "$PACKAGE_APP/assets/indexes/30.json"; do
-  test -s "$required" || die "INCOMPLETE IPA: $required"
-done
-test -d "$PACKAGE_APP/assets/objects" || die "INCOMPLETE IPA: game asset objects missing"
-test -n "$(find "$PACKAGE_APP/assets/objects" -type f -print -quit)" || die "INCOMPLETE IPA: game asset objects empty"
-test -s "$PACKAGE_APP/Frameworks/fabricaot-shaders/index.json" || die "INCOMPLETE IPA: shader index missing"
+python3 -B tools/renderer_profile.py --app "$PACKAGE_APP" --renderer "$RENDERER"
 (cd dist && /usr/bin/zip -qry "$WORK/FabricAOT-game.ipa" Payload)
 unzip -tq "$WORK/FabricAOT-game.ipa" > "$WORK/ipa-zip-test.txt"
 shasum -a 256 "$WORK/FabricAOT-game.ipa" | tee "$WORK/ipa-sha256.txt"

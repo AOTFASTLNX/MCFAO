@@ -14,6 +14,8 @@ import re
 import subprocess
 import sys
 from uuid import uuid4
+import zipfile
+from renderer_profile import config_names, libraries as renderer_libraries, validate_runtime
 
 from bootstrap_toolchain import sha256
 from build_c0_harness import binary_platform, validate_dylib, validate_shader_bundle
@@ -47,7 +49,7 @@ BACKEND_TOOLS = (
     "build_ios_runtime", "link_c0_ios", "stage_device_xcode", "graphics_common",
     "stage_game_assets", "run_b0_reference", "capture", "inspect_ios_candidate",
     "build_c0_harness", "client_graph_diagnostics", "lwjgl_codegen",
-    "config_reflection", "mdaf", "verify_aot_classpath",
+    "config_reflection", "mdaf", "verify_aot_classpath", "patch_gl41_client", "renderer_profile",
 )
 
 
@@ -93,9 +95,11 @@ def toolchain(home: Path) -> dict:
     }
 
 
-def load_config(path: Path) -> dict:
+def load_config(path: Path, renderer: str = "metal") -> dict:
     config = read_json(path)
-    if not set(CONFIG_PATHS) <= config.keys() or config.keys() - set(CONFIG_PATHS) - OPTIONAL_CONFIG_PATHS:
+    required = (set(CONFIG_PATHS) - {"metal", "shaders"}) | set(config_names(renderer))
+    allowed = set(CONFIG_PATHS) | OPTIONAL_CONFIG_PATHS | {"gl41", "lwjglOpengl"}
+    if not required <= config.keys() or config.keys() - allowed:
         raise ValueError("Config requires " + ", ".join(CONFIG_PATHS) + ". Optional paths are openjdkSource and graalSource.")
     return {name: (path.parent / Path(value).expanduser()).resolve(strict=True)
             for name, value in config.items()}
@@ -121,7 +125,7 @@ def asset_files(assets: Path, metadata: Path) -> dict:
     return actual
 
 
-def inputs(config: dict) -> tuple[dict, Path, list[Path]]:
+def inputs(config: dict, renderer: str = "metal") -> tuple[dict, Path, list[Path]]:
     prepared = read_json(config["prepared"] / "result.json")
     if prepared["status"] != "PREPARED":
         raise ValueError("Expected a verified PREPARED client reference")
@@ -161,11 +165,13 @@ def inputs(config: dict) -> tuple[dict, Path, list[Path]]:
         add(config[name])
     # Existing graphics builds are immutable inputs. Their report checks and the target
     # checks are repeated by the packaging step.
-    for name in ("caps", "glfw", "lwjgl", "metal", "openal", "shaders"):
+    for name in ("caps", *config_names(renderer)):
         directory = config[name]
         selected = {"glfw": ["libglfw.dylib"], "lwjgl": ["liblwjgl.dylib"],
                     "metal": ["libfaot_metal.dylib", "metal-backend.jar", "fabricaot-present.metallib"],
-                    "openal": ["libopenal.dylib"], "shaders": []}
+                    "openal": ["libopenal.dylib"], "shaders": [],
+                    "gl41": ["libOSMesa.8.dylib", "libMoltenVK.dylib"],
+                    "lwjglOpengl": ["liblwjgl_opengl.dylib"]}
         if name == "caps":
             files = tree_files(directory)
         else:
@@ -185,17 +191,34 @@ def inputs(config: dict) -> tuple[dict, Path, list[Path]]:
         ["xcrun", "nm", "-gUj", str(glfw_binary)], text=True)))
     if read_json(config["lwjgl"] / "result.json").get("glfwLibrarySHA256") != sha256(glfw_binary):
         raise ValueError("LWJGL overlays were generated against another GLFW library; rebuild LWJGL")
-    validate_shader_bundle(config["shaders"] / "bundle", simulator=False)
+    if renderer == "metal":
+        validate_shader_bundle(config["shaders"] / "bundle", simulator=False)
+    else:
+        from fetch_gl41_runtime import FILES, macho_platform
+        runtime_report = read_json(config["gl41"] / "result.json")
+        if runtime_report.get("status") != "GL41_RUNTIME_FETCHED":
+            raise ValueError("GL41 runtime report is not verified")
+        for row in FILES:
+            binary = config["gl41"] / row["name"]
+            macho_platform(binary)
+            if sha256(binary) != row["sha256"]:
+                raise ValueError("GL41 runtime fingerprint changed: " + str(binary))
     for key, filename, status in (
         ("glfw", "libglfw.dylib", "NATIVE_SUBSET_BUILT"),
         ("lwjgl", "liblwjgl.dylib", "STATIC_JNI_BRIDGE_BUILT"),
         ("metal", "libfaot_metal.dylib", "METAL_BOOTSTRAP_BUILT"),
         ("openal", "libopenal.dylib", "OPENAL_SOFT_BUILT"),
     ):
+        if key not in config_names(renderer):
+            continue
         report = read_json(config[key] / "result.json")
         if (report["status"] != status
                 or validate_dylib(config[key] / filename)["sha256"] != report["binarySHA256"]):
             raise ValueError(f"Invalid graphics input: {config[key] / filename}")
+    if renderer == "gl41":
+        shim = read_json(config["lwjglOpengl"] / "result.json")
+        if shim.get("status") != "LWJGL_OPENGL_SHIM_BUILT" or validate_dylib(config["lwjglOpengl"] / "liblwjgl_opengl.dylib")["sha256"] != shim["binarySHA256"]:
+            raise ValueError("Invalid GL41 JNI shim")
     runtime = config["bootstrapRuntime"]
     add(runtime / "result.json")
     for row in read_json(runtime / "result.json")["archives"].values():
@@ -236,6 +259,8 @@ def inputs(config: dict) -> tuple[dict, Path, list[Path]]:
                     add(file)
     return {
         "schema": 1, "version": VERSION, "loader": "vanilla", "mappingNamespace": "official",
+        "renderer": renderer, "sourceCommit": command("git", "-C", ROOT, "rev-parse", "HEAD"),
+        "sourceDiffSHA256": hashlib.sha256(command("git", "-C", ROOT, "diff", "HEAD", "--").encode()).hexdigest(),
         "target": TARGET, "config": {key: str(p) for key, p in config.items()},
         "toolchain": toolchain(home), "filesSHA256": fingerprints,
         "runtimeSources": {key: str(path) for key, path in sources.items()},
@@ -309,17 +334,14 @@ def loader_client(pipeline, args, config, client, inputs):
     return jar, report
 
 
-def app_facts(app: Path, requested_device: str | None, logs: Path) -> dict:
+def app_facts(app: Path, requested_device: str | None, logs: Path, renderer="metal", signed_app=True) -> dict:
     info = plistlib.loads((app / "Info.plist").read_bytes())
     executable = app / info["CFBundleExecutable"]
     facts = binary_platform(executable)
     if facts["platform"] != "IOS" or command("/usr/bin/lipo", "-archs", executable) != "arm64":
         raise ValueError(f"Expected an arm64 iPhoneOS executable: {facts}")
     libraries = [validate_dylib(path) for path in sorted((app / "Frameworks").glob("*.dylib"))]
-    if {Path(row["path"]).name for row in libraries} != {
-        "client-graph.dylib", "libglfw.dylib", "liblwjgl.dylib", "libopenal.dylib", "libfaot_metal.dylib",
-    }:
-        raise ValueError("Expected the game and all four device graphics/audio libraries")
+    validate_runtime(app, renderer)
     for library in libraries:
         if command("/usr/bin/lipo", "-archs", library["path"]) != "arm64":
             raise ValueError(f"Expected a single arm64 slice: {library['path']}")
@@ -327,6 +349,9 @@ def app_facts(app: Path, requested_device: str | None, logs: Path) -> dict:
     symbols = command("/usr/bin/xcrun", "nm", "-gUj", app / "Frameworks/client-graph.dylib")
     if abi - set(symbols.splitlines()):
         raise ValueError("Packaged image is missing the Native Image entry/isolate ABI")
+    if not signed_app:
+        return {"executable": facts, "libraries": libraries, "bundleID": info["CFBundleIdentifier"],
+                "signature": "UNSIGNED - cannot install directly", "imageExports": sorted(abi), "deviceRun": "NOT RUN"}
     codesign = capture(["/usr/bin/codesign", "--verify", "--deep", "--strict", str(app)],
                        logs / "codesign", 60)
     if codesign["exitCode"] or codesign["timedOut"]:
@@ -362,13 +387,15 @@ def app_facts(app: Path, requested_device: str | None, logs: Path) -> dict:
             "dynamicCodeEntitlements": "ABSENT", "imageExports": sorted(abi), "deviceRun": "NOT RUN"}
 
 
-def validate_package(app, staged, asset_hashes):
+def validate_package(app, staged, asset_hashes, renderer="metal"):
     frameworks = app / "Frameworks"
-    present = "fabricaot-present.metallib"
-    if sha256(frameworks / present) != sha256(staged / present):
-        raise ValueError(f"Packaged resource changed: {present}")
-    if tree_files(frameworks / "fabricaot-shaders") != tree_files(staged / "fabricaot-shaders"):
-        raise ValueError("Packaged shader bundle changed")
+    validate_runtime(app, renderer)
+    if renderer == "metal":
+        present = "fabricaot-present.metallib"
+        if sha256(frameworks / present) != sha256(staged / present):
+            raise ValueError(f"Packaged resource changed: {present}")
+        if tree_files(frameworks / "fabricaot-shaders") != tree_files(staged / "fabricaot-shaders"):
+            raise ValueError("Packaged shader bundle changed")
     if tree_files(app / "assets") != asset_hashes:
         raise ValueError("Packaged game assets changed")
     # Codesign modifies dylib bytes. Compare the Mach-O UUIDs to establish provenance.
@@ -444,13 +471,15 @@ def resolve_development_team(bundle_identifier: str = BUNDLE_IDENTIFIER,
     return team
 
 
-def device_xcode(staged: Path, assets: Path, team: str | None = None) -> list:
-    team = resolve_development_team() if team is None else team
+def device_xcode(staged: Path, assets: Path, team: str | None = None, *, renderer="metal", unsigned=False, bundle_id=BUNDLE_IDENTIFIER) -> list:
+    team = ("" if unsigned else resolve_development_team(bundle_id)) if team is None else team
     return [
         "/usr/bin/xcodebuild", "-project", ROOT / "ios/C0Harness/C0Harness.xcodeproj",
         "-scheme", "WorldDevice", "-destination", "generic/platform=iOS",
         f"FAOT_GRAPHICS_NATIVE_DIR={staged}", f"FAOT_CLIENT_LIBRARY={staged / 'client-graph.dylib'}",
-        f"FAOT_GAME_ASSETS_DIR={assets}", f"DEVELOPMENT_TEAM={team}",
+        f"FAOT_GAME_ASSETS_DIR={assets}", f"DEVELOPMENT_TEAM={team}", f"FAOT_RENDERER={renderer}",
+        f"PRODUCT_BUNDLE_IDENTIFIER={bundle_id}",
+        *(["CODE_SIGNING_ALLOWED=NO", "CODE_SIGNING_REQUIRED=NO"] if unsigned else []),
     ]
 
 
@@ -540,7 +569,10 @@ def build(args, config):
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         if (output / "result.json").exists():
             raise ValueError("Completed build is immutable. Use verify or select a new output.")
-        manifest, client, libraries = inputs(config)
+        renderer = getattr(args, "renderer", "metal")
+        manifest, client, libraries = inputs(config, renderer)
+        manifest.update({"unsigned": getattr(args, "unsigned", False), "bundleID": getattr(args, "bundle_id", BUNDLE_IDENTIFIER),
+                         "heapGiB": getattr(args, "heap_gib", 9), "parallelism": getattr(args, "parallelism", 4)})
         manifest["loader"] = args.loader
         if args.loader == "fabric":
             lock = read_json(ROOT / "compiler/fabric.lock.json")
@@ -573,8 +605,9 @@ def build(args, config):
         home = Path(read_json(config["prepared"] / "result.json")["javaHome"])
         asm = [row["path"] for row in read_json(config["splitter"] / "result.json")["asmJars"]
                if row["name"] in {"asm-9.9.jar", "asm-tree-9.9.jar"}]
-        injected = pipeline.step("metal-injection", script(
-            "inject_metal_backend", "--client", split / "client.jar", "--output", "{product}",
+        gl41 = renderer == "gl41"
+        injected = pipeline.step("gl41-patch" if gl41 else "metal-injection", script(
+            "patch_gl41_client" if gl41 else "inject_metal_backend", "--client", split / "client.jar", "--output", "{product}",
             "--graalvm-home", home, "--asm-jars", *asm))
         tracing_path = None
         if loader_report:
@@ -586,8 +619,8 @@ def build(args, config):
         # host; probe_client_graph.py checks current headroom before analysis starts.
         aot_args = ["--prepared", config["prepared"], "--runtime", config["bootstrapRuntime"],
             "--caps", config["caps"], "--b1-evidence", config["b1Evidence"],
-            "--client-jar", injected / "client-26.1.2-metal.jar", "--graphics-bridge", config["lwjgl"],
-            "--metal-bootstrap", config["metal"], "--full-build", "--relocatable",
+            "--client-jar", injected / ("client.jar" if gl41 else "client-26.1.2-metal.jar"), "--graphics-bridge", config["lwjgl"],
+            *([] if gl41 else ["--metal-bootstrap", config["metal"]]), "--full-build", "--relocatable",
             # pack-60 restored Sodium's real config registration path (9 previously stubbed
             # methods became reachable) and the 7 GiB image builder heap OOMed with 5117M live
             # old-gen against a 5438M old-gen capacity. 8 GiB carried packs 61-68 (live set
@@ -596,7 +629,7 @@ def build(args, config):
             # reclaimed), so the reachable image heap is now above what 8 GiB can hold.
             # 9 GiB is the largest setting the 50%-of-physical-memory ceiling allows on this
             # 18 GiB host; probe_client_graph.py rejects anything larger before analysis starts.
-            "--include-game-resources", "--heap-gib", "9", "--simulator-thread-dumps",
+            "--include-game-resources", "--heap-gib", str(manifest["heapGiB"]), "--parallelism", str(manifest["parallelism"]), "--simulator-thread-dumps",
             "--output", "{product}"]
         if tracing_path:
             aot_args.extend(["--tracing-config", tracing_path])
@@ -619,16 +652,28 @@ def build(args, config):
         validate_dylib(linked / "client-graph.dylib")
         staged = pipeline.step("stage", script(
             "stage_device_xcode", "--client", linked,
-            *(argument for name in ("glfw", "lwjgl", "metal", "openal", "shaders")
-              for argument in (f"--{name}", config[name])),
+            *(argument for name in config_names(renderer)
+              for argument in ("--lwjgl-opengl" if name == "lwjglOpengl" else f"--{name}", config[name])),
+            "--renderer", renderer,
             "--output", "{product}"))
         app = pipeline.step("package", [
-            *device_xcode(staged, config["assets"]), "-derivedDataPath", "{product}", "build"],
+            *device_xcode(staged, config["assets"], renderer=renderer, unsigned=manifest["unsigned"], bundle_id=manifest["bundleID"]), "-derivedDataPath", "{product}", "build"],
             outputs=lambda attempt: attempt / "product/Build/Products/World Device-iphoneos/C0Harness.app")
-        validate_package(app, staged, manifest["assetsSHA256"])
-        facts = app_facts(app, args.device, output / "verify" / uuid4().hex)
+        validate_package(app, staged, manifest["assetsSHA256"], renderer)
+        facts = app_facts(app, args.device, output / "verify" / uuid4().hex, renderer, not manifest["unsigned"])
+        ipa = output / "FabricAOT-game.ipa"
+        with zipfile.ZipFile(ipa, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=1) as archive:
+            for file in sorted(app.rglob("*")):
+                if file.is_file():
+                    archive.write(file, str(Path("Payload") / app.name / file.relative_to(app)))
+        with zipfile.ZipFile(ipa) as archive:
+            if archive.testzip() is not None:
+                raise ValueError("IPA CRC check failed")
         write_json(output / "result.json", {
-            "status": "SIGNED_DEVICE_APP", "target": TARGET, "buildKey": key,
+            "status": "UNSIGNED_DEVICE_APP" if manifest["unsigned"] else "SIGNED_DEVICE_APP", "target": TARGET, "buildKey": key,
+            "renderer": renderer, "sourceCommit": manifest["sourceCommit"],
+            "ipa": str(ipa), "bytes": ipa.stat().st_size, "sha256": sha256(ipa),
+            "signature": "UNSIGNED" if manifest["unsigned"] else "DEVELOPMENT_SIGNED",
             "loader": args.loader, "loaderReport": str(loader_report) if loader_report else None,
             "inputsSHA256": sha256(saved), "aotCommand": str(aot / "analysis/command.json"),
             "linkReport": str(linked / "result.json"), "app": str(app.relative_to(output)),
@@ -644,11 +689,17 @@ def main(argv=None):
     commands = parser.add_subparsers(dest="action", required=True)
     doctor = commands.add_parser("doctor")
     doctor.add_argument("--config", type=Path, required=True)
+    doctor.add_argument("--renderer", choices=("metal", "gl41"), default="metal")
     compile_command = commands.add_parser("build")
     compile_command.add_argument("--version", choices=(VERSION,), required=True)
     compile_command.add_argument("--loader", choices=("vanilla", "fabric"), required=True)
     compile_command.add_argument("--config", type=Path, required=True)
     compile_command.add_argument("--mods", type=Path)
+    compile_command.add_argument("--renderer", choices=("metal", "gl41"), default=os.environ.get("FAOT_RENDERER", "metal"))
+    compile_command.add_argument("--unsigned", action="store_true")
+    compile_command.add_argument("--bundle-id", default=BUNDLE_IDENTIFIER)
+    compile_command.add_argument("--heap-gib", type=int, choices=(6,7,8,9), default=9)
+    compile_command.add_argument("--parallelism", type=int, choices=range(1,9), default=4)
     compile_command.add_argument("--prepare-only", action="store_true",
                                  help="Stop after Fabric metadata inspection or audited transformation")
     compile_command.add_argument("--audited-mods", action="store_true",
@@ -673,12 +724,12 @@ def main(argv=None):
             compile_command.error("Mod options are only valid for Fabric")
     try:
         if args.action == "doctor":
-            config = load_config(args.config.resolve())
-            manifest, client, _ = inputs(config)
+            config = load_config(args.config.resolve(), args.renderer)
+            manifest, client, _ = inputs(config, args.renderer)
             result = {"status": "INPUTS_VERIFIED", "client": str(client),
                       "inputCount": len(manifest["filesSHA256"]), "toolchain": manifest["toolchain"]}
         elif args.action == "build":
-            result = {"manifest": str(build(args, load_config(args.config.resolve())))}
+            result = {"manifest": str(build(args, load_config(args.config.resolve(), args.renderer)))}
         elif args.action == "export":
             result = export_ipa(args)
         else:

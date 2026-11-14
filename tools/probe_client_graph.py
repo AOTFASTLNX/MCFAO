@@ -26,6 +26,14 @@ def verify_split_runtime_input(candidate: Path)->dict|None:
     manifest=candidate.parent/'result.json'
     if not manifest.is_file():return None
     record=json.loads(manifest.read_text())
+    if record.get("status") == "GL41_CLIENT_PATCHED":
+        if sha256(candidate) != record.get("outputJarSHA256"):
+            raise ValueError("GL41 client fingerprint changed")
+        original = Path(record["client"])
+        verified = verify_split_runtime_input(original)
+        if not verified or sha256(original) != record.get("clientSHA256"):
+            raise ValueError("GL41 client split provenance changed")
+        return {"gl41ManifestSHA256": sha256(manifest), "split": verified}
     if record.get('status')=='BACKEND_INJECTED':
         if sha256(candidate)!=record.get('outputJarSHA256'):raise ValueError('Injected client fingerprint changed')
         original=Path(record['client']);verified=verify_split_runtime_input(original)

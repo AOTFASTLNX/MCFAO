@@ -8,7 +8,12 @@ if [ -n "${FAOT_GAME_ASSETS_DIR:-}" ]; then
     echo "error: Verified local Minecraft assets are missing: $FAOT_GAME_ASSETS_DIR" >&2
     exit 1
   fi
-  for name in libglfw.dylib liblwjgl.dylib libfaot_metal.dylib libopenal.dylib fabricaot-present.metallib fabricaot-shaders/index.json; do
+  case "${FAOT_RENDERER:-metal}" in
+    gl41) renderer_files="liblwjgl_opengl.dylib libOSMesa.8.dylib libMoltenVK.dylib" ;;
+    metal) renderer_files="libfaot_metal.dylib fabricaot-present.metallib fabricaot-shaders/index.json" ;;
+    *) echo "error: unknown FAOT_RENDERER" >&2; exit 1 ;;
+  esac
+  for name in libglfw.dylib liblwjgl.dylib libopenal.dylib $renderer_files; do
     if [ ! -f "$FAOT_GRAPHICS_NATIVE_DIR/$name" ]; then
       echo "error: iPhone game input is missing: $FAOT_GRAPHICS_NATIVE_DIR/$name" >&2
       exit 1

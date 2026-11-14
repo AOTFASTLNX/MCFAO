@@ -15,12 +15,18 @@ from graphics_common import register_tree
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    for name in ("client", "glfw", "lwjgl", "metal", "openal", "shaders"):
+    parser.add_argument("--renderer", choices=("metal", "gl41"), default="metal")
+    for name in ("client", "glfw", "lwjgl", "openal"):
         parser.add_argument(f"--{name}", required=True, type=Path, help="Build report directory")
+    for name in ("metal", "shaders"):
+        parser.add_argument(f"--{name}", type=Path, help="Native Metal build report directory")
     parser.add_argument("--gl41", type=Path, help="Verified GL41 runtime (OSMesa/MoltenVK) report directory")
     parser.add_argument("--lwjgl-opengl", type=Path, help="Verified liblwjgl_opengl shim report directory")
     parser.add_argument("--output", type=Path, default=ROOT / "artifacts/graphics/world-device-input-01")
     args = parser.parse_args(argv)
+    required = ("metal", "shaders") if args.renderer == "metal" else ("gl41", "lwjgl_opengl")
+    if any(getattr(args, name) is None for name in required):
+        parser.error("Missing renderer inputs: " + ", ".join(required))
     reports = {}
     files = {}
 
@@ -46,15 +52,18 @@ def main(argv=None):
         (args.metal, "libfaot_metal.dylib", "METAL_BOOTSTRAP_BUILT"),
         (args.openal, "libopenal.dylib", "OPENAL_SOFT_BUILT"),
     ):
+        if directory is None:
+            continue
         report = read_report(directory, {status})
         add(directory / name, report["binarySHA256"], dylib=True)
         if directory == args.metal:
             add(directory / "fabricaot-present.metallib", report["metallibSHA256"])
 
-    read_report(args.shaders, {"VANILLA_SHADERS_PRECOMPILED"})
-    shaders = validate_shader_bundle(args.shaders / "bundle", simulator=False)
-    for name, fingerprint in shaders["filesSHA256"].items():
-        files[f"fabricaot-shaders/{name}"] = Path(shaders["path"]) / name, fingerprint
+    if args.renderer == "metal":
+        read_report(args.shaders, {"VANILLA_SHADERS_PRECOMPILED"})
+        shaders = validate_shader_bundle(args.shaders / "bundle", simulator=False)
+        for name, fingerprint in shaders["filesSHA256"].items():
+            files[f"fabricaot-shaders/{name}"] = Path(shaders["path"]) / name, fingerprint
 
     if args.gl41:
         runtime = read_report(args.gl41, {"GL41_RUNTIME_FETCHED"})
@@ -73,7 +82,7 @@ def main(argv=None):
         shutil.copyfile(source, destination)
         if sha256(destination) != fingerprint:
             raise ValueError(f"Staged copy fingerprint changed: {name}")
-    result = {"status": "WORLD_DEVICE_XCODE_INPUT_STAGED", "reportsSHA256": reports,
+    result = {"status": "WORLD_DEVICE_XCODE_INPUT_STAGED", "renderer": args.renderer, "reportsSHA256": reports,
               "filesSHA256": {name: item[1] for name, item in files.items()}}
     (out / "result.json").write_text(json.dumps(result, indent=2) + "\n")
     register_tree(out, [sys.executable, "-B", str(Path(__file__).resolve()),

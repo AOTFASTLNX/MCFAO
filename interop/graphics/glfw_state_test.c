@@ -22,10 +22,9 @@ void faot_surface_title(void *p,const char *s){(void)p;(void)s;}
 void *faot_surface_layer(void *p){return p;}
 void faot_surface_clipboard_set(const char *s){(void)s;}
 char *faot_surface_clipboard_copy(void){return strdup("fixture");}
-/* The GL41 renderer scales window, framebuffer and cursor coordinates together at 80%.
-   The host fixture pins the default scale and verifies the consistent scaled sizes. */
-static void size(GLFWwindow *w,int a,int b){assert(w==window&&a==312&&b==675);sizes++;}
-static void framebuffer(GLFWwindow *w,int a,int b){assert(w==window&&a==936&&b==2026);pixels++;}
+/* GL41 scales its own window; the native Metal / NO_API surface stays at full resolution. */
+static void size(GLFWwindow *w,int a,int b){assert(w==window&&a==390&&b==844);sizes++;}
+static void framebuffer(GLFWwindow *w,int a,int b){assert(w==window&&a==1170&&b==2532);pixels++;}
 static void focus(GLFWwindow *w,int f){assert(w==window&&f==1);focused++;}
 static void character(GLFWwindow *w,unsigned int c){assert(w==window&&c==0x1f600);chars++;}
 static void destroyOnResize(GLFWwindow *w,int a,int b){(void)a;(void)b;glfwDestroyWindow(w);}
@@ -44,6 +43,9 @@ int main(void){
     /* The OpenGL client API is now accepted; its OSMesa context is created lazily by
        MakeCurrent. An unknown API value still has to fail closed. */
     window=glfwCreateWindow(1,1,"deferred GL context",NULL,NULL);assert(window);
+    int scaledWidth=0,scaledHeight=0;
+    glfwGetWindowSize(window,&scaledWidth,&scaledHeight);assert(scaledWidth==312&&scaledHeight==675);
+    glfwGetFramebufferSize(window,&scaledWidth,&scaledHeight);assert(scaledWidth==936&&scaledHeight==2026);
     glfwDestroyWindow(window);window=NULL;destroyed=0;
     glfwWindowHint(GLFW_CLIENT_API,0x9999);
     assert(!glfwCreateWindow(1,1,"unknown API",NULL,NULL));
@@ -56,7 +58,7 @@ int main(void){
     assert(faot_glfw_enqueue(window,FAOT_EVENT_CHAR,0x1f600,0,0,0));
     glfwPollEvents();assert(sizes==1&&pixels==1&&focused==1&&chars==1);
     glfwPollEvents();assert(sizes==1&&chars==1); /* No invented recurring events. */
-    int a=0,b=0;glfwGetFramebufferSize(window,&a,&b);assert(a==936&&b==2026);
+    int a=0,b=0;glfwGetFramebufferSize(window,&a,&b);assert(a==1170&&b==2532);
     glfwMakeContextCurrent(window);assert(glfwGetCurrentContext()==window);
     GLFWmonitor *m=glfwGetPrimaryMonitor();assert(m);
     glfwSetWindowMonitor(window,m,0,0,1,1,60);assert(glfwGetWindowMonitor(window)==m);
