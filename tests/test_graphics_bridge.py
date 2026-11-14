@@ -147,5 +147,11 @@ class BridgeInputTests(unittest.TestCase):
         with patch.dict(os.environ,{"AAR_HOME":"/private/tmp/private-registry"}):
             with self.assertRaisesRegex(RuntimeError,"central registry"):
                 register_tree(Path("/private/tmp/test-graphics"),["build"])
+    def test_missing_registry_retains_pending_request(self):
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {}, clear=True), patch("graphics_common.subprocess.run", side_effect=FileNotFoundError):
+            result = register_tree(Path(temp), ["build"])
+            self.assertEqual(result["status"], "REGISTRATION_PENDING")
+            self.assertEqual(json.loads((Path(temp) / "registration-pending.json").read_text()), result)
+            self.assertIn("register", result["argv"])
 
 if __name__=="__main__":unittest.main()
