@@ -48,7 +48,7 @@ FAOT_RENDERER=gl41 FAOT_BUILD_LOADER=vanilla bash ci/build_mac.sh
 
 The resulting unsigned IPA is exported by the existing `tools/package_unsigned_ipa.py` step.
 
-## Build record: GL41 v5 (2026-11-14)
+## Build record: GL41 v6 (2026-11-14)
 
 - Device feedback for v2 (`0d9fe55`) showed that OSMesa/Zink/MoltenVK started correctly:
   `GL_VERSION=4.1 (Compatibility Profile) Mesa 25.0.7`, `GL_RENDERER=zink Vulkan 1.4(Apple A18 Pro GPU (MOLTENVK))`.
@@ -74,7 +74,17 @@ The resulting unsigned IPA is exported by the existing `tools/package_unsigned_i
 - Fix: `tools/patch_gl41_client.py` also gives `WaitingForServer` a `tick()` that advances to
   `WaitingForPlayerChunk`, and shortens Minecraft's built-in 30-second chunk wait to 5 seconds.
   The UIKit surface now also accepts a `ForegroundInactive` scene during cold launch.
-- CircleCI job 108 (`build/gl41-renderer-2026-11-14`, source `e7182bc`): **success**. Stage 4b
+- Device feedback on v5 (`e7182bc`) confirmed the world loads and plays, at roughly 48 FPS during
+  the loading screen, but the user reported stutter. The likely contributors were a single present
+  texture overwritten while the GPU was still reading it, and full 2622x1206 shading/readback
+  through Zink.
+- Performance build: present frames rotate across three shared BGRA textures guarded by a
+  three-slot semaphore; the default internal render scale is 0.8, upscaled by a small Metal
+  pipeline with a linear sampler; the render thread requests USER_INTERACTIVE QoS; MoltenVK uses
+  argument buffers and smooth swapchain filtering. `[GL41] perf` reports FPS, `glFinish` time and
+  present time every five seconds. `FAOT_GL41_SCALE` can override the scale (0.5..1.0).
+- CircleCI job 110 (`build/gl41-renderer-2026-11-14`, source `a716aa4` + warning fix `75245a9`):
+  **success**. Stage 4b
   patched exactly `GlDevice.class`, `LevelLoadTracker.class` and
   `LevelLoadTracker$WaitingForServer.class`; GLFW, shim, AOT, link and Xcode build all passed.
 - Stage 3a GLFW host state fixture: PASS. Stage 3c2: runtime fetched and verified; GL shim built
@@ -82,8 +92,8 @@ The resulting unsigned IPA is exported by the existing `tools/package_unsigned_i
 - Stage 4d native-image analysis: 6m21s, object 168,365,440 bytes. Stage 4e link: only the
   pre-existing `OperatingSystemImpl.initialize0` JDK management native was stubbed; no GL symbols
   were stubbed. Stage 4g Xcode build: `BUILD SUCCEEDED`.
-- Unsigned IPA: `FabricAOT-game.ipa`, 466,624,365 bytes, SHA-256
-  `e311a71c83603bf3dbab59e7e9e6bca09fa00e4ab9e318a657e8a77d46e9a621`.
+- Unsigned IPA: `FabricAOT-game.ipa`, 466,641,434 bytes, SHA-256
+  `3920fc001801b3e336114b217da3e91fba8de0beecbae0ed860d3732aa392aeb`.
 - Package audit: `client-graph.dylib` contains `GlBackend`/`GlDevice` and no `MetalBackend`;
   `liblwjgl_opengl.dylib` depends on `@rpath/libOSMesa.8.dylib` and exports the generated GL JNI
   entries; `libOSMesa.8.dylib` and `libMoltenVK.dylib` are in `Payload/C0Harness.app/Frameworks`.
