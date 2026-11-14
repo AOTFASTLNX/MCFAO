@@ -65,6 +65,15 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(mods, [])
         self.assertIn("INVALID_MOD_JAR", [x["code"] for x in findings])
 
+    def test_nonstandard_metadata_rejects_controls_in_execution_fields(self):
+        data = io.BytesIO()
+        with zipfile.ZipFile(data, "w") as z:
+            z.writestr("fabric.mod.json", '{"id":"bad\nid","version":"1","description":"line\nline"}')
+        findings, mods = [], []
+        scan_mod_bytes(data.getvalue(), "sample.jar", findings, mods)
+        self.assertEqual(mods, [])
+        self.assertIn("INVALID_MOD_JAR", [x["code"] for x in findings])
+
     def test_duplicate_jar_entry_is_still_rejected(self):
         import warnings
         data = io.BytesIO()

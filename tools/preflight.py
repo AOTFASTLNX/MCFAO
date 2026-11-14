@@ -198,7 +198,20 @@ def scan_mod_bytes(content: bytes, jar_name: str, findings: list, mods: list):
                     meta = json.loads(raw.decode("utf-8-sig"), strict=False, object_pairs_hook=_json_no_duplicate_keys)
                 except (UnicodeError, ValueError):
                     raise strict_error
-                findings.append(finding("warning", "MOD_METADATA_NONSTANDARD_JSON", f"{jar_name}: unescaped control characters; loader compatibility not verified"))
+                # Match the build-side exception: literal newlines are allowed
+                # only inside the human-readable description, never in IDs,
+                # paths, dependency declarations, or executable metadata.
+                def contains_controls(value):
+                    if isinstance(value, str): return any(ord(c) < 32 for c in value)
+                    if isinstance(value, list): return any(contains_controls(v) for v in value)
+                    if isinstance(value, dict): return any(contains_controls(k) or contains_controls(v) for k, v in value.items())
+                    return False
+                if not isinstance(meta, dict) or not isinstance(meta.get("description"), str):
+                    raise strict_error
+                description = meta["description"].replace("\n", "").replace("\r", "")
+                if contains_controls(description) or any(contains_controls(k) or contains_controls(v) for k, v in meta.items() if k != "description"):
+                    raise strict_error
+                findings.append(finding("warning", "MOD_METADATA_NONSTANDARD_JSON", f"{jar_name}: unescaped line breaks in description; loader compatibility not verified"))
             if not isinstance(meta, dict):
                 raise ValueError("fabric.mod.json must be an object")
             mod_id, version = meta.get("id"), meta.get("version")
