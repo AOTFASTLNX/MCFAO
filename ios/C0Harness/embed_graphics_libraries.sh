@@ -29,6 +29,13 @@ if [ -n "${FAOT_GRAPHICS_NATIVE_DIR:-}" ]; then
       /usr/bin/codesign --force --sign "$EXPANDED_CODE_SIGN_IDENTITY" "$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH/$name"
     fi
   done
+  for name in liblwjgl_opengl.dylib libOSMesa.8.dylib libMoltenVK.dylib; do
+    if [ ! -f "$FAOT_GRAPHICS_NATIVE_DIR/$name" ]; then continue; fi
+    /usr/bin/ditto "$FAOT_GRAPHICS_NATIVE_DIR/$name" "$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH/$name"
+    if [ "${CODE_SIGNING_ALLOWED:-NO}" = YES ] && [ -n "${EXPANDED_CODE_SIGN_IDENTITY:-}" ]; then
+      /usr/bin/codesign --force --sign "$EXPANDED_CODE_SIGN_IDENTITY" "$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH/$name"
+    fi
+  done
   if [ -f "$FAOT_GRAPHICS_NATIVE_DIR/fabricaot-present.metallib" ]; then
     /usr/bin/ditto "$FAOT_GRAPHICS_NATIVE_DIR/fabricaot-present.metallib" "$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH/fabricaot-present.metallib"
   fi

@@ -17,6 +17,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("client", "glfw", "lwjgl", "metal", "openal", "shaders"):
         parser.add_argument(f"--{name}", required=True, type=Path, help="Build report directory")
+    parser.add_argument("--gl41", type=Path, help="Verified GL41 runtime (OSMesa/MoltenVK) report directory")
+    parser.add_argument("--lwjgl-opengl", type=Path, help="Verified liblwjgl_opengl shim report directory")
     parser.add_argument("--output", type=Path, default=ROOT / "artifacts/graphics/world-device-input-01")
     args = parser.parse_args(argv)
     reports = {}
@@ -53,6 +55,15 @@ def main(argv=None):
     shaders = validate_shader_bundle(args.shaders / "bundle", simulator=False)
     for name, fingerprint in shaders["filesSHA256"].items():
         files[f"fabricaot-shaders/{name}"] = Path(shaders["path"]) / name, fingerprint
+
+    if args.gl41:
+        runtime = read_report(args.gl41, {"GL41_RUNTIME_FETCHED"})
+        for name, fingerprint in runtime["filesSHA256"].items():
+            if name.endswith(".dylib"):
+                add(args.gl41 / name, fingerprint, dylib=True)
+    if args.lwjgl_opengl:
+        shim = read_report(args.lwjgl_opengl, {"LWJGL_OPENGL_SHIM_BUILT"})
+        add(args.lwjgl_opengl / "liblwjgl_opengl.dylib", shim["binarySHA256"], dylib=True)
 
     out = args.output.resolve()
     out.mkdir(parents=True, exist_ok=False)

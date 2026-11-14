@@ -106,7 +106,7 @@ public final class InjectBackend implements Opcodes {
         return insn instanceof MethodInsnNode call && call.getOpcode()==INVOKEVIRTUAL
             && call.owner.equals(owner)&&call.name.equals(name)&&call.desc.equals(desc);
     }
-    static byte[] avoidUnneededChatKeyWait(byte[] bytes) {
+    public static byte[] avoidUnneededChatKeyWait(byte[] bytes) {
         ClassNode cls=new ClassNode();new ClassReader(bytes).accept(cls,0);
         if(!cls.name.equals(PACKET))throw new IllegalArgumentException("Unexpected packet listener class");
         int predicates=0,sessions=0;
@@ -226,7 +226,7 @@ public final class InjectBackend implements Opcodes {
         position.instructions.insert(positionHook);
     }
 
-    static byte[] instrumentLevelLoadTracker(byte[] bytes) {
+    public static byte[] instrumentLevelLoadTracker(byte[] bytes) {
         ClassNode cls = new ClassNode(); new ClassReader(bytes).accept(cls, 0);
         if (!cls.name.equals(LEVEL_TRACKER)) throw new IllegalArgumentException("Unexpected level load tracker");
         MethodNode start = require(cls, "startClientLoad", "(Lnet/minecraft/client/player/LocalPlayer;"
@@ -245,7 +245,7 @@ public final class InjectBackend implements Opcodes {
         ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS); cls.accept(writer); return writer.toByteArray();
     }
 
-    static byte[] instrumentWaitingForPlayerChunk(byte[] bytes) {
+    public static byte[] instrumentWaitingForPlayerChunk(byte[] bytes) {
         ClassNode cls = new ClassNode(); new ClassReader(bytes).accept(cls, 0);
         if (!cls.name.equals(LEVEL_TRACKER_WAITING)) throw new IllegalArgumentException("Unexpected waiting chunk state");
         MethodNode ready = require(cls, "isReady", "()Z");
@@ -275,7 +275,7 @@ public final class InjectBackend implements Opcodes {
         ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS); cls.accept(writer); return writer.toByteArray();
     }
 
-    static byte[] instrumentChunkCache(byte[] bytes) {
+    public static byte[] instrumentChunkCache(byte[] bytes) {
         ClassNode cls = new ClassNode(); new ClassReader(bytes).accept(cls, 0);
         if (!cls.name.equals(CHUNK_CACHE)) throw new IllegalArgumentException("Unexpected client chunk cache");
         MethodNode decode = require(cls, "replaceWithPacketData", "(IILnet/minecraft/network/FriendlyByteBuf;"
@@ -304,7 +304,7 @@ public final class InjectBackend implements Opcodes {
         ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS); cls.accept(writer); return writer.toByteArray();
     }
 
-    static byte[] instrumentConnection(byte[] bytes) {
+    public static byte[] instrumentConnection(byte[] bytes) {
         ClassNode cls = new ClassNode(); new ClassReader(bytes).accept(cls, 0);
         if (!cls.name.equals(CONNECTION)) throw new IllegalArgumentException("Unexpected connection class");
         MethodNode failure = require(cls, "exceptionCaught",

@@ -41,7 +41,7 @@ def main(argv=None):
     binary=output/"libglfw.dylib"
     cmd=["xcrun","--sdk",args.sdk,"clang","-target",target,"-std=c11","-fobjc-arc","-O2",
          "-Wall","-Wextra","-Werror","-Wno-deprecated-declarations","-dynamiclib",
-         str(source/"glfw_lite.c"),str(source/"uikit_surface.m"),"-framework","UIKit","-framework","Foundation",
+         str(source/"glfw_lite.c"),str(source/"uikit_surface.m"),str(source/"osmesa_gl.c"),"-framework","UIKit","-framework","Foundation",
          "-framework","QuartzCore","-framework","CoreGraphics","-framework","Metal","-framework","GameController","-install_name","@rpath/libglfw.dylib","-o",str(binary)]
     result={"status":"BLOCKED","gateC0":"BLOCKED","target":target,
             "scope":"GLFW native subset only; no Java bridge or Minecraft renderer acceptance",
@@ -62,7 +62,8 @@ def main(argv=None):
     if args.test_host:
         fixture=output/"glfw-state-test"
         host=capture(["xcrun","clang","-std=c11","-Wall","-Wextra","-Werror","-g","-fsanitize=address,undefined",
-                      "-I",str(source),str(source/"glfw_lite.c"),str(ROOT/"interop/graphics/glfw_state_test.c"),
+                      "-I",str(source),str(source/"glfw_lite.c"),str(source/"osmesa_gl.c"),
+                      str(source/"osmesa_present_host_stub.c"),str(ROOT/"interop/graphics/glfw_state_test.c"),
                       "-o",str(fixture)],output/"fixture-compile",120)
         result["fixtureCompile"]=host
         if host["exitCode"]==0:

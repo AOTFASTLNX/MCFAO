@@ -15,6 +15,7 @@ SOURCE_SHA="${SOURCE_SHA:-}" # CircleCI sets this to the triggering commit
 HEAP_GIB="${HEAP_GIB:-8}"
 JOBS="${JOBS:-4}"
 AOT_PAR="${AOT_PAR:-4}"
+RENDERER="${FAOT_RENDERER:-metal}"
 
 log() { printf '\n=== [%s] %s ===\n' "$(date +%H:%M:%S)" "$*"; }
 die() { printf 'FATAL: %s\n' "$*" >&2; exit 1; }
@@ -114,6 +115,35 @@ export MCFAO_A0="$PWD/artifacts/ci/mc/a0"
 log "stage 2d: B0 prepared reference"
 time python3 -B tools/prepare_b0.py --graalvm-home "$GRAALVM_HOME" --output artifacts/b0/prepared-04
 
+
+# Fabric mode must transform the supplied mods BEFORE method splitting and Metal injection.
+# Caller provides a local, previously audited mod directory on this isolated Mac. Mod
+# JARs and configs must not be committed to the source repository.
+CLIENT_INPUT="artifacts/ci/mc/meta/versions/26.1.2/26.1.2.jar"
+if [ "${FAOT_BUILD_LOADER:-vanilla}" = "fabric" ]; then
+  if [ "${FAOT_FETCH_RECOLLECTION3:-0}" = "1" ]; then
+    log "fetch 53 hash-locked public Recollection3 mod jars"
+    FAOT_FABRIC_MODS_DIR="$PWD/artifacts/ci/recollection3-mods"
+    python3 -B "$WORK/repo/ci/fetch_locked_mods.py" "$WORK/repo/ci/recollection3-mods.json" "$FAOT_FABRIC_MODS_DIR"
+  fi
+  [ -n "${FAOT_FABRIC_MODS_DIR:-}" ] || die "Fabric mode requires FAOT_FABRIC_MODS_DIR"
+  [ -d "$FAOT_FABRIC_MODS_DIR" ] || die "Fabric mod directory not found"
+  log "stage 4a-0: Fabric Loader metadata and dependency inspection"
+  time python3 -B tools/prepare_fabric_aot.py --prepared artifacts/b0/prepared-04 \
+    --client "$CLIENT_INPUT" --mods "$FAOT_FABRIC_MODS_DIR" \
+    --inspect --output artifacts/ci/fabric-inspect
+  log "stage 4a-1: sandboxed Fabric/Mixin transformation"
+  time python3 -B tools/prepare_fabric_aot.py --prepared artifacts/b0/prepared-04 \
+    --client "$CLIENT_INPUT" --mods "$FAOT_FABRIC_MODS_DIR" \
+    --audited-mods --output artifacts/ci/fabric-transform
+  python3 -B "$WORK/repo/ci/check_fabric_result.py" \
+    artifacts/ci/fabric-transform/result.json "$FAOT_FABRIC_MODS_DIR"
+  CLIENT_INPUT="artifacts/ci/fabric-transform/client.jar"
+elif [ "${FAOT_BUILD_LOADER:-vanilla}" != "vanilla" ]; then
+  die "Unknown FAOT_BUILD_LOADER"
+fi
+
+
 log "stage 2e: method splitter + game assets"
 python3 -B tools/build_method_splitter.py --output artifacts/compiler/method-splitter-01 --fetch-missing
 mkdir -p artifacts/ci/empty-assets
@@ -131,6 +161,24 @@ log "stage 3c: LWJGL-lite"
 time python3 -B tools/build_lwjgl_lite.py --sdk iphoneos \
   --glfw-library artifacts/graphics/glfw-ios-world-01/libglfw.dylib \
   --output artifacts/graphics/lwjgl-ios-world-01
+if [ "$RENDERER" = "gl41" ]; then
+  log "stage 3c2: OpenGL 4.1 runtime + LWJGL GL shim"
+  time python3 -B tools/fetch_gl41_runtime.py --output artifacts/graphics/gl41-ios-01
+  LWJGL_GL=$(python3 - <<'PY'
+import json
+m = json.load(open("artifacts/b0/prepared-04/result.json", encoding="utf-8"))
+print(next(row["path"] for row in m["referenceLibraries"]
+           if row["path"].rsplit("/", 1)[-1].startswith("lwjgl-opengl-")))
+PY
+)
+  time python3 -B tools/build_lwjgl_opengl_ios.py \
+    --lwjgl-opengl "$LWJGL_GL" \
+    --osmesa artifacts/graphics/gl41-ios-01/libOSMesa.8.dylib \
+    --output artifacts/graphics/lwjgl-opengl-ios-01 \
+    --java-home "$GRAALVM_HOME" --sdk iphoneos
+elif [ "$RENDERER" != "metal" ]; then
+  die "Unknown FAOT_RENDERER=$RENDERER"
+fi
 log "stage 3d: shader toolchain + catalog"
 time python3 -B tools/prepare_shader_toolchain.py --output artifacts/graphics/shader-toolchain-03
 time python3 -B tools/collect_shader_catalog.py --output artifacts/graphics/shader-catalog-03
@@ -153,8 +201,9 @@ import json
 prepared = json.load(open("artifacts/b0/prepared-04/result.json", encoding="utf-8"))
 print(":".join(row["path"] for row in prepared["referenceLibraries"]))
 PY
+
 time python3 -B tools/split_methods.py \
-  --jar artifacts/ci/mc/meta/versions/26.1.2/26.1.2.jar \
+  --jar "$CLIENT_INPUT" \
   --output-jar artifacts/ci/client-split.jar \
   --report artifacts/ci/split-report.json \
   --tool artifacts/compiler/method-splitter-01 \
@@ -163,7 +212,7 @@ time python3 -B tools/split_methods.py \
 
 log "verify: interface class files remain unchanged after splitting"
 python3 -B "$WORK/repo/ci/verify_interface_classes.py" \
-  artifacts/ci/mc/meta/versions/26.1.2/26.1.2.jar artifacts/ci/client-split.jar
+  "$CLIENT_INPUT" artifacts/ci/client-split.jar
 
 DUMP="$WORK/repo/ci/classdump.py"
 if [ -f "$DUMP" ]; then
@@ -183,10 +232,19 @@ if [ -f "$VERIFY" ]; then
   "$GRAALVM_HOME/bin/java" -cp "$WORK/verify" VerifyClasses artifacts/ci/client-split.jar $CP || \
     log "WARNING: class verification reported problems (see above)"
 fi
-log "stage 4b: inject Metal backend"
-time python3 -B tools/inject_metal_backend.py --client artifacts/ci/client-split.jar \
-  --output artifacts/ci/injected --graalvm-home "$GRAALVM_HOME" \
-  --asm-jars .cache/libs/asm-9.9/asm-9.9.jar .cache/libs/asm-9.9/asm-tree-9.9.jar
+if [ "$RENDERER" = "gl41" ]; then
+  log "stage 4b: adapt native OpenGL and instrument world join"
+  time python3 -B tools/patch_gl41_client.py --client artifacts/ci/client-split.jar \
+    --output artifacts/ci/gl41-client --graalvm-home "$GRAALVM_HOME" \
+    --asm-jars .cache/libs/asm-9.9/asm-9.9.jar .cache/libs/asm-9.9/asm-tree-9.9.jar
+  CLIENT_INJECTED=artifacts/ci/gl41-client/client.jar
+else
+  log "stage 4b: inject Metal backend"
+  time python3 -B tools/inject_metal_backend.py --client artifacts/ci/client-split.jar \
+    --output artifacts/ci/injected --graalvm-home "$GRAALVM_HOME" \
+    --asm-jars .cache/libs/asm-9.9/asm-9.9.jar .cache/libs/asm-9.9/asm-tree-9.9.jar
+  CLIENT_INJECTED=artifacts/ci/injected/client-26.1.2-metal.jar
+fi
 
 log "stage 4c: A1 probe for the CAP cache"
 time python3 -B tools/run_a1_probe.py --graalvm-home "$GRAALVM_HOME" \
@@ -198,9 +256,9 @@ time python3 -B tools/probe_client_graph.py \
   --runtime artifacts/b1/runtime-ios \
   --caps artifacts/ci/a1/caps \
   --b1-evidence artifacts/evidence/b1-user-device-run-01/result.json \
-  --client-jar artifacts/ci/injected/client-26.1.2-metal.jar \
+  --client-jar "$CLIENT_INJECTED" \
   --graphics-bridge artifacts/graphics/lwjgl-ios-world-01 \
-  --metal-bootstrap artifacts/graphics/metal-ios-world-03 \
+  $(if [ "$RENDERER" = "metal" ]; then printf '%s' "--metal-bootstrap artifacts/graphics/metal-ios-world-03"; fi) \
   --full-build --relocatable --include-game-resources \
   --heap-gib "$HEAP_GIB" --parallelism "$AOT_PAR" \
   --output artifacts/ci/aot
@@ -215,6 +273,18 @@ time python3 -B tools/link_c0_ios.py --sdk iphoneos --image artifacts/ci/aot \
   --runtime artifacts/graphics/runtime-ios-world-02 --stub-unsupported-jni \
   --output artifacts/graphics/main-link-ios-world-01
 ls -la artifacts/graphics/main-link-ios-world-01/client-graph.dylib
+if [ "$RENDERER" = "gl41" ]; then
+  python3 - artifacts/graphics/main-link-ios-world-01/client-graph.dylib <<'PY'
+from pathlib import Path
+import sys
+binary = Path(sys.argv[1]).read_bytes()
+required = (b"configuration_to_play", b"level_load_ready", b"client_tick_stall")
+missing = [marker.decode() for marker in required if marker not in binary]
+if missing:
+    raise SystemExit(f"GL41 loader diagnostics missing from AOT binary: {missing}")
+print("GL41 join diagnostics verified in linked client")
+PY
+fi
 
 log "stage 4f: stage WorldDevice inputs"
 python3 -B tools/stage_device_xcode.py \
@@ -224,6 +294,7 @@ python3 -B tools/stage_device_xcode.py \
   --metal artifacts/graphics/metal-ios-world-03 \
   --openal artifacts/graphics/openal-ios-world-01 \
   --shaders artifacts/graphics/shaders-ios-world-01 \
+  $(if [ "$RENDERER" = "gl41" ]; then printf '%s' "--gl41 artifacts/graphics/gl41-ios-01 --lwjgl-opengl artifacts/graphics/lwjgl-opengl-ios-01"; fi) \
   --output artifacts/graphics/world-device-input-02
 
 log "stage 4g: xcodebuild + IPA"

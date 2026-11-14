@@ -49,6 +49,7 @@ public final class PlayDiagnostics implements Runnable {
     private static long lastSectionLogNanos;
     private static long lastStallDumpNanos;
     private static boolean stallDumped;
+    private static boolean tickStallReported;
 
     private PlayDiagnostics() {}
 
@@ -296,6 +297,13 @@ public final class PlayDiagnostics implements Runnable {
                     + " sectionAgeMs=" + since(LAST_SECTION_NANOS)
                     + " clientPositions=" + CLIENT_POSITIONS.get()
                     + " serverPositions=" + SERVER_POSITIONS.get());
+            long tickAgeMs = since(LAST_TICK_NANOS);
+            boolean tickStalled = tickAgeMs >= STALL_SECONDS * 1000L;
+            if (tickStalled && !tickStallReported) {
+                log("client_tick_stall", "tickAgeMs=" + tickAgeMs + " tracker=" + trackerState);
+                if (!trackerState.contains("WaitingFor")) dumpThreads();
+            }
+            tickStallReported = tickStalled;
             maybeDumpStall();
         }
     }
