@@ -39,4 +39,4 @@ Last reviewed: 2026-11-14
 
 本机 Rust 工具链默认 host 为 x86_64-apple-darwin，本轮开发包也为 x86_64，在 Apple Silicon 宿主通过 Rosetta 运行验证。aarch64 原生包、正式分发签名与公证尚未验证。原生 Prism 目录选择和拖放有实现，未在本轮逐项交互验收。
 
-原始日志：`artifacts/desktop/unit-tests.log`、`browser-tests.log`、`native-tests.log`、`native-preflight-log.txt`。概要、工件与附带脚本指纹见同目录 `result.json`。本地测试包为 `FabricAOT-macos-x64-experimental.zip`；只包含工作台与预检工具。
+原始日志：`artifacts/desktop/unit-tests.log`、`browser-tests.log`、`native-tests.log`、`native-preflight-log.txt`。概要、工件与附带脚本指纹见同目录 `result.json`。本机生成的 `FabricAOT-macos-x64-experimental.zip` 测试包未提交到仓库，只包含工作台与预检工具。
