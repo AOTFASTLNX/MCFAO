@@ -46,7 +46,9 @@ def main(argv=None):
         if names_before != names_after:
             raise ValueError("GlDevice patch changed the entry list")
         changed = [name for name in names_before if before.read(name) != after.read(name)]
-        if changed != ["com/mojang/blaze3d/opengl/GlDevice.class"]:
+        if changed != ["com/mojang/blaze3d/opengl/GlDevice.class",
+                       "net/minecraft/client/multiplayer/LevelLoadTracker$WaitingForServer.class",
+                       "net/minecraft/client/multiplayer/LevelLoadTracker.class"]:
             raise ValueError("Unexpected patched entries: " + repr(changed))
     result = {"status": "GL41_CLIENT_PATCHED", "client": str(client), "clientSHA256": sha256(client),
               "outputJar": str(target), "outputJarSHA256": sha256(target),

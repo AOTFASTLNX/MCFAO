@@ -15,10 +15,14 @@ static void onMain(dispatch_block_t block) {
     if (NSThread.isMainThread) block(); else dispatch_sync(dispatch_get_main_queue(),block);
 }
 static UIWindowScene *activeScene(void) {
-    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes)
-        if ([scene isKindOfClass:UIWindowScene.class] && scene.activationState==UISceneActivationStateForegroundActive)
-            return (UIWindowScene *)scene;
-    return nil;
+    UIWindowScene *inactive=nil;
+    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if (![scene isKindOfClass:UIWindowScene.class]) continue;
+        if (scene.activationState==UISceneActivationStateForegroundActive) return (UIWindowScene *)scene;
+        // At cold launch the scene can still be inactive while the first frame is requested.
+        if (!inactive && scene.activationState==UISceneActivationStateForegroundInactive) inactive=(UIWindowScene *)scene;
+    }
+    return inactive;
 }
 
 /* Documents/controlmap/<FAOTControlLayout>.json - the same file the launcher editor writes. */
