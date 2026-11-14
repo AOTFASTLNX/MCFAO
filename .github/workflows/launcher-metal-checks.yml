@@ -50,6 +50,7 @@ jobs:
           /tmp/perf-window
       - name: Graphics and input regression tests
         run: |
+          python3 -m unittest discover -s tests -p test_preflight.py -v
           python3 -m unittest discover -s tests -p test_graphics_bridge.py -v
           python3 -m unittest discover -s tests -p test_pointer_input_source.py -v
           python3 -m unittest discover -s tests -p test_c0_harness.py -v

@@ -8,7 +8,7 @@ import zipfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
-from preflight import scan_pack, safe_archive_path
+from preflight import scan_pack, safe_archive_path, scan_mod_bytes
 
 
 def jar_data(*, mixin=False, nested=False, native=False):
@@ -35,6 +35,49 @@ def pack_data(path, *, minecraft="26.1.2", loader="0.19.3", files=None, extras=N
 
 
 class PreflightTests(unittest.TestCase):
+    def test_case_sensitive_jar_members_are_reported_without_rejecting_metadata(self):
+        data = io.BytesIO()
+        with zipfile.ZipFile(data, "w") as z:
+            z.writestr("fabric.mod.json", json.dumps({"id":"sample","version":"1"}))
+            z.writestr("pkg/A.class", b"A")
+            z.writestr("pkg/a.class", b"a")
+        findings, mods = [], []
+        scan_mod_bytes(data.getvalue(), "sample.jar", findings, mods)
+        self.assertEqual(mods[0]["id"], "sample")
+        self.assertIn("JAR_CASE_SENSITIVE_ENTRIES", [x["code"] for x in findings])
+        self.assertFalse(any(x["severity"] == "error" for x in findings))
+
+    def test_nonstandard_metadata_is_flagged_without_executing_it(self):
+        data = io.BytesIO()
+        with zipfile.ZipFile(data, "w") as z:
+            z.writestr("fabric.mod.json", '{"id":"sample","version":"1","description":"line\nline"}')
+        findings, mods = [], []
+        scan_mod_bytes(data.getvalue(), "sample.jar", findings, mods)
+        self.assertEqual(mods[0]["id"], "sample")
+        self.assertIn("MOD_METADATA_NONSTANDARD_JSON", [x["code"] for x in findings])
+
+    def test_nonstandard_metadata_still_rejects_duplicate_keys(self):
+        data = io.BytesIO()
+        with zipfile.ZipFile(data, "w") as z:
+            z.writestr("fabric.mod.json", '{"id":"one","id":"two","version":"1","description":"a\nb"}')
+        findings, mods = [], []
+        scan_mod_bytes(data.getvalue(), "sample.jar", findings, mods)
+        self.assertEqual(mods, [])
+        self.assertIn("INVALID_MOD_JAR", [x["code"] for x in findings])
+
+    def test_duplicate_jar_entry_is_still_rejected(self):
+        import warnings
+        data = io.BytesIO()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            with zipfile.ZipFile(data, "w") as z:
+                z.writestr("fabric.mod.json", "{}")
+                z.writestr("fabric.mod.json", "{}")
+        findings, mods = [], []
+        scan_mod_bytes(data.getvalue(), "sample.jar", findings, mods)
+        self.assertEqual(mods, [])
+        self.assertIn("ZIP_PATH_COLLISION", [x["code"] for x in findings])
+
     def test_safe_archive_paths(self):
         for p in ("../escape", "/etc/passwd", "C:/system", "a\\b", "a//b", "a/./b", "a/../b", "x\x00z"):
             self.assertFalse(safe_archive_path(p), p)
