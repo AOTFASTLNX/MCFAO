@@ -232,6 +232,8 @@ python -m pymobiledevice3 apps afc app.perseus4004.sunset349 ls /Documents/c0-lo
 1. **v15 未验证**：`17fc8b6` 把着色器缓存目录从 `$HOME/Documents/...` 修正为 `$HOME/.mesa_shader_cache`
    并加了 `[GL41] shader cache ready:` 日志；构建（作业 120）成功，但产物下载在 23:14 中断，
    本机副本损坏，尚未在真机确认缓存是否真正落盘、冷/热启动差异多少。
+   → **2026-11-15 凌晨已复核并推翻该前提**：v14 的缓存本来就在工作，冷/热无可测差异，
+   详见 `docs/GL41_V14_DEVICE_RECHECK_2026-11-15.md`。v15 不必再下载验证。
 2. **渲染管线改造**：当前每帧 GPU→CPU 回读再上传 Metal。要突破约 70 FPS，需要改成 Vulkan 交换链直出
    （MoltenVK 直接呈现，跳过 CPU 中转），属于结构性改动，需单独一轮设计 + 真机验证。
 3. **进世界首分钟长帧**：区块网格上传与绘制提交仍在主线程，后续可考虑分帧上传或后台网格构建。

@@ -26,6 +26,7 @@
 | `scripts/gl41-audit-*.py` | IPA 审计脚本（校验源码 SHA、渲染器配置） |
 | `scripts/ls3.py`、`ls_cache.py`、`mk.py` | 通过 house_arrest 访问应用 Documents 的小工具 |
 | `screenshots/diag-screen.png` | v14 真机画面 |
+| `device-2026-11-15/` | 2026-11-15 凌晨真机复核：冷/热启动日志、Mesa 缓存目录实际结构（`cache-tree.txt`） |
 
 ## 未包含
 
