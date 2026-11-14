@@ -97,6 +97,8 @@ def generate(jar: Path, java_home: Path, available: set[str] | None = None) -> t
             body = ["JNIEXPORT %s JNICALL %s(%s) {" % (JTYPES[ret], jni, ", ".join(params)),
                     "    (void)e; (void)c;"]
             if not present:
+                for i in range(len(args)):
+                    body.append("    (void)a%d;" % i)
                 body.append('    jclass error = (*e)->FindClass(e, "java/lang/UnsatisfiedLinkError");')
                 body.append('    if (error) (*e)->ThrowNew(e, error, "OpenGL entry unavailable in OSMesa: %s");' % gl_name)
                 if ret != "V":
@@ -139,7 +141,7 @@ def main(argv=None):
                "-I", str(home / "include"), "-I", str(home / "include/darwin"),
                "-dynamiclib", str(out / "jni_opengl.c"), str(osmesa),
                "-install_name", "@rpath/liblwjgl_opengl.dylib", "-o", str(binary)]
-    built = capture(command, out / "compile", 300)
+    built = capture(command, out / "compile", 900)
     result = {"status": "BLOCKED", "target": target, "nativeMethods": len(records),
               "availableMethods": sum(1 for row in records if row["available"]),
               "unavailableMethods": sorted(row["gl"] for row in records if not row["available"]),
