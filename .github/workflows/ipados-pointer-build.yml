@@ -2,8 +2,6 @@ name: iPadOS mouse/trackpad bridge and IPA attempt
 
 on:
   push:
-    branches:
-      - fix/ipados-mouse-trackpad-look
   workflow_dispatch:
 
 permissions:

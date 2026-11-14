@@ -1,7 +1,6 @@
 name: Launcher and Metal checks
 on:
   push:
-    branches: [feature/performance-launcher-size-2026-11-13, integration/aot-and-performance-20261113]
   workflow_dispatch:
 concurrency:
   group: launcher-metal-${{ github.ref }}

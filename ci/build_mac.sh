@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One-shot build of the FabricAOT (Minecraft 26.1.2) iOS game IPA on an arm64 Mac.
 #
-#   SOURCE_REF=integration/aot-and-performance-20261113 bash build_mac.sh
+#   SOURCE_REF=main bash build_mac.sh
 #
 # Requirements: Apple silicon macOS with Xcode 16+ and >= 16 GiB RAM.
 # Produces: $WORK/FabricAOT-game.ipa (unsigned), $WORK/build.log
@@ -10,7 +10,7 @@ set -euo pipefail
 WORK="${WORK:-$HOME/mcfao-build}"
 CI_REPO="${CI_REPO:-https://github.com/AOTFASTLNX/MCFAO}"
 UPSTREAM="${UPSTREAM:-https://github.com/AOTFASTLNX/MCFAO}"
-SOURCE_REF="${SOURCE_REF:-integration/aot-and-performance-20261113}"
+SOURCE_REF="${SOURCE_REF:-main}"
 SOURCE_SHA="${SOURCE_SHA:-}" # CircleCI sets this to the triggering commit
 HEAP_GIB="${HEAP_GIB:-8}"
 JOBS="${JOBS:-4}"
