@@ -161,6 +161,10 @@ time python3 -B tools/split_methods.py \
   --min-sites 200 --target-sites 64 --max-parts 64 --trigger-cost 50000 \
   --classpath-file /tmp/cp.txt
 
+log "verify: interface class files remain unchanged after splitting"
+python3 -B "$WORK/repo/ci/verify_interface_classes.py" \
+  artifacts/ci/mc/meta/versions/26.1.2/26.1.2.jar artifacts/ci/client-split.jar
+
 DUMP="$WORK/repo/ci/classdump.py"
 if [ -f "$DUMP" ]; then
   log "diagnostic: EnvironmentAttributes field flags"
