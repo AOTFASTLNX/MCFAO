@@ -357,9 +357,11 @@ def class_shape(data):
     interfaces = [name(u2()) for _ in range(u2())]
     field_types = set()
     declared_fields = set()
+    declared_field_names = set()
     for _ in range(u2()):
-        flags, _field_name, descriptor = u2(), u2(), pool[u2()]
+        flags, field_name, descriptor = u2(), u2(), pool[u2()]
         attrs = attributes()
+        declared_field_names.add(pool[field_name])
         declared_fields.add(descriptor)
         signature = None
         for key, body in attrs:
@@ -374,6 +376,7 @@ def class_shape(data):
         if signature:
             field_types.update(re.findall(r"L([^;<]+)", signature))
     methods = []
+    method_signatures = []
     constructors = set()
     sites = []
     forname = []
@@ -382,6 +385,7 @@ def class_shape(data):
     for _ in range(u2()):
         _flags, method_name, descriptor = u2(), u2(), u2()
         methods.append(pool[method_name])
+        method_signatures.append(pool[method_name] + pool[descriptor])
         if pool[method_name] == "<init>":
             constructors.add(pool[descriptor])
         for key, body in attributes():
@@ -409,7 +413,9 @@ def class_shape(data):
             literals.update(class_literals(code, pool))
     return {"name": this, "parent": parent, "interfaces": interfaces,
             "fieldTypes": sorted(field_types), "access": access,
-            "declaredFields": sorted(declared_fields), "methods": methods,
+            "declaredFields": sorted(declared_fields),
+            "declaredFieldNames": sorted(declared_field_names),
+            "methods": methods, "methodSignatures": method_signatures,
             "constructors": sorted(constructors), "reflection": sites,
             "forName": forname, "factories": sorted(factories),
             "classLiterals": sorted(literals)}

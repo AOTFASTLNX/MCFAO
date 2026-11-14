@@ -408,7 +408,7 @@ def build_fixture(prepared, output):
     (mods / "mcfao-fixture.jar").write_bytes(jar_bytes(contents))
 
 
-def prepare(prepared, client, mods, output, audited):
+def prepare(prepared, client, mods, output, audited, trace_agent=False):
     home, libraries, engine, report = load_reference(prepared)
     if client not in libraries or client.name != "26.1.2.jar":
         raise ValueError("The input must be the verified owned client in the prepared manifest")
@@ -449,10 +449,16 @@ def prepare(prepared, client, mods, output, audited):
     java = [str(home / "bin/java"), "-XX:+DisableAttachMechanism", "-XX:-UsePerfData",
             "-Xmx1g", "-Djava.awt.headless=true", f"-Duser.home={work / 'home'}",
             f"-Djava.io.tmpdir={work / 'tmp'}"]
+    agent_library = None
+    if trace_agent:
+        agent_library = home / "lib/libnative-image-agent.dylib"
+        if not agent_library.is_file():
+            raise RuntimeError(f"GraalVM tracing agent is unavailable: {agent_library}")
+    sandbox_prefix = []
     if audited:
         policy = output / "policy.sb"
         policy.write_text(sandbox_policy(work, home, [driver, *classpath[1:]]))
-        java = ["/usr/bin/sandbox-exec", "-f", str(policy), *java]
+        sandbox_prefix = ["/usr/bin/sandbox-exec", "-f", str(policy)]
         outside = output / "outside-read.txt"
         outside.write_text("MCFAO first-party sandbox control\n")
         write = output / "outside-write.txt"
@@ -461,7 +467,7 @@ def prepare(prepared, client, mods, output, audited):
             listener.listen(1)
             listener.settimeout(0.1)
             log = output / "sandbox-control"
-            result = execute([*java, "-cp", str(driver), "fabricaot.b0.bootstrap.SandboxProbe",
+            result = execute([*sandbox_prefix, *java, "-cp", str(driver), "fabricaot.b0.bootstrap.SandboxProbe",
                               str(outside), str(write), str(listener.getsockname()[1])], log, work)
             require_run(result, log, "B0_SANDBOX_PASS")
             if write.exists():
@@ -476,7 +482,8 @@ def prepare(prepared, client, mods, output, audited):
     cp = ["-cp", os.pathsep.join(map(str, classpath)), MAIN]
     parsed = work / "metadata.json"
     log = output / "parse"
-    result = execute([*java, *cp, "inspect", str(parsed), *(str(row[0]) for row in inventory)], log, work)
+    result = execute([*sandbox_prefix, *java, *cp, "inspect", str(parsed),
+                      *(str(row[0]) for row in inventory)], log, work)
     if result["exitCode"] or result["timedOut"]:
         raise RuntimeError(f"Fabric Loader metadata parsing failed. Logs: {log}")
     metadata = json.loads(parsed.read_text())
@@ -490,7 +497,7 @@ def prepare(prepared, client, mods, output, audited):
         record["compatibility"] = inspect_compatibility(inventory, metadata, set(roots))
         resolution = work / "resolution.json"
         log = output / "resolve"
-        solved = execute([*java, *cp, "resolve", str(resolution), str(client), str(work),
+        solved = execute([*sandbox_prefix, *java, *cp, "resolve", str(resolution), str(client), str(work),
                           str(work / "game/mods")], log, work)
         if solved["exitCode"] or solved["timedOut"]:
             raise RuntimeError(f"Fabric Loader dependency discovery failed. Logs: {log}")
@@ -527,14 +534,33 @@ def prepare(prepared, client, mods, output, audited):
             ids_by_jar.setdefault(str(origin), set()).add(raw["id"])
     mods_folder = (work / "game/mods").resolve()
     retired = work / "excluded"
+    tracing_attempts = []
     for attempt in range(1, 6):
         log = output / ("knot" if attempt == 1 else f"knot-{attempt}")
-        result = execute([*java, "--enable-native-access=ALL-UNNAMED", "-Dfabric.noGui=true",
+        attempt_trace_directory = None
+        attempt_java = java
+        if trace_agent:
+            attempt_trace_directory = work / f"tracing-agent-{attempt}"
+            attempt_trace_directory.mkdir()
+            attempt_java = [java[0], "-agentlib:native-image-agent=config-output-dir="
+                            + str(attempt_trace_directory), *java[1:]]
+        result = execute([*sandbox_prefix, *attempt_java, "--enable-native-access=ALL-UNNAMED", "-Dfabric.noGui=true",
                           "-Dfabric.gameMappingNamespace=official", f"-Dfabric.gameJarPath={client}",
                           f"-Dfabric.modsFolder={work / 'game/mods'}", *cp, "export", str(client),
                           str(work), str(request), str(work / "game"),
                           str(runtime_classes) if runtime_classes else ""], log, work, timeout=900,
                          cpu_seconds=900, file_size_bytes=MAX_EXPORT)
+        if attempt_trace_directory and attempt_trace_directory.is_dir():
+            published_trace = output / f"tracing-agent-attempt-{attempt}"
+            shutil.move(str(attempt_trace_directory), str(published_trace))
+            result_trace_files = sorted(published_trace.glob("*.json"))
+            tracing_attempts.append({
+                "attempt": attempt,
+                "path": str(published_trace),
+                "status": "COLLECTED" if result_trace_files else "NO_METADATA_EMITTED",
+                "categories": [path.name for path in result_trace_files],
+                "filesSHA256": {path.name: sha256(path) for path in result_trace_files},
+            })
         blocked = work / "incompatible.json"
         if blocked.is_file():
             report = json.loads(blocked.read_text())
@@ -573,6 +599,15 @@ def prepare(prepared, client, mods, output, audited):
                     shutil.move(str(jar), str(retired / jar.name))
                 continue
         break
+    if trace_agent:
+        final_trace = tracing_attempts[-1] if tracing_attempts else None
+        record["tracingAgent"] = {
+            "status": final_trace["status"] if final_trace else "NO_METADATA_EMITTED",
+            "path": final_trace["path"] if final_trace else None,
+            "attempts": tracing_attempts,
+            "scope": "Only the final audited desktop Fabric export rehearsal is supplied to AOT; earlier retry traces are retained as evidence",
+            "agentLibrary": str(agent_library),
+        }
     require_run(result, log, "MCFAO_FABRIC_EXPORT_PASS")
     if excluded:
         record["excludedMods"] = {
@@ -590,6 +625,9 @@ def prepare(prepared, client, mods, output, audited):
     record["semanticCompatibility"] = semantic_compatibility(transform)
     record.update(status="FABRIC_AOT_INPUT_PREPARED", sandbox="file and network denial controls passed",
                   transform=transform, clientSHA256=sha256(client), outputJarSHA256=sha256(output_jar))
+    record["mdaf"] = transform.get("mdaf", {
+        "schemaVersion": 1, "policy": "REPORT_ONLY",
+        "diagnostics": {"status": "Transform report did not include MDAF data"}})
     (output / "result.json").write_text(json.dumps(record, indent=2) + "\n")
 
 
@@ -612,7 +650,11 @@ def main(argv=None):
     mode.add_argument("--fixture", action="store_true")
     mode.add_argument("--inspect", action="store_true")
     mode.add_argument("--audited-mods", action="store_true")
+    parser.add_argument("--trace-agent", action="store_true",
+                        help="Collect bounded GraalVM tracing metadata during the sandboxed audited export")
     args = parser.parse_args(argv)
+    if args.trace_agent and not args.audited_mods:
+        parser.error("--trace-agent requires --audited-mods")
     if not args.fixture and (not args.client or not args.mods):
         parser.error("--client and --mods are required")
     output = args.output.resolve()
@@ -621,8 +663,24 @@ def main(argv=None):
         if args.fixture:
             build_fixture(args.prepared.resolve(), output)
         else:
-            prepare(args.prepared.resolve(), args.client.resolve(), args.mods.resolve(), output, args.audited_mods)
+            prepare(args.prepared.resolve(), args.client.resolve(), args.mods.resolve(), output,
+                    args.audited_mods, args.trace_agent)
     except (ValueError, OSError, KeyError, TypeError, RuntimeError, zipfile.BadZipFile) as error:
+        failure = {
+            "schemaVersion": 1, "policy": "REPORT_ONLY",
+            "status": "PREPARATION_FAILED", "failedStage": "PREPARATION",
+            "failure": str(error),
+            "diagnostics": {
+                "compatibilityFindings": "See any partial transform.json; compatibility risks remain report-only",
+                "automaticRetry": "Not attempted after an unclassified preparation failure",
+            },
+        }
+        report_path = output / "mdaf-report.json"
+        report_path.write_text(json.dumps(failure, indent=2) + "\n")
+        result_path = output / "result.json"
+        partial = json.loads(result_path.read_text()) if result_path.is_file() else {}
+        partial.update(status="PREPARATION_FAILED", error=str(error), mdaf=failure)
+        result_path.write_text(json.dumps(partial, indent=2) + "\n")
         print(f"Fabric preparation failed: {error}", file=sys.stderr)
         return 2
     print(output)
