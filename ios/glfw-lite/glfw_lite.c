@@ -1,4 +1,5 @@
 #include "glfw_lite.h"
+#include "osmesa_gl.h"
 #include <math.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -12,6 +13,7 @@ struct GLFWcursor { int shape; };
 struct GLFWwindow {
     void *surface;
     int width, height, pixelWidth, pixelHeight, close, focus, cursorMode, ime;
+    int glContext, swapInterval;
     double cursorX, cursorY;
     GLFWmonitor *monitor;
     GLFWwindowposfun pos; GLFWwindowsizefun size; GLFWframebuffersizefun framebuffer;
@@ -112,8 +114,8 @@ GLFWwindow *glfwCreateWindow(int width, int height, const char *title, GLFWmonit
     if (width <= 0 || height <= 0 || !title || (m && m != &monitor)) {
         fail(GLFW_INVALID_VALUE, "invalid window dimensions, title or monitor"); return NULL;
     }
-    if (clientAPI != GLFW_NO_API || share) {
-        fail(GLFW_API_UNAVAILABLE, "GLFW-lite requires GLFW_NO_API; select the Metal backend"); return NULL;
+    if ((clientAPI != GLFW_NO_API && clientAPI != GLFW_OPENGL_API) || share) {
+        fail(GLFW_API_UNAVAILABLE, "GLFW-lite supports GLFW_NO_API or GLFW_OPENGL_API without sharing"); return NULL;
     }
     if (live) { fail(GLFW_FEATURE_UNAVAILABLE, "only one UIKit game surface is supported"); return NULL; }
     GLFWwindow *w = calloc(1, sizeof *w);
@@ -134,6 +136,7 @@ GLFWwindow *glfwCreateWindow(int width, int height, const char *title, GLFWmonit
 }
 void glfwDestroyWindow(GLFWwindow *w) {
     if (!valid(w)) return;
+    if (w->glContext) { faot_gl41_release(); w->glContext=0; }
     pthread_mutex_lock(&mutex); live=NULL; readIndex=writeIndex=0; pthread_mutex_unlock(&mutex);
     faot_surface_destroy(w->surface);
     if (current==w) current=NULL;
@@ -222,10 +225,22 @@ void glfwSetWindowMonitor(GLFWwindow *w,GLFWmonitor *m,int x,int y,int width,int
     fprintf(stderr,"[GLFW-lite] fullscreen preference recorded; UIKit controls scene geometry\n");
 }
 GLFWmonitorfun glfwSetMonitorCallback(GLFWmonitorfun f) { GLFWmonitorfun old=monitorCallback;monitorCallback=f;return old; }
-void glfwMakeContextCurrent(GLFWwindow *w) { if(!w || valid(w))current=w; }
+void glfwMakeContextCurrent(GLFWwindow *w) {
+    if(!w){current=NULL;return;}
+    if(!valid(w))return;
+    current=w;
+    if(w->glContext)return;
+    if(w->surface && faot_gl41_make_current(w->surface,w->pixelWidth,w->pixelHeight))w->glContext=1;
+    else fail(GLFW_API_UNAVAILABLE,"OpenGL 4.1 context unavailable");
+}
 GLFWwindow *glfwGetCurrentContext(void) { return current==live?current:NULL; }
-void glfwSwapBuffers(GLFWwindow *w) { if(valid(w))fail(GLFW_API_UNAVAILABLE,"Metal presentFrame must present the drawable, not glfwSwapBuffers"); }
-void glfwSwapInterval(int interval) { (void)interval;fprintf(stderr,"[GLFW-lite] swap interval is owned by the Metal presenter\n"); }
+void glfwSwapBuffers(GLFWwindow *w) {
+    if(!valid(w))return;
+    if(!w->glContext){fail(GLFW_API_UNAVAILABLE,"no OpenGL context to present");return;}
+    if(w->pixelWidth!=0 && w->pixelHeight!=0)faot_gl41_make_current(w->surface,w->pixelWidth,w->pixelHeight);
+    faot_gl41_swap(w->surface);
+}
+void glfwSwapInterval(int interval) { if(live)live->swapInterval=interval; }
 double glfwGetTime(void) { return ready()?monotonic()-epoch:0; }
 uint64_t glfwGetTimerValue(void) { struct timespec t;clock_gettime(CLOCK_MONOTONIC,&t);return (uint64_t)t.tv_sec*1000000000+t.tv_nsec; }
 uint64_t glfwGetTimerFrequency(void) { return 1000000000; }

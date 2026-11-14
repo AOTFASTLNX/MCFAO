@@ -367,6 +367,9 @@ static NSArray<NSDictionary *> *FAOTBuiltinControlModels(void) {
 @property(nonatomic,strong) id mouseConnectToken;
 @property(nonatomic,strong) id mouseDisconnectToken;
 @property(nonatomic,strong) GCMouse *mouse;
+@property(nonatomic,strong) id<MTLCommandQueue> presentQueue;
+@property(nonatomic,strong) id<MTLTexture> presentTexture;
+@property(nonatomic,assign) int presentWidth, presentHeight;
 - (void)attachMouse:(GCMouse *)mouse;
 @end
 @implementation FAOTSurface
@@ -444,7 +447,7 @@ void *faot_surface_create(GLFWwindow *handle,int *width,int *height,int *pw,int 
         CAMetalLayer *layer=(CAMetalLayer *)surface.view.layer;
         layer.device=device;
         layer.pixelFormat=MTLPixelFormatBGRA8Unorm;
-        layer.framebufferOnly=YES;
+        layer.framebufferOnly=NO;
         layer.opaque=YES;
         controller.view=surface.view;
         surface.window.rootViewController=controller;
@@ -511,6 +514,38 @@ void *faot_surface_layer(void *raw) {
     __block CAMetalLayer *layer=nil;
     onMain(^{layer=(CAMetalLayer *)((__bridge FAOTSurface *)raw).view.layer;});
     return (__bridge void *)layer;
+}
+/* OSMesa's BGRA frame copied into a shared Metal texture and blitted to the CAMetalLayer
+   drawable. The render thread performs this; CAMetalLayer drawables may be acquired off the
+   main thread. A missing drawable drops the frame instead of blocking the game loop. */
+void faot_surface_present_bgra(void *raw,const void *pixels,int width,int height) {
+    if(!raw||!pixels||width<=0||height<=0)return;
+    FAOTSurface *surface=(__bridge FAOTSurface *)raw;
+    CAMetalLayer *layer=(CAMetalLayer *)surface.view.layer;
+    id<MTLDevice> device=layer.device;
+    if(!device)return;
+    if(!surface.presentQueue)surface.presentQueue=[device newCommandQueue];
+    if(!surface.presentTexture||surface.presentWidth!=width||surface.presentHeight!=height){
+        MTLTextureDescriptor *descriptor=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
+            width:(NSUInteger)width height:(NSUInteger)height mipmapped:NO];
+        descriptor.usage=MTLTextureUsageShaderRead;
+        descriptor.storageMode=MTLStorageModeShared;
+        surface.presentTexture=[device newTextureWithDescriptor:descriptor];
+        if(!surface.presentTexture)return;
+        surface.presentWidth=width;surface.presentHeight=height;
+    }
+    [surface.presentTexture replaceRegion:MTLRegionMake2D(0,0,(NSUInteger)width,(NSUInteger)height)
+        mipmapLevel:0 withBytes:pixels bytesPerRow:(NSUInteger)width*4];
+    id<CAMetalDrawable> drawable=[layer nextDrawable];
+    if(!drawable)return;
+    id<MTLCommandBuffer> command=[surface.presentQueue commandBuffer];
+    id<MTLBlitCommandEncoder> blit=[command blitCommandEncoder];
+    [blit copyFromTexture:surface.presentTexture sourceSlice:0 sourceLevel:0
+        sourceOrigin:MTLOriginMake(0,0,0) sourceSize:MTLSizeMake((NSUInteger)width,(NSUInteger)height,1)
+        toTexture:drawable.texture destinationSlice:0 destinationLevel:0 destinationOrigin:MTLOriginMake(0,0,0)];
+    [blit endEncoding];
+    [command presentDrawable:drawable];
+    [command commit];
 }
 void faot_surface_title(void *raw,const char *title) {
     NSString *text=title?[NSString stringWithUTF8String:title]:@"";

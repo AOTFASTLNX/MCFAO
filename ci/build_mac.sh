@@ -15,6 +15,7 @@ SOURCE_SHA="${SOURCE_SHA:-}" # CircleCI sets this to the triggering commit
 HEAP_GIB="${HEAP_GIB:-8}"
 JOBS="${JOBS:-4}"
 AOT_PAR="${AOT_PAR:-4}"
+RENDERER="${FAOT_RENDERER:-metal}"
 
 log() { printf '\n=== [%s] %s ===\n' "$(date +%H:%M:%S)" "$*"; }
 die() { printf 'FATAL: %s\n' "$*" >&2; exit 1; }
@@ -160,6 +161,24 @@ log "stage 3c: LWJGL-lite"
 time python3 -B tools/build_lwjgl_lite.py --sdk iphoneos \
   --glfw-library artifacts/graphics/glfw-ios-world-01/libglfw.dylib \
   --output artifacts/graphics/lwjgl-ios-world-01
+if [ "$RENDERER" = "gl41" ]; then
+  log "stage 3c2: OpenGL 4.1 runtime + LWJGL GL shim"
+  time python3 -B tools/fetch_gl41_runtime.py --output artifacts/graphics/gl41-ios-01
+  LWJGL_GL=$(python3 - <<'PY'
+import json
+m = json.load(open("artifacts/b0/prepared-04/result.json", encoding="utf-8"))
+print(next(row["path"] for row in m["referenceLibraries"]
+           if row["path"].rsplit("/", 1)[-1].startswith("lwjgl-opengl-")))
+PY
+)
+  time python3 -B tools/build_lwjgl_opengl_ios.py \
+    --lwjgl-opengl "$LWJGL_GL" \
+    --osmesa artifacts/graphics/gl41-ios-01/libOSMesa.8.dylib \
+    --output artifacts/graphics/lwjgl-opengl-ios-01 \
+    --java-home "$GRAALVM_HOME" --sdk iphoneos
+elif [ "$RENDERER" != "metal" ]; then
+  die "Unknown FAOT_RENDERER=$RENDERER"
+fi
 log "stage 3d: shader toolchain + catalog"
 time python3 -B tools/prepare_shader_toolchain.py --output artifacts/graphics/shader-toolchain-03
 time python3 -B tools/collect_shader_catalog.py --output artifacts/graphics/shader-catalog-03
@@ -213,10 +232,16 @@ if [ -f "$VERIFY" ]; then
   "$GRAALVM_HOME/bin/java" -cp "$WORK/verify" VerifyClasses artifacts/ci/client-split.jar $CP || \
     log "WARNING: class verification reported problems (see above)"
 fi
-log "stage 4b: inject Metal backend"
-time python3 -B tools/inject_metal_backend.py --client artifacts/ci/client-split.jar \
-  --output artifacts/ci/injected --graalvm-home "$GRAALVM_HOME" \
-  --asm-jars .cache/libs/asm-9.9/asm-9.9.jar .cache/libs/asm-9.9/asm-tree-9.9.jar
+if [ "$RENDERER" = "gl41" ]; then
+  log "stage 4b: retain the game's native OpenGL backend"
+  CLIENT_INJECTED=artifacts/ci/client-split.jar
+else
+  log "stage 4b: inject Metal backend"
+  time python3 -B tools/inject_metal_backend.py --client artifacts/ci/client-split.jar \
+    --output artifacts/ci/injected --graalvm-home "$GRAALVM_HOME" \
+    --asm-jars .cache/libs/asm-9.9/asm-9.9.jar .cache/libs/asm-9.9/asm-tree-9.9.jar
+  CLIENT_INJECTED=artifacts/ci/injected/client-26.1.2-metal.jar
+fi
 
 log "stage 4c: A1 probe for the CAP cache"
 time python3 -B tools/run_a1_probe.py --graalvm-home "$GRAALVM_HOME" \
@@ -228,9 +253,9 @@ time python3 -B tools/probe_client_graph.py \
   --runtime artifacts/b1/runtime-ios \
   --caps artifacts/ci/a1/caps \
   --b1-evidence artifacts/evidence/b1-user-device-run-01/result.json \
-  --client-jar artifacts/ci/injected/client-26.1.2-metal.jar \
+  --client-jar "$CLIENT_INJECTED" \
   --graphics-bridge artifacts/graphics/lwjgl-ios-world-01 \
-  --metal-bootstrap artifacts/graphics/metal-ios-world-03 \
+  $(if [ "$RENDERER" = "metal" ]; then printf '%s' "--metal-bootstrap artifacts/graphics/metal-ios-world-03"; fi) \
   --full-build --relocatable --include-game-resources \
   --heap-gib "$HEAP_GIB" --parallelism "$AOT_PAR" \
   --output artifacts/ci/aot
@@ -254,6 +279,7 @@ python3 -B tools/stage_device_xcode.py \
   --metal artifacts/graphics/metal-ios-world-03 \
   --openal artifacts/graphics/openal-ios-world-01 \
   --shaders artifacts/graphics/shaders-ios-world-01 \
+  $(if [ "$RENDERER" = "gl41" ]; then printf '%s' "--gl41 artifacts/graphics/gl41-ios-01 --lwjgl-opengl artifacts/graphics/lwjgl-opengl-ios-01"; fi) \
   --output artifacts/graphics/world-device-input-02
 
 log "stage 4g: xcodebuild + IPA"
