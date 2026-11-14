@@ -371,6 +371,14 @@ static NSArray<NSDictionary *> *FAOTBuiltinControlModels(void) {
 @implementation FAOTPresentSlot
 @end
 
+/* CADisplayLink keeps a strong reference to its target. This stateless target requests the
+   120 Hz range without creating a reference cycle back to the game surface. */
+@interface FAOTRefreshTicker : NSObject
+@end
+@implementation FAOTRefreshTicker
+- (void)tick:(CADisplayLink *)link { (void)link; }
+@end
+
 /* MTLDrawable callbacks may run on different threads. Only timestamps and counters
    are protected; printing happens after the lock is released. */
 @interface FAOTPresentStats : NSObject {
@@ -443,6 +451,7 @@ static NSArray<NSDictionary *> *FAOTBuiltinControlModels(void) {
 @property(nonatomic,strong) NSArray<FAOTPresentSlot *> *presentSlots;
 @property(nonatomic,strong) dispatch_queue_t presentWorker;
 @property(nonatomic,strong) FAOTPresentStats *presentStats;
+@property(nonatomic,strong) CADisplayLink *refreshLink;
 @property(atomic,assign) BOOL canPresent;
 @property(nonatomic,assign) NSUInteger presentSlot;
 @property(nonatomic,assign) int presentWidth, presentHeight;
@@ -529,6 +538,18 @@ void *faot_surface_create(GLFWwindow *handle,int *width,int *height,int *pw,int 
         layer.framebufferOnly=NO;
         layer.maximumDrawableCount=3;
         layer.opaque=YES;
+        NSInteger maximumHz=scene.screen.maximumFramesPerSecond;
+        if(maximumHz<60)maximumHz=60;
+        NSInteger minimumHz=maximumHz>=120?80:maximumHz;
+        CADisplayLink *refreshLink=[CADisplayLink displayLinkWithTarget:[FAOTRefreshTicker new]
+            selector:@selector(tick:)];
+        refreshLink.preferredFrameRateRange=CAFrameRateRangeMake(
+            (float)minimumHz,(float)maximumHz,(float)maximumHz);
+        [refreshLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
+        surface.refreshLink=refreshLink;
+        fprintf(stderr,"[GL41] refresh request=%ld-%ld preferred=%ld maximum=%ld drawables=3\n",
+            (long)minimumHz,(long)maximumHz,(long)maximumHz,
+            (long)scene.screen.maximumFramesPerSecond);
         controller.view=surface.view;
         surface.window.rootViewController=controller;
         [surface.window makeKeyAndVisible];
@@ -559,12 +580,12 @@ void *faot_surface_create(GLFWwindow *handle,int *width,int *height,int *pw,int 
         }];
         [surface attachMouse:[GCMouse mice].firstObject];
         surface.foregroundToken=[nc addObserverForName:UISceneDidActivateNotification object:scene queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note){
-            (void)note;weakSurface.canPresent=YES;
+            (void)note;weakSurface.canPresent=YES;weakSurface.refreshLink.paused=NO;
             faot_glfw_enqueue(handle,FAOT_EVENT_FOCUS,1,0,0,0);
         }];
         __weak FAOTMetalView *inputView=surface.view;
         surface.backgroundToken=[nc addObserverForName:UISceneWillDeactivateNotification object:scene queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note){
-            (void)note;weakSurface.canPresent=NO;FAOTMetalView *view=inputView;
+            (void)note;weakSurface.canPresent=NO;weakSurface.refreshLink.paused=YES;FAOTMetalView *view=inputView;
             if(view.primaryTouch){if(view.primaryButton>=0)faot_glfw_enqueue(handle,FAOT_EVENT_BUTTON,view.primaryButton,0,0,0);view.primaryTouch=nil;}
             [view releaseGameControls];
             [view resetHoverMotion];
@@ -579,6 +600,8 @@ void faot_surface_destroy(void *raw) {
     onMain(^{
         FAOTSurface *surface=(__bridge_transfer FAOTSurface *)raw;
         surface.canPresent=NO;
+        [surface.refreshLink invalidate];
+        surface.refreshLink=nil;
         surface.view.handle=NULL;
         NSNotificationCenter *nc=NSNotificationCenter.defaultCenter;
         if(surface.foregroundToken)[nc removeObserver:surface.foregroundToken];

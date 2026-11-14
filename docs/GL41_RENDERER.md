@@ -178,3 +178,30 @@ IPA passed ZIP integrity and signature checks and includes the new native presen
 queue and display statistics. Size: 466,758,674 bytes. SHA-256:
 `191e8107e4c28e1a3bda7ea4082c8b5fc3602e2d355d95ab2ba6c8e5f9e505c8`.
 **v10 device performance: NOT RUN.**
+
+## GL41 v11: 120 Hz pacing and buffer hitch removal
+
+Device log `run-1794646990892.log` contains v10's presentation queue. During the
+non-paused samples the game loop reached 63.4-64.7 FPS, but Metal presented only
+51.3-57.0 FPS and reported 30-66 dropped submissions per five-second sample. Screen
+frame intervals were quantized near 17 or 21 ms, consistent with a 60 Hz display request.
+The device is an A18 Pro with a 120 Hz panel and its Info.plist already enables frame
+durations below 60 Hz.
+
+For the 120 FPS profile the app now creates a CADisplayLink on the main run loop with
+a CAFrameRateRange of 80-120 and preferred 120, while the CAMetalLayer retains three
+drawables. The link only requests the display cadence; the OpenGL renderer still follows
+Minecraft's FPS setting. It pauses with the scene. This combination matches the intended
+`120 FPS -> 3 drawables -> refresh follows FPS` setup.
+
+Minecraft's stock `FramerateLimiter` sleeps relative to the actual wake-up time, so
+scheduler overshoot shifts every subsequent deadline. GL41 now calls a build-injected
+`FramePacing.limitDisplayFPS` that advances an absolute nanosecond deadline. A large
+overdue interval resets the deadline instead of producing a burst of catch-up frames.
+The first call logs `[GL41] frame limiter=fixed-timeline`.
+
+The same device log showed Dynamic Transforms and Chunk Sections UBOs repeatedly growing
+from a capacity of 2 through 1024 while terrain was explored. GL41 now pre-sizes both
+uniform rings to 4096 entries, removing those per-expansion buffer allocations without
+changing rendered content, geometry or UI assets. Native resolution and all game settings
+remain in their original form; the FPS option stays available at 120.

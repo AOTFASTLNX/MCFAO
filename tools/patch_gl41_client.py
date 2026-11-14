@@ -31,7 +31,9 @@ def main(argv=None):
     classes.mkdir()
     source = ROOT / "compiler/gl41/tools/fabricaot/gl41/PatchDevice.java"
     shared = ROOT / "compiler/metal-backend/tools/fabricaot"
-    sources = [source, shared / "metal/InjectBackend.java", shared / "diag/PlayDiagnostics.java"]
+    frame_pacing = ROOT / "compiler/gl41/tools/fabricaot/gl41/FramePacing.java"
+    sources = [source, frame_pacing, shared / "metal/InjectBackend.java",
+               shared / "diag/PlayDiagnostics.java"]
     classpath = os.pathsep.join(map(str, asm))
     compiled = capture([str(home / "bin/javac"), "--release", "25", "-proc:none", "-cp", classpath,
                         "-d", str(classes), *map(str, sources)], out / "compile", 120)
@@ -45,7 +47,8 @@ def main(argv=None):
     with zipfile.ZipFile(client) as before, zipfile.ZipFile(target) as after:
         names_before = before.namelist()
         names_after = after.namelist()
-        if names_after != [*names_before, "fabricaot/diag/PlayDiagnostics.class"]:
+        helpers = ["fabricaot/diag/PlayDiagnostics.class", "fabricaot/gl41/FramePacing.class"]
+        if names_after != [*names_before, *helpers]:
             raise ValueError("Unexpected added or removed GL41 client entries")
         changed = [name for name in names_before if before.read(name) != after.read(name)]
         expected = ["com/mojang/blaze3d/opengl/GlDevice.class",
@@ -54,6 +57,7 @@ def main(argv=None):
                     "net/minecraft/client/multiplayer/ClientPacketListener.class",
                     "net/minecraft/client/multiplayer/LevelLoadTracker.class",
                     "net/minecraft/client/multiplayer/ClientChunkCache.class",
+                    "net/minecraft/client/renderer/DynamicUniforms.class",
                     "net/minecraft/network/Connection.class"]
         if sorted(changed) != sorted(expected):
             raise ValueError("Unexpected patched entries: " + repr(changed))
@@ -61,6 +65,8 @@ def main(argv=None):
               "outputJar": str(target), "outputJarSHA256": sha256(target),
               "changedEntries": changed, "directStateAccess": "disabled for the 4.1 OSMesa surface",
               "worldJoin": "preserve vanilla readiness; short-circuit unsigned chat-key waits and trace client loading",
+              "framePacing": "fixed-deadline 120 FPS limiter; overdue frames do not accumulate",
+              "uniformBuffers": "pre-size dynamic transform and chunk-section buffers to avoid frame hitches while loading terrain",
               "scope": "build-time bytecode adaptation; no game execution"}
     (out / "result.json").write_text(json.dumps(result, indent=2) + "\n")
     register_tree(out, [sys.executable, "-B", str(Path(__file__).resolve()),

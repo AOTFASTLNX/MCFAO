@@ -8,6 +8,7 @@ import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.FieldInsnNode;
 import org.objectweb.asm.tree.InsnNode;
+import org.objectweb.asm.tree.LdcInsnNode;
 import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
 
@@ -32,7 +33,11 @@ public final class PatchDevice {
     private static final String LISTENER = "net/minecraft/client/multiplayer/ClientPacketListener.class";
     private static final String CHUNK_CACHE = "net/minecraft/client/multiplayer/ClientChunkCache.class";
     private static final String CONNECTION = "net/minecraft/network/Connection.class";
+    private static final String DYNAMIC_UNIFORMS = "net/minecraft/client/renderer/DynamicUniforms.class";
+    private static final String UNIFORM_STORAGE = "net/minecraft/client/renderer/DynamicUniformStorage";
     private static final String DIAGNOSTICS = "fabricaot/diag/PlayDiagnostics";
+    private static final String FRAME_LIMITER = "net/minecraft/client/FramerateLimiter";
+    private static final String FRAME_PACING = "fabricaot/gl41/FramePacing";
 
 
     static byte[] transform(byte[] bytes) {
@@ -61,7 +66,7 @@ public final class PatchDevice {
     static byte[] instrumentClientTick(byte[] bytes) {
         ClassNode cls = new ClassNode();
         new ClassReader(bytes).accept(cls, 0);
-        int matches = 0;
+        int matches = 0, limiterCalls = 0;
         for (MethodNode method : cls.methods) {
             if (!method.name.equals("runTick") || !method.desc.equals("(Z)V")) continue;
             method.instructions.insert(new MethodInsnNode(Opcodes.INVOKESTATIC, DIAGNOSTICS,
@@ -69,6 +74,48 @@ public final class PatchDevice {
             matches++;
         }
         if (matches != 1) throw new IllegalArgumentException("Expected one Minecraft.runTick, found " + matches);
+        for (MethodNode method : cls.methods) {
+            for (AbstractInsnNode instruction : method.instructions.toArray()) {
+                if (!(instruction instanceof MethodInsnNode call)) continue;
+                if (call.getOpcode() != Opcodes.INVOKESTATIC || !call.owner.equals(FRAME_LIMITER)
+                        || !call.name.equals("limitDisplayFPS") || !call.desc.equals("(I)V")) continue;
+                method.instructions.set(call, new MethodInsnNode(Opcodes.INVOKESTATIC,
+                        FRAME_PACING, "limitDisplayFPS", "(I)V", false));
+                limiterCalls++;
+            }
+        }
+        if (limiterCalls != 1) {
+            throw new IllegalArgumentException("Expected one frame limiter call, found " + limiterCalls);
+        }
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        cls.accept(writer);
+        return writer.toByteArray();
+    }
+
+    static byte[] presizeUniformBuffers(byte[] bytes) {
+        ClassNode cls = new ClassNode();
+        new ClassReader(bytes).accept(cls, 0);
+        if (!cls.name.equals("net/minecraft/client/renderer/DynamicUniforms")) {
+            throw new IllegalArgumentException("Unexpected dynamic uniform class: " + cls.name);
+        }
+        int matches = 0;
+        for (MethodNode method : cls.methods) {
+            if (!method.name.equals("<init>") || !method.desc.equals("()V")) continue;
+            for (AbstractInsnNode instruction : method.instructions.toArray()) {
+                if (!(instruction instanceof MethodInsnNode call)) continue;
+                if (call.getOpcode() != Opcodes.INVOKESPECIAL || !call.owner.equals(UNIFORM_STORAGE)
+                        || !call.name.equals("<init>") || !call.desc.equals("(Ljava/lang/String;II)V")) continue;
+                AbstractInsnNode capacity = call.getPrevious();
+                if (capacity == null || capacity.getOpcode() != Opcodes.ICONST_2) {
+                    throw new IllegalArgumentException("Unexpected dynamic uniform initial capacity");
+                }
+                method.instructions.set(capacity, new LdcInsnNode(4096));
+                matches++;
+            }
+        }
+        if (matches != 2) {
+            throw new IllegalArgumentException("Expected two dynamic uniform buffers, found " + matches);
+        }
         ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
         cls.accept(writer);
         return writer.toByteArray();
@@ -91,6 +138,7 @@ public final class PatchDevice {
                     case PLAYER_CHUNK -> InjectBackend.instrumentWaitingForPlayerChunk(data);
                     case CHUNK_CACHE -> InjectBackend.instrumentChunkCache(data);
                     case CONNECTION -> InjectBackend.instrumentConnection(data);
+                    case DYNAMIC_UNIFORMS -> presizeUniformBuffers(data);
                     default -> data;
                 };
                 if (!Arrays.equals(data, patched)) changed.add(entry.getName());
@@ -101,14 +149,16 @@ public final class PatchDevice {
                 destination.write(data);
                 destination.closeEntry();
             }
-            ZipEntry helper = new ZipEntry(DIAGNOSTICS + ".class");
-            helper.setTime(0);
-            destination.putNextEntry(helper);
-            destination.write(Files.readAllBytes(Path.of(args[2]).resolve(DIAGNOSTICS + ".class")));
-            destination.closeEntry();
+            for (String helperName : List.of(DIAGNOSTICS, FRAME_PACING)) {
+                ZipEntry helper = new ZipEntry(helperName + ".class");
+                helper.setTime(0);
+                destination.putNextEntry(helper);
+                destination.write(Files.readAllBytes(Path.of(args[2]).resolve(helperName + ".class")));
+                destination.closeEntry();
+            }
         }
         List<String> expected = new ArrayList<>(List.of(TARGET, MINECRAFT, LISTENER, TRACKER,
-                PLAYER_CHUNK, CHUNK_CACHE, CONNECTION));
+                PLAYER_CHUNK, CHUNK_CACHE, CONNECTION, DYNAMIC_UNIFORMS));
         List<String> actual = new ArrayList<>(changed);
         Collections.sort(expected);
         Collections.sort(actual);
