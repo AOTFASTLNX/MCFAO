@@ -18,6 +18,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -29,6 +30,7 @@ public final class PatchDevice {
     private static final String FLAG = "USE_GL_ARB_direct_state_access";
     private static final String TRACKER = "net/minecraft/client/multiplayer/LevelLoadTracker.class";
     private static final String WAITING = "net/minecraft/client/multiplayer/LevelLoadTracker$WaitingForServer.class";
+    private static final String PLAYER_CHUNK = "net/minecraft/client/multiplayer/LevelLoadTracker$WaitingForPlayerChunk.class";
     private static final String STATE = "Lnet/minecraft/client/multiplayer/LevelLoadTracker$ClientState;";
 
     static byte[] transform(byte[] bytes) {
@@ -91,6 +93,28 @@ public final class PatchDevice {
         return writer.toByteArray();
     }
 
+    static byte[] patchPlayerChunk(byte[] bytes) {
+        ClassNode cls = new ClassNode();
+        new ClassReader(bytes).accept(cls, 0);
+        int matches = 0;
+        for (MethodNode method : cls.methods) {
+            if (!method.name.equals("isReady") || !method.desc.equals("()Z")) continue;
+            method.instructions.clear();
+            method.instructions.add(new org.objectweb.asm.tree.FieldInsnNode(Opcodes.GETSTATIC, "java/lang/System", "err", "Ljava/io/PrintStream;"));
+            method.instructions.add(new LdcInsnNode("[GL41] client chunk wait bypassed"));
+            method.instructions.add(new org.objectweb.asm.tree.MethodInsnNode(Opcodes.INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false));
+            method.instructions.add(new InsnNode(Opcodes.ICONST_1));
+            method.instructions.add(new InsnNode(Opcodes.IRETURN));
+            method.maxStack = 2;
+            method.maxLocals = 1;
+            matches++;
+        }
+        if (matches != 1) throw new IllegalArgumentException("Expected one isReady(), found " + matches);
+        ClassWriter writer = new ClassWriter(0);
+        cls.accept(writer);
+        return writer.toByteArray();
+    }
+
     public static void main(String[] args) throws IOException {
         Path input = Path.of(args[0]);
         Path output = Path.of(args[1]);
@@ -112,6 +136,10 @@ public final class PatchDevice {
                     byte[] patched = patchWaiting(data);
                     if (!Arrays.equals(data, patched)) changed.add(entry.getName());
                     data = patched;
+                } else if (entry.getName().equals(PLAYER_CHUNK)) {
+                    byte[] patched = patchPlayerChunk(data);
+                    if (!Arrays.equals(data, patched)) changed.add(entry.getName());
+                    data = patched;
                 }
                 ZipEntry copy = new ZipEntry(entry.getName());
                 copy.setTime(entry.getTime());
@@ -120,7 +148,11 @@ public final class PatchDevice {
                 destination.closeEntry();
             }
         }
-        if (!changed.equals(List.of(TARGET, WAITING, TRACKER))) {
+        List<String> expected = new ArrayList<>(List.of(TARGET, WAITING, PLAYER_CHUNK, TRACKER));
+        List<String> actual = new ArrayList<>(changed);
+        Collections.sort(expected);
+        Collections.sort(actual);
+        if (!actual.equals(expected)) {
             throw new IllegalArgumentException("Unexpected changed entries: " + changed);
         }
         System.out.println("GL41_DIRECT_STATE_DISABLED");
