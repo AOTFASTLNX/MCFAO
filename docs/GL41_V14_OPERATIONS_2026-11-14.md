@@ -195,7 +195,7 @@ python -m pymobiledevice3 apps afc app.perseus4004.sunset349 ls /Documents/c0-lo
 | `perf-v14.md` | 完整实测表、日志字段说明、测量方法与被否决的候选 |
 | `logs/gl41-jobs.json` | 作业 101–120 的提交、状态、时间 |
 | `logs/gl41-v1-build.log`、`gl41-v7-build.log` … `gl41-v13-build.log` | 各版本的 CircleCI 构建记录 |
-| `logs/gl41-v1{0,1,2}-*-full.json` | 作业完整 JSON（步骤耗时、源码 SHA） |
+| `logs/gl41-v10-build-full.json`、`gl41-v11-full.json`、`gl41-v12-full.json` | 作业完整 JSON（步骤耗时、源码 SHA） |
 | `logs/run-*.log`、`device/run-*.log` | 真机 `c0-logs` 运行日志（含 `[GL41] perf` 采样） |
 | `scripts/bench*.{ps1,py}`、`steady_run.py` | 真机基准、稳态测量脚本 |
 | `scripts/install-frame-diag.ps1` | 签名 + 安装 + 启动 + 版本校验 |
