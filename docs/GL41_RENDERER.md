@@ -261,5 +261,14 @@ smaller size with the reduced readback spikes.
 CircleCI job 118 built source `8637ce3dc0c12fd1c1fea29df6b70ad77a770f1f`.
 The AOT link, Xcode build, and unsigned IPA packaging passed. The build reports
 SHA-256 `ead97699e4eaf7a114b4bb78a6084cebba4ef5d9ba2987a8f6e707f03c0d47f8`.
-**v13 device performance: NOT RUN.** Compare the same world and route at 120 FPS
-after terrain loading settles. Check presented FPS, p95, `long34`, and `drops`.
+**v13 device smoke passed; stutter remains.** On an iPhone 16 Pro, USB installation
+and launch succeeded and the client entered a single-player world with the limiter
+set to 120 FPS. Active gameplay samples reached 66.8 presented FPS and dipped to
+32.8 FPS. Higher samples around 70–79 FPS overlapped a pause and are not gameplay
+evidence. The 32.8 FPS sample reported 24 intervals over 34 ms and no submission
+drops; the nearby game-loop sample averaged 19.54 ms in `glFinish` and 2.01 ms
+in presentation. A separate dip during chunk streaming reached 43.5 presented FPS
+with a 46 ms p95 interval, while nearby finish averages were around 9–10 ms.
+Measure per-frame finish and remaining game-loop time before choosing between
+improving readback and reducing chunk-related CPU stalls. The current five-second
+averages cannot isolate GPU execution from synchronous readback or explain both dips.
