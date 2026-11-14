@@ -46,7 +46,7 @@ BACKEND_TOOLS = (
     "build_ios_runtime", "link_c0_ios", "stage_device_xcode", "graphics_common",
     "stage_game_assets", "run_b0_reference", "capture", "inspect_ios_candidate",
     "build_c0_harness", "client_graph_diagnostics", "lwjgl_codegen",
-    "config_reflection",
+    "config_reflection", "mdaf", "verify_aot_classpath",
 )
 
 
@@ -282,10 +282,13 @@ def loader_client(pipeline, args, config, client, inputs):
     # pack whose exclusions are only discovered by the class audit needs two full passes. pack-70
     # needed ~4 min + ~6 min and was killed by the old 10-minute default right after writing its
     # final client.jar; the budget now covers two Knot passes with headroom.
+    prepare_args = ["--prepared", config["prepared"], "--client", client,
+                    "--mods", args.mods.resolve(), "--output", "{product}",
+                    "--audited-mods" if args.audited_mods else "--inspect"]
+    if args.trace_agent:
+        prepare_args.append("--trace-agent")
     prepared = pipeline.step("fabric", script(
-        "prepare_fabric_aot", "--prepared", config["prepared"], "--client", client,
-        "--mods", args.mods.resolve(), "--output", "{product}",
-        "--audited-mods" if args.audited_mods else "--inspect"), timeout=1800)
+        "prepare_fabric_aot", *prepare_args), timeout=1800)
     report = prepared / "result.json"
     facts = read_json(report)
     if facts["modSHA256"] != inputs["modsSHA256"]:
@@ -537,8 +540,11 @@ def build(args, config):
             manifest["modsSHA256"] = {str(p): sha256(p) for p in mod_files(args.mods.resolve())}
             manifest["auditedMods"] = args.audited_mods
             manifest["prepareOnly"] = args.prepare_only
+            manifest["traceAgent"] = args.trace_agent
             manifest["filesSHA256"].update({str(p): sha256(p) for p in (
                 ROOT / "tools/prepare_fabric_aot.py", ROOT / "tools/prepare_b0.py",
+                ROOT / "tools/probe_client_graph.py", ROOT / "tools/config_reflection.py",
+                ROOT / "tools/mdaf.py", ROOT / "tools/verify_aot_classpath.py",
                 *FABRIC_TOOL.rglob("*.java"),
             )})
         manifest["requestedDevice"] = args.device
@@ -562,8 +568,15 @@ def build(args, config):
         injected = pipeline.step("metal-injection", script(
             "inject_metal_backend", "--client", split / "client.jar", "--output", "{product}",
             "--graalvm-home", home, "--asm-jars", *asm))
-        aot = pipeline.step("aot", script(
-            "probe_client_graph", "--prepared", config["prepared"], "--runtime", config["bootstrapRuntime"],
+        tracing_path = None
+        if loader_report:
+            tracing = read_json(loader_report).get("tracingAgent", {})
+            candidate = Path(tracing["path"]) if tracing.get("path") else None
+            if candidate and candidate.is_dir() and any(candidate.glob("*.json")):
+                tracing_path = candidate
+        # 9 GiB is the largest setting the 50%-of-physical-memory ceiling allows on this 18 GiB
+        # host; probe_client_graph.py checks current headroom before analysis starts.
+        aot_args = ["--prepared", config["prepared"], "--runtime", config["bootstrapRuntime"],
             "--caps", config["caps"], "--b1-evidence", config["b1Evidence"],
             "--client-jar", injected / "client-26.1.2-metal.jar", "--graphics-bridge", config["lwjgl"],
             "--metal-bootstrap", config["metal"], "--full-build", "--relocatable",
@@ -576,8 +589,10 @@ def build(args, config):
             # 9 GiB is the largest setting the 50%-of-physical-memory ceiling allows on this
             # 18 GiB host; probe_client_graph.py rejects anything larger before analysis starts.
             "--include-game-resources", "--heap-gib", "9", "--simulator-thread-dumps",
-            "--output", "{product}"),
-            timeout=3800)
+            "--output", "{product}"]
+        if tracing_path:
+            aot_args.extend(["--tracing-config", tracing_path])
+        aot = pipeline.step("aot", script("probe_client_graph", *aot_args), timeout=3800)
         image = read_json(aot / "result.json")
         image_object = Path(image["imageObject"]["path"])
         flags = read_json(aot / "analysis/command.json")["argv"]
@@ -630,6 +645,8 @@ def main(argv=None):
                                  help="Stop after Fabric metadata inspection or audited transformation")
     compile_command.add_argument("--audited-mods", action="store_true",
                                  help="Confirm these mod JARs have been audited for host build execution")
+    compile_command.add_argument("--trace-agent", action="store_true",
+                                 help="Collect GraalVM tracing metadata during the sandboxed audited Fabric rehearsal")
     exporter = commands.add_parser("export", help="Archive, export and verify a development IPA")
     exporter.add_argument("--build", type=Path, required=True)
     exporter.add_argument("--export-options", type=Path, required=True)
@@ -640,9 +657,11 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.action == "build":
         if args.loader == "fabric":
+            if args.trace_agent and not args.audited_mods:
+                compile_command.error("--trace-agent requires --audited-mods")
             if not args.mods or not (args.prepare_only or args.audited_mods):
                 compile_command.error("Fabric requires --mods and either --prepare-only or --audited-mods")
-        elif args.mods or args.prepare_only or args.audited_mods:
+        elif args.mods or args.prepare_only or args.audited_mods or args.trace_agent:
             compile_command.error("Mod options are only valid for Fabric")
     try:
         if args.action == "doctor":

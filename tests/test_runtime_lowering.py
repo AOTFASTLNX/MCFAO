@@ -6,7 +6,16 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 from capture import capture
-from prepare_fabric_aot import compile_java, load_reference
+from prepare_fabric_aot import compile_java as _compile_java, load_reference
+
+
+def compile_java(home, classpath, sources, classes, log):
+    sources = list(sources)
+    lowering = ROOT / "interop/fabric/tool/mcfao/build/RuntimeLowering.java"
+    rule_engine = ROOT / "interop/fabric/tool/mcfao/build/AdaptationRuleEngine.java"
+    if lowering in sources and rule_engine not in sources:
+        sources.append(rule_engine)
+    return _compile_java(home, classpath, sources, classes, log)
 
 
 def newest_merged_client():
