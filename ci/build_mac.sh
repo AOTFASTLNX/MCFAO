@@ -233,7 +233,7 @@ if [ -f "$VERIFY" ]; then
     log "WARNING: class verification reported problems (see above)"
 fi
 if [ "$RENDERER" = "gl41" ]; then
-  log "stage 4b: retain the game's native OpenGL backend and disable its 4.5 DSA path"
+  log "stage 4b: adapt native OpenGL and instrument world join"
   time python3 -B tools/patch_gl41_client.py --client artifacts/ci/client-split.jar \
     --output artifacts/ci/gl41-client --graalvm-home "$GRAALVM_HOME" \
     --asm-jars .cache/libs/asm-9.9/asm-9.9.jar .cache/libs/asm-9.9/asm-tree-9.9.jar
@@ -273,6 +273,18 @@ time python3 -B tools/link_c0_ios.py --sdk iphoneos --image artifacts/ci/aot \
   --runtime artifacts/graphics/runtime-ios-world-02 --stub-unsupported-jni \
   --output artifacts/graphics/main-link-ios-world-01
 ls -la artifacts/graphics/main-link-ios-world-01/client-graph.dylib
+if [ "$RENDERER" = "gl41" ]; then
+  python3 - artifacts/graphics/main-link-ios-world-01/client-graph.dylib <<'PY'
+from pathlib import Path
+import sys
+binary = Path(sys.argv[1]).read_bytes()
+required = (b"configuration_to_play", b"level_load_ready", b"client_tick_stall")
+missing = [marker.decode() for marker in required if marker not in binary]
+if missing:
+    raise SystemExit(f"GL41 loader diagnostics missing from AOT binary: {missing}")
+print("GL41 join diagnostics verified in linked client")
+PY
+fi
 
 log "stage 4f: stage WorldDevice inputs"
 python3 -B tools/stage_device_xcode.py \

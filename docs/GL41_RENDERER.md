@@ -105,3 +105,34 @@ The resulting unsigned IPA is exported by the existing `tools/package_unsigned_i
 - This is the **vanilla** 26.1.2 client. Fabric Recollection3 is still blocked by the separate
   transformation exclusions documented in `RECOLLECTION3_CI_STATUS.md`; Sodium now has a renderer
   path, but the remaining dynamic-class/native mods are not yet supported.
+
+## Build record: GL41 v8 (2026-11-14)
+
+- The v7 device report (`run-1794638485001.log`) showed that spawn preparation reached
+  100% and the integrated server logged the player joining. The last GL41 performance
+  sample before that was 52.7 FPS; the archive contains no crash report or client tracker
+  state after join. The exact point where the client stopped advancing is unconfirmed.
+- Source `93bac37` changes the GL41-only bytecode adaptation to let the player-chunk
+  readiness check succeed once reached and emit `[GL41] client chunk wait bypassed`.
+  This tests whether the readiness check is blocking progression; the change cannot
+  unblock a render call or a client tick that stalls before the check. The presentation
+  path and native framebuffer size are identical to v7.
+- CircleCI job 112 compiled and linked the iOS client and passed the IPA ZIP check.
+  The unsigned IPA is 466,507,049 bytes, SHA-256
+  `e7b5209fd147cc375c1688727b5e7c43889d2b369d3f643291f97544e340e733`.
+- Package audit found no bypass log marker in the final AOT binary. This build is withheld.
+  **Device run: NOT RUN.**
+
+## World-join follow-up
+
+The GL41 build now uses the same unsigned chat-session short circuits as the Metal build.
+When there is no signed session to validate and secure chat is not enforced, querying the
+services key set is unnecessary and can wait on a network request during local join.
+Signed session validation is preserved. This addresses a plausible blocker; the device log
+does not include a thread stack that identifies the blocker conclusively.
+
+The original terrain readiness checks and timeout are restored. The shared play diagnostics
+record packet arrival, decoded chunks, readiness transitions, and client tick age. A watchdog
+captures stalled client ticks even when join stopped before a tracker was assigned. CI
+checks that the final linked GL41 client contains the new diagnostics before packaging.
+The game uses its existing OpenGL backend and the same native size as v7.

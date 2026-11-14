@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Disable Minecraft's 4.5 direct-state path for the OpenGL 4.1 renderer."""
+"""Prepare the GL41 client and add world-join diagnostics without executing it."""
 from __future__ import annotations
 
 import argparse
@@ -30,31 +30,37 @@ def main(argv=None):
     classes = out / "classes"
     classes.mkdir()
     source = ROOT / "compiler/gl41/tools/fabricaot/gl41/PatchDevice.java"
+    shared = ROOT / "compiler/metal-backend/tools/fabricaot"
+    sources = [source, shared / "metal/InjectBackend.java", shared / "diag/PlayDiagnostics.java"]
     classpath = os.pathsep.join(map(str, asm))
     compiled = capture([str(home / "bin/javac"), "--release", "25", "-proc:none", "-cp", classpath,
-                        "-d", str(classes), str(source)], out / "compile", 120)
+                        "-d", str(classes), *map(str, sources)], out / "compile", 120)
     if compiled["exitCode"]:
         raise RuntimeError("PatchDevice compilation failed")
     target = out / "client.jar"
     run = capture([str(home / "bin/java"), "-cp", str(classes) + os.pathsep + classpath,
-                   "fabricaot.gl41.PatchDevice", str(client), str(target)], out / "transform", 120)
+                   "fabricaot.gl41.PatchDevice", str(client), str(target), str(classes)], out / "transform", 120)
     if run["exitCode"] or "GL41_DIRECT_STATE_DISABLED" not in (out / "transform/stdout.log").read_text():
         raise RuntimeError("GlDevice patch failed")
     with zipfile.ZipFile(client) as before, zipfile.ZipFile(target) as after:
         names_before = before.namelist()
         names_after = after.namelist()
-        if names_before != names_after:
-            raise ValueError("GlDevice patch changed the entry list")
+        if names_after != [*names_before, "fabricaot/diag/PlayDiagnostics.class"]:
+            raise ValueError("Unexpected added or removed GL41 client entries")
         changed = [name for name in names_before if before.read(name) != after.read(name)]
         expected = ["com/mojang/blaze3d/opengl/GlDevice.class",
                     "net/minecraft/client/multiplayer/LevelLoadTracker$WaitingForPlayerChunk.class",
-                    "net/minecraft/client/multiplayer/LevelLoadTracker$WaitingForServer.class",
-                    "net/minecraft/client/multiplayer/LevelLoadTracker.class"]
+                    "net/minecraft/client/Minecraft.class",
+                    "net/minecraft/client/multiplayer/ClientPacketListener.class",
+                    "net/minecraft/client/multiplayer/LevelLoadTracker.class",
+                    "net/minecraft/client/multiplayer/ClientChunkCache.class",
+                    "net/minecraft/network/Connection.class"]
         if sorted(changed) != sorted(expected):
             raise ValueError("Unexpected patched entries: " + repr(changed))
     result = {"status": "GL41_CLIENT_PATCHED", "client": str(client), "clientSHA256": sha256(client),
               "outputJar": str(target), "outputJarSHA256": sha256(target),
               "changedEntries": changed, "directStateAccess": "disabled for the 4.1 OSMesa surface",
+              "worldJoin": "preserve vanilla readiness; short-circuit unsigned chat-key waits and trace client loading",
               "scope": "build-time bytecode adaptation; no game execution"}
     (out / "result.json").write_text(json.dumps(result, indent=2) + "\n")
     register_tree(out, [sys.executable, "-B", str(Path(__file__).resolve()),
