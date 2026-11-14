@@ -10,12 +10,23 @@ from bootstrap_toolchain import sha256
 from capture import ROOT, capture
 from graphics_common import register_tree
 
+# Mod polling is absent from the vanilla client call inventory. These functions
+# are required by malilib's per-tick key recheck as well as direct game input.
+INPUT_POLL_EXPORTS = frozenset({
+    "glfwGetMouseButton", "glfwGetKey", "glfwGetCursorPos",
+})
+
+def validate_input_exports(symbols: set[str]) -> None:
+    missing = INPUT_POLL_EXPORTS - symbols
+    if missing:
+        raise ValueError("GLFW input polling exports missing; rebuild GLFW: " + ", ".join(sorted(missing)))
+
 def exported_symbols(text: str) -> set[str]:
     return {line.split()[-1].removeprefix("_") for line in text.splitlines() if line.split()}
 
 def required_symbols(inventory: dict) -> set[str]:
     # Java structure accessors and Callback.free are NOT C exports. Their ABI is in lwjgl core.
-    return {m["name"] for m in inventory["methods"] if m["owner"] in
+    return set(INPUT_POLL_EXPORTS) | {m["name"] for m in inventory["methods"] if m["owner"] in
             ("org/lwjgl/glfw/GLFW","org/lwjgl/glfw/GLFWNativeCocoa") and m["name"].startswith("glfw")}
 
 def main(argv=None):
