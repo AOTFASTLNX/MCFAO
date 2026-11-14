@@ -92,6 +92,16 @@ def main(argv=None):
             result["hostResourceLifetime"]="PASS" if not lifetime_run["exitCode"] and "METAL_RESOURCE_LIFETIME_PASS" in (out/"resource-lifetime-run/stdout.log").read_text() else "FAIL"
         else:result["hostResourceLifetime"]="FAIL"
         if result["hostResourceLifetime"]!="PASS":result["status"]="BLOCKED"
+        upload=out/"metal-upload-burst-test"
+        upload_compile=capture(["xcrun","clang","-fobjc-arc","-Wall","-Wextra","-Werror","-fsanitize=address,undefined",
+            "-I",str(home/"include"),"-I",str(home/"include/darwin"),"-I",str(ROOT/"ios/glfw-lite"),
+            str(ROOT/"tests/metal_upload_burst_test.m"),str(ROOT/"ios/metal-bridge/metal_resources.m"),
+            "-framework","Metal","-framework","Foundation","-framework","QuartzCore","-o",str(upload)],out/"upload-burst-compile",120)
+        if not upload_compile["exitCode"]:
+            upload_run=capture([str(upload)],out/"upload-burst-run",120)
+            result["hostUploadBurst"]="PASS" if not upload_run["exitCode"] and "METAL_UPLOAD_BURST_PASS" in (out/"upload-burst-run/stdout.log").read_text() else "FAIL"
+        else:result["hostUploadBurst"]="FAIL"
+        if result["hostUploadBurst"]!="PASS":result["status"]="BLOCKED"
     (out/"result.json").write_text(json.dumps(result,indent=2)+"\n")
     try:register_tree(out,[sys.executable,"-B",str(Path(__file__).resolve()),*(sys.argv[1:] if argv is None else argv)])
     except (OSError,RuntimeError) as exc:print(str(exc),file=sys.stderr);return 1

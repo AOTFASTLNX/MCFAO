@@ -72,6 +72,10 @@
 @property(nonatomic,strong) CAMetalLayer *layer;
 
 @property(nonatomic,strong) id<MTLCommandBuffer> pending;
+@property(nonatomic) NSUInteger pendingUploadBytes;
+@property(nonatomic) NSUInteger pendingUploadCount;
+@property(nonatomic) NSUInteger uploadBatchCount;
+@property(nonatomic) double uploadBatchLogged;
 @property(nonatomic,strong) id<MTLCommandBuffer> lastCommitted;
 // Last fence is reusable only until another command buffer is committed.
 @property(nonatomic,strong) FAOTMetalFence *lastFence;
@@ -146,6 +150,7 @@ static jlong keepTracked(FAOTResourceCategory category,id<MTLResource> object){
 }
 static id<MTLCommandBuffer> commands(FAOTMetalContext *ctx){
     if(!ctx.pending){
+        ctx.pendingUploadBytes=0;ctx.pendingUploadCount=0;
         ctx.pending=[ctx.queue commandBuffer];
         FAOTPerfCollector *perf=ctx.perf;
         /* Break the retain cycle: the command buffer retains its completion
@@ -167,6 +172,22 @@ static void commit(FAOTMetalContext *ctx,id<MTLCommandBuffer> cb){
     [ctx.resources noteCommandBufferCommitted];
     [ctx.resources maybeLogSummary];
     [cb commit];
+}
+/* Uploads can fill an atlas before the first presentation/fence. Submit bounded
+ * batches on the SAME queue so completion can recycle staging while later
+ * uploads are encoded. No CPU wait, queue switch, or render-pass split. */
+static void submitUploadBatch(FAOTMetalContext *ctx){
+    if(!ctx.pending||ctx.renderEncoder)return;
+    id<MTLCommandBuffer> cb=ctx.pending;
+    ctx.lastFence=nil;ctx.lastCommitted=cb;ctx.pending=nil;
+    ctx.uploadBatchCount++;
+    double now=CACurrentMediaTime();
+    if(ctx.uploadBatchCount==1||now-ctx.uploadBatchLogged>=5.0){
+        fprintf(stderr,"[MetalUploadBatch] batches=%lu bytes=%lu uploads=%lu reason=bounded_upload_batch\n",
+            (unsigned long)ctx.uploadBatchCount,(unsigned long)ctx.pendingUploadBytes,(unsigned long)ctx.pendingUploadCount);
+        ctx.uploadBatchLogged=now;
+    }
+    commit(ctx,cb);
 }
 static id<MTLLibrary> utilityLibrary(JNIEnv *env, FAOTMetalContext *ctx) {
     if(!ctx.utilityLibrary){
@@ -415,6 +436,10 @@ JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_writeTexture(JNIEnv *env
         if(!data||components<1||components>4||destination.pixelFormat==MTLPixelFormatDepth32Float||((bytes==1)&&components!=1)||sourceStride<(int64_t)width*components){failure(env,"Unsupported texture upload layout");return;}
         NSUInteger row=((NSUInteger)width*bytes+255)&~(NSUInteger)255,total=row*(NSUInteger)height;
         if(total>64*1024*1024){failure(env,"Texture transfer exceeds 64 MiB staging budget");return;}
+        /* Never wait for a completion handler attached to our own uncommitted
+         * command buffer: it cannot run until that buffer is submitted. */
+        NSUInteger allocated=ctx.resources.transientAllocatedBytes,cap=ctx.resources.maxTransientBytes;
+        if(total>cap-MIN(allocated,cap))submitUploadBatch(ctx);
         id<MTLBuffer> staging=[ctx.resources acquireTransientBufferOfLength:total];if(!staging){failure(env,"Texture upload staging allocation failed");return;}
         for(int line=0;line<height;line++){
             const uint8_t *src=(const uint8_t *)(uintptr_t)data+(NSUInteger)line*sourceStride;uint8_t *dst=(uint8_t *)staging.contents+(NSUInteger)line*row;
@@ -425,6 +450,8 @@ JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_writeTexture(JNIEnv *env
         id<MTLBlitCommandEncoder> encoder=[frameCommands blitCommandEncoder];
         [encoder copyFromBuffer:staging sourceOffset:0 sourceBytesPerRow:row sourceBytesPerImage:total sourceSize:MTLSizeMake(width,height,1) toTexture:destination destinationSlice:layer destinationLevel:mip destinationOrigin:MTLOriginMake(x,y,0)];[encoder endEncoding];
         [ctx.resources recycleTransientBuffer:staging commandBuffer:frameCommands];
+        ctx.pendingUploadBytes+=total;ctx.pendingUploadCount++;
+        if(ctx.pendingUploadBytes>=8*1024*1024||ctx.pendingUploadCount>=256)submitUploadBatch(ctx);
     }
 }
 JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_readTexture(JNIEnv *env,jclass cls,jlong handle,jlong source,jint mip,jint x,jint y,jint width,jint height,jlong destination,jlong offset){
