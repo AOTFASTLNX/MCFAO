@@ -132,6 +132,7 @@ python3 -B -m unittest discover -s tests -v
 | 文档 | 内容 |
 | --- | --- |
 | [PRODUCT](docs/PRODUCT.md) | 产品定位、Mac/iOS 功能和明确非目标 |
+| [DESKTOP](docs/DESKTOP.md) | 实验版跨平台桌面工作台：源码、能力边界与验证结果 |
 | [ARCHITECTURE](docs/ARCHITECTURE.md) | 技术事实、建议流水线和风险登记 |
 | [TECHNICAL_GATES](docs/TECHNICAL_GATES.md) | A0 到 E 的可执行门槛和停止条件 |
 | [ACCEPTANCE](docs/ACCEPTANCE.md) | 验收清单、测试矩阵和发布标准 |

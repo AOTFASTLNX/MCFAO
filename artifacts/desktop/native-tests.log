@@ -1,0 +1,32 @@
+   Compiling objc2-exception-helper v0.1.1
+   Compiling objc2 v0.6.5
+   Compiling fabricaot-desktop v0.1.0 (/Users/kexin/Documents/ChatGPT/MCFAO/desktop/src-tauri)
+   Compiling objc2-foundation v0.3.2
+   Compiling wry v0.57.2
+   Compiling block2 v0.6.2
+   Compiling objc2-core-foundation v0.3.2
+   Compiling dispatch2 v0.3.1
+   Compiling objc2-quartz-core v0.3.2
+   Compiling objc2-app-kit v0.3.2
+   Compiling objc2-web-kit v0.3.2
+   Compiling tao v0.37.2
+   Compiling muda v0.20.0
+   Compiling window-vibrancy v0.8.1
+   Compiling rfd v0.17.2
+   Compiling tauri-runtime v2.12.2
+   Compiling tauri-runtime-wry v2.12.3
+   Compiling tauri v2.12.5
+   Compiling tauri-plugin-fs v2.7.1
+   Compiling tauri-plugin-dialog v2.8.4
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 48.43s
+     Running unittests src/lib.rs (src-tauri/target/debug/deps/fabricaot_desktop_lib-4bb9d959e9845054)
+
+running 5 tests
+test tests::invalid_source_fails_before_process_launch ... ok
+test tests::output_is_bounded ... ok
+test tests::deadline_kills_process ... ok
+test tests::arguments_are_literal_and_unicode_is_preserved ... ok
+test tests::fatal_preflight_is_a_report_not_an_ipc_failure ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+

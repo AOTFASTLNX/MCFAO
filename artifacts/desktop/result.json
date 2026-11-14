@@ -1,0 +1,52 @@
+{
+  "status": "EXPERIMENTAL_DESKTOP_FRONTEND",
+  "recordedAt": "2026-11-14T03:15:42.647776+00:00",
+  "frontend": "Tauri 2 + React + TypeScript + Vite",
+  "automatedTests": {
+    "model": {
+      "passed": 19,
+      "log": "unit-tests.log"
+    },
+    "browser": {
+      "passed": 10,
+      "log": "browser-tests.log"
+    },
+    "nativeBridge": {
+      "passed": 5,
+      "log": "native-tests.log"
+    }
+  },
+  "manualMacChecks": {
+    "packImport": "PASS: first-party metadata-only .mrpack with Chinese and spaces in filename",
+    "report": "PASS: 1 Mod, 2 warnings, AOT NOT TESTED",
+    "taskLog": "PASS: actual preflight 0.45 seconds",
+    "nativeSaveDialog": "PASS: exported native-preflight-log.txt",
+    "environmentDetection": "PASS: Python/Xcode detected; Java 21 correctly reported as not Java 25"
+  },
+  "package": {
+    "path": "artifacts/desktop/FabricAOT-macos-x64-experimental.zip",
+    "sha256": "d9dee94c3dd68717ebcd03ed52f5b33fde2c1baab04a852e5bd19b4cc5d32620",
+    "bytes": 7104798,
+    "entries": 17,
+    "architecture": "x86_64-apple-darwin",
+    "hostMachine": "arm64",
+    "kind": "local debug bundle, no distribution notarization"
+  },
+  "preflightScriptSHA256": "47bf39e714ed7b0ff041929410bedeed767608177c2daa6c1981c9392c25c623",
+  "screenshots": [
+    "home.png",
+    "home-mobile.png"
+  ],
+  "notValidated": [
+    "Windows native package and run",
+    "Linux native package and run",
+    "aarch64 macOS native desktop build",
+    "native Prism directory selection and drag/drop",
+    "game build/signing/export through the GUI"
+  ],
+  "gameGates": "UNCHANGED; desktop tests are not game or Mod runtime evidence",
+  "staticAnalysis": {
+    "rustClippy": "PASS: cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings",
+    "gitDiffCheck": "PASS"
+  }
+}

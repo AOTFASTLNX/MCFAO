@@ -1,0 +1,8 @@
+2026-11-14T03:09:06.125Z
+开始读取整合包元数据
+源路径：/Users/kexin/Documents/ChatGPT/MCFAO/.cache/desktop-ui-fixture/中文 UI fixture.mrpack
+仅扫描元数据，不执行 Mod。
+[WARNING] LOADER_VERSION_UNVERIFIED: Actual Loader/Minecraft compatibility requires Fabric metadata resolution
+[WARNING] MIXIN_REQUIRES_AOT_WORK: overrides/mods/fixture.jar
+预检结束，用时 0.45 秒。
+AOT / iOS 行为验证：NOT TESTED

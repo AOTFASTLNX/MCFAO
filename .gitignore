@@ -1,6 +1,7 @@
 # Private local build state and generated evidence
 /.cache/
-/artifacts/
+/artifacts/*
+!/artifacts/desktop/
 /logs/
 /config/
 /docs/.codex/
@@ -28,6 +29,7 @@ xcuserdata/
 *.sqlite
 *.db
 *.log
+!/artifacts/desktop/*.log
 
 # Rebuildable binaries
 *.dylib
