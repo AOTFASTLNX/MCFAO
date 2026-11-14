@@ -67,3 +67,41 @@ Local evidence under the main checkout's `artifacts/`:
 This corrects a proven startup regression. It does not establish successful
 device entry into a world, long-run stability, lower sync latency or the
 original memory-growth acceptance criteria.
+
+## Corrected full-game package
+
+Runtime source: `7e73a60be81a422b06f3c30ed3c60997324e2fc4`.
+Fresh Minecraft 26.1.2/Fabric iOS ARM64 AOT completed in 11m 36s.
+Build: `SIGNED_DEVICE_APP`; export: `DEVELOPMENT_IPA_VERIFIED`.
+AOT object SHA256: `71cd47a7a75405d930041885c8830b266dfb3d1dbb68297efb8d668437976b4c`.
+No unresolved symbols remain; the existing unsupported trapping entrypoint
+`OperatingSystemImpl.initialize0` remains a compatibility limitation.
+
+Local IPA, not for public redistribution:
+`artifacts/mcfao/metal-p0-startup-full-game-signed-03/export/FabricAOT World.ipa`.
+Size: 714,479,225 bytes. SHA256:
+`d091ba15b66c692ed6950881c6667ccc543ba844b4898b356c14620d09553b8d`.
+Signed AOT dylib: `1dd91ac31d227826f665007b5a6f60cfeb5dd515427832f21283ec3df2d0afd4`.
+Signed Metal dylib: `d996308fb5c15b4a35eb79d07d8898d88cda1c007d7a10db065a4e431516b521`.
+
+All 24 backend source hashes match the runtime source. All 35 Java class
+hashes match the previous backend; JNI `synchronize(long)` remains `(J)V`
+with its native export. The profile covers the requested iPhone and
+dynamic-code entitlements are absent. Python: 315 run, 312 passed, 3 skipped.
+
+Local manifests: `artifacts/mcfao/metal-p0-startup-full-game-03/result.json`,
+`artifacts/mcfao/metal-p0-startup-full-game-signed-03/result.json`.
+Logs: `artifacts/metal-p0-startup-full-game-03.log`,
+`artifacts/metal-p0-startup-full-game-export-03.log`.
+ABI evidence: `artifacts/metal-p0-startup-abi.json`.
+
+## Device update attempt
+
+The in-place update was rejected with `MismatchedApplicationIdentifierEntitlement`
+(`MIInstallerErrorDomain` 64): the installed app was re-signed under a different
+application identifier/team from this Xcode development export. Installation
+log: `artifacts/metal-p0-startup-device-install-03.log`. The installed app was
+not uninstalled and its worlds were not deleted. Updating while preserving
+that container requires the same signing identity and identifier used for the
+installed app. The corrected package has not run on the device; startup/world
+entry and long-duration memory/synchronization acceptance remain unverified.
