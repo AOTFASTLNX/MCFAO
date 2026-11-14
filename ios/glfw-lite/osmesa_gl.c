@@ -6,6 +6,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <pthread/qos.h>
+#include <time.h>
 
 /* Constants from Mesa's MIT-licensed include/GL/osmesa.h (25.x). */
 enum {
@@ -49,8 +51,16 @@ static size_t frame_bytes;
 static int frame_width, frame_height;
 static void *present_surface;
 static int current_width, current_height, logged, made_current, bgra_format = 1;
+static int qos_set, perf_frames;
+static double perf_last, perf_finish_ms, perf_present_ms;
 
 extern void faot_surface_present_bgra(void *surface, const void *pixels, int width, int height);
+
+static double now_ms(void) {
+    struct timespec value;
+    clock_gettime(CLOCK_MONOTONIC, &value);
+    return value.tv_sec * 1000.0 + value.tv_nsec / 1000000.0;
+}
 
 static void set_default(const char *name, const char *value) {
     if (!getenv(name)) setenv(name, value, 1);
@@ -67,7 +77,9 @@ static int load_api(void) {
     set_default("MESA_EXTENSION_OVERRIDE", "-GL_ARB_direct_state_access");
     set_default("mesa_glthread", "true");
     /* zink is a Vulkan driver; MoltenVK is the Vulkan implementation on iOS. */
-    set_default("MVK_CONFIG_FAST_MATH_ENABLED", "1");
+    set_default("MVK_CONFIG_FAST_MATH_ENABLED", "2");
+    set_default("MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS", "1");
+    set_default("MVK_CONFIG_SWAPCHAIN_MIN_MAG_FILTER_USE_NEAREST", "0");
     const char *home = getenv("HOME");
     if (home) {
         char cache[900];
@@ -118,6 +130,10 @@ static int resize(int width, int height) {
 
 int faot_gl41_make_current(void *surface, int width, int height) {
     if (!load_api()) return 0;
+    if (!qos_set) {
+        (void)pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+        qos_set = 1;
+    }
     present_surface = surface;
     if (!context) {
         /* A compatibility profile is the requested 4.1 feature set; Minecraft only relies on
@@ -152,6 +168,7 @@ int faot_gl41_make_current(void *surface, int width, int height) {
             return 0;
         }
         fprintf(stderr, "[GL41] OSMesa context created; zink over MoltenVK\n");
+        fprintf(stderr, "[GL41] first render size %dx%d\n", width, height);
     }
     if (!resize(width, height)) return 0;
     if (made_current && width == current_width && height == current_height) {
@@ -178,7 +195,9 @@ int faot_gl41_make_current(void *surface, int width, int height) {
 
 void faot_gl41_swap(void *surface) {
     if (!context || !frame) return;
+    double start = now_ms();
     if (api.finish) api.finish();
+    double finished = now_ms();
     if (!bgra_format) {
         uint32_t *pixels = (uint32_t *)frame;
         size_t count = (size_t)frame_width * (size_t)frame_height;
@@ -188,6 +207,17 @@ void faot_gl41_swap(void *surface) {
         }
     }
     faot_surface_present_bgra(surface ? surface : present_surface, frame, frame_width, frame_height);
+    double presented = now_ms();
+    perf_finish_ms += finished - start;
+    perf_present_ms += presented - finished;
+    perf_frames++;
+    if (perf_last == 0) perf_last = start;
+    if (presented - perf_last >= 5000.0) {
+        double seconds = (presented - perf_last) / 1000.0;
+        fprintf(stderr, "[GL41] perf fps=%.1f finish=%.2fms present=%.2fms\n",
+                perf_frames / seconds, perf_finish_ms / perf_frames, perf_present_ms / perf_frames);
+        perf_last = presented; perf_frames = 0; perf_finish_ms = perf_present_ms = 0;
+    }
 }
 
 void faot_gl41_release(void) {
@@ -199,4 +229,5 @@ void faot_gl41_release(void) {
     frame_width = frame_height = 0;
     made_current = logged = 0;
     bgra_format = 1;
+    perf_last = 0; perf_frames = 0; perf_finish_ms = perf_present_ms = 0;
 }

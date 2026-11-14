@@ -372,8 +372,12 @@ static NSArray<NSDictionary *> *FAOTBuiltinControlModels(void) {
 @property(nonatomic,strong) id mouseDisconnectToken;
 @property(nonatomic,strong) GCMouse *mouse;
 @property(nonatomic,strong) id<MTLCommandQueue> presentQueue;
-@property(nonatomic,strong) id<MTLTexture> presentTexture;
+@property(nonatomic,strong) NSMutableArray<id<MTLTexture>> *presentTextures;
+@property(nonatomic,strong) dispatch_semaphore_t presentSemaphore;
+@property(nonatomic,assign) int presentSlot;
 @property(nonatomic,assign) int presentWidth, presentHeight;
+@property(nonatomic,strong) id<MTLRenderPipelineState> presentPipeline;
+@property(nonatomic,strong) id<MTLSamplerState> presentSampler;
 - (void)attachMouse:(GCMouse *)mouse;
 @end
 @implementation FAOTSurface
@@ -452,6 +456,7 @@ void *faot_surface_create(GLFWwindow *handle,int *width,int *height,int *pw,int 
         layer.device=device;
         layer.pixelFormat=MTLPixelFormatBGRA8Unorm;
         layer.framebufferOnly=NO;
+        layer.maximumDrawableCount=3;
         layer.opaque=YES;
         controller.view=surface.view;
         surface.window.rootViewController=controller;
@@ -519,6 +524,43 @@ void *faot_surface_layer(void *raw) {
     onMain(^{layer=(CAMetalLayer *)((__bridge FAOTSurface *)raw).view.layer;});
     return (__bridge void *)layer;
 }
+static int FAOTEnsureUpscalePipeline(FAOTSurface *surface,id<MTLDevice> device) {
+    if(surface.presentPipeline&&surface.presentSampler)return 1;
+    static NSString *const source=
+        @"#include <metal_stdlib>\n"
+         "using namespace metal;\n"
+         "struct VOut { float4 pos [[position]]; float2 uv; };\n"
+         "vertex VOut v_main(uint vid [[vertex_id]]) {\n"
+         "  float2 p[3] = { float2(-1.0,-1.0), float2(3.0,-1.0), float2(-1.0,3.0) };\n"
+         "  VOut o; o.pos=float4(p[vid],0.0,1.0);\n"
+         "  o.uv=float2((p[vid].x+1.0)*0.5,1.0-(p[vid].y+1.0)*0.5); return o;\n"
+         "}\n"
+         "fragment float4 f_main(VOut in [[stage_in]], texture2d<float> tex [[texture(0)]], sampler samp [[sampler(0)]]) {\n"
+         "  return tex.sample(samp,in.uv);\n"
+         "}\n";
+    NSError *error=nil;
+    id<MTLLibrary> library=[device newLibraryWithSource:source options:nil error:&error];
+    if(!library){
+        fprintf(stderr,"[GL41] Metal upscale shader failed: %s\n",error.localizedDescription.UTF8String ?: "unknown");
+        return 0;
+    }
+    MTLRenderPipelineDescriptor *descriptor=[MTLRenderPipelineDescriptor new];
+    descriptor.vertexFunction=[library newFunctionWithName:@"v_main"];
+    descriptor.fragmentFunction=[library newFunctionWithName:@"f_main"];
+    descriptor.colorAttachments[0].pixelFormat=MTLPixelFormatBGRA8Unorm;
+    surface.presentPipeline=[device newRenderPipelineStateWithDescriptor:descriptor error:&error];
+    if(!surface.presentPipeline){
+        fprintf(stderr,"[GL41] Metal upscale pipeline failed: %s\n",error.localizedDescription.UTF8String ?: "unknown");
+        return 0;
+    }
+    MTLSamplerDescriptor *sampler=[MTLSamplerDescriptor new];
+    sampler.minFilter=MTLSamplerMinMagFilterLinear;
+    sampler.magFilter=MTLSamplerMinMagFilterLinear;
+    sampler.sAddressMode=MTLSamplerAddressModeClampToEdge;
+    sampler.tAddressMode=MTLSamplerAddressModeClampToEdge;
+    surface.presentSampler=[device newSamplerStateWithDescriptor:sampler];
+    return surface.presentSampler!=nil;
+}
 /* OSMesa's BGRA frame copied into a shared Metal texture and blitted to the CAMetalLayer
    drawable. The render thread performs this; CAMetalLayer drawables may be acquired off the
    main thread. A missing drawable drops the frame instead of blocking the game loop. */
@@ -529,26 +571,54 @@ void faot_surface_present_bgra(void *raw,const void *pixels,int width,int height
     id<MTLDevice> device=layer.device;
     if(!device)return;
     if(!surface.presentQueue)surface.presentQueue=[device newCommandQueue];
-    if(!surface.presentTexture||surface.presentWidth!=width||surface.presentHeight!=height){
+    if(!surface.presentSemaphore)surface.presentSemaphore=dispatch_semaphore_create(3);
+    if(!surface.presentTextures||surface.presentWidth!=width||surface.presentHeight!=height){
         MTLTextureDescriptor *descriptor=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
             width:(NSUInteger)width height:(NSUInteger)height mipmapped:NO];
         descriptor.usage=MTLTextureUsageShaderRead;
         descriptor.storageMode=MTLStorageModeShared;
-        surface.presentTexture=[device newTextureWithDescriptor:descriptor];
-        if(!surface.presentTexture)return;
+        surface.presentTextures=[NSMutableArray arrayWithCapacity:3];
+        for(int i=0;i<3;i++){
+            id<MTLTexture> texture=[device newTextureWithDescriptor:descriptor];
+            if(!texture){surface.presentTextures=nil;return;}
+            [surface.presentTextures addObject:texture];
+        }
+        surface.presentSlot=0;
         surface.presentWidth=width;surface.presentHeight=height;
     }
-    [surface.presentTexture replaceRegion:MTLRegionMake2D(0,0,(NSUInteger)width,(NSUInteger)height)
+    dispatch_semaphore_wait(surface.presentSemaphore,DISPATCH_TIME_FOREVER);
+    id<MTLTexture> texture=surface.presentTextures[(NSUInteger)surface.presentSlot];
+    surface.presentSlot=(surface.presentSlot+1)%3;
+    [texture replaceRegion:MTLRegionMake2D(0,0,(NSUInteger)width,(NSUInteger)height)
         mipmapLevel:0 withBytes:pixels bytesPerRow:(NSUInteger)width*4];
     id<CAMetalDrawable> drawable=[layer nextDrawable];
-    if(!drawable)return;
+    if(!drawable){dispatch_semaphore_signal(surface.presentSemaphore);return;}
     id<MTLCommandBuffer> command=[surface.presentQueue commandBuffer];
-    id<MTLBlitCommandEncoder> blit=[command blitCommandEncoder];
-    [blit copyFromTexture:surface.presentTexture sourceSlice:0 sourceLevel:0
-        sourceOrigin:MTLOriginMake(0,0,0) sourceSize:MTLSizeMake((NSUInteger)width,(NSUInteger)height,1)
-        toTexture:drawable.texture destinationSlice:0 destinationLevel:0 destinationOrigin:MTLOriginMake(0,0,0)];
-    [blit endEncoding];
+    if((NSUInteger)width==drawable.texture.width&&(NSUInteger)height==drawable.texture.height){
+        id<MTLBlitCommandEncoder> blit=[command blitCommandEncoder];
+        [blit copyFromTexture:texture sourceSlice:0 sourceLevel:0
+            sourceOrigin:MTLOriginMake(0,0,0) sourceSize:MTLSizeMake((NSUInteger)width,(NSUInteger)height,1)
+            toTexture:drawable.texture destinationSlice:0 destinationLevel:0 destinationOrigin:MTLOriginMake(0,0,0)];
+        [blit endEncoding];
+    }else if(FAOTEnsureUpscalePipeline(surface,device)){
+        MTLRenderPassDescriptor *pass=[MTLRenderPassDescriptor renderPassDescriptor];
+        pass.colorAttachments[0].texture=drawable.texture;
+        pass.colorAttachments[0].loadAction=MTLLoadActionDontCare;
+        pass.colorAttachments[0].storeAction=MTLStoreActionStore;
+        id<MTLRenderCommandEncoder> encoder=[command renderCommandEncoderWithDescriptor:pass];
+        [encoder setViewport:(MTLViewport){0,0,drawable.texture.width,drawable.texture.height,0,1}];
+        [encoder setRenderPipelineState:surface.presentPipeline];
+        [encoder setFragmentTexture:texture atIndex:0];
+        [encoder setFragmentSamplerState:surface.presentSampler atIndex:0];
+        [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+        [encoder endEncoding];
+    }else{
+        dispatch_semaphore_signal(surface.presentSemaphore);
+        return;
+    }
     [command presentDrawable:drawable];
+    dispatch_semaphore_t semaphore=surface.presentSemaphore;
+    [command addCompletedHandler:^(id<MTLCommandBuffer> completed){dispatch_semaphore_signal(semaphore);}];
     [command commit];
 }
 void faot_surface_title(void *raw,const char *title) {

@@ -38,6 +38,12 @@ static GLFWvidmode video;
 static GLFWerrorfun errorCallback;
 static GLFWmonitorfun monitorCallback;
 static int initialized, clientAPI = GLFW_OPENGL_API;
+static double gl41_scale_value(void) {
+    const char *text = getenv("FAOT_GL41_SCALE");
+    double value = text ? atof(text) : 0.8;
+    if (!(value >= 0.5 && value <= 1.0)) value = 0.8;
+    return value;
+}
 static _Thread_local int lastError;
 static _Thread_local char errorText[512], returnedError[512];
 static _Thread_local GLFWwindow *current;
@@ -232,7 +238,8 @@ void glfwMakeContextCurrent(GLFWwindow *w) {
     current=w;
     if(!w->wantsGL)return;
     if(w->glContext)return;
-    if(w->surface && faot_gl41_make_current(w->surface,w->pixelWidth,w->pixelHeight))w->glContext=1;
+    int scale_w=(int)(w->pixelWidth*gl41_scale_value()+0.5), scale_h=(int)(w->pixelHeight*gl41_scale_value()+0.5);
+    if(w->surface && faot_gl41_make_current(w->surface,scale_w,scale_h))w->glContext=1;
     else fail(GLFW_API_UNAVAILABLE,"OpenGL 4.1 context unavailable");
 }
 GLFWwindow *glfwGetCurrentContext(void) { return current==live?current:NULL; }
@@ -240,7 +247,10 @@ void glfwSwapBuffers(GLFWwindow *w) {
     if(!valid(w))return;
     if(!w->wantsGL){fail(GLFW_API_UNAVAILABLE,"Metal presentFrame must present the drawable, not glfwSwapBuffers");return;}
     if(!w->glContext){fail(GLFW_API_UNAVAILABLE,"OpenGL context was not created");return;}
-    if(w->pixelWidth!=0 && w->pixelHeight!=0)faot_gl41_make_current(w->surface,w->pixelWidth,w->pixelHeight);
+    if(w->pixelWidth!=0 && w->pixelHeight!=0){
+        int scale_w=(int)(w->pixelWidth*gl41_scale_value()+0.5), scale_h=(int)(w->pixelHeight*gl41_scale_value()+0.5);
+        faot_gl41_make_current(w->surface,scale_w,scale_h);
+    }
     faot_gl41_swap(w->surface);
 }
 void glfwSwapInterval(int interval) { if(live)live->swapInterval=interval; }
