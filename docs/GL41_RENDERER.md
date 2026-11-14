@@ -296,3 +296,33 @@ Both stages grew more expensive, with the larger increase outside swap.
 These are separate percentiles and cannot be added to reconstruct a frame.
 The next measurement should split time outside swap into client/chunk work,
 GL command submission, and pacing so the source of the increase can be isolated.
+
+## GL41 v14: renderer configuration study
+
+The diagnostic IPA was used to compare renderer settings on the same iPhone 16
+Pro and save. Each candidate was launched over USB with an environment override,
+then measured after terrain settled so that chunk streaming did not dominate the
+window. Default refers to the shipped profile: 80% internal scale, 120 FPS option,
+fixed-timeline pacing, zink over MoltenVK with argument buffers.
+
+| Profile | Samples | Median FPS | Min FPS | finishP95 | outsideSwapP95 | Notes |
+|---|---|---|---|---|---|---|
+| default, settled | 17 | 71.3 | 44.2 | 13 ms | 7 ms | best combination measured |
+| 50% internal scale | 16 | 65.0 | 41.6 | 13 ms | 19 ms | no finish gain, 18 presentation drops |
+| in-game 60 FPS cap | 17 | 49.8 | 34.8 | 15 ms | 15 ms | fixed-timeline wait costs more than the cap saves |
+| ZINK_DESCRIPTORS=lazy | 8 | 36.9 | 18.8 | 17 ms | 45 ms | rejected |
+| ZINK_DESCRIPTORS=db | 7 | 51.4 | 34.8 | 14 ms | 21 ms | no gain |
+| MVK async queue submits | 8 | 45.2 | 34.1 | 17 ms | 26 ms | rejected |
+| MVK MPS depth/stencil | 8 | 47.0 | 29.1 | 15 ms | 25 ms | rejected |
+| mesa_glthread=true | 15 | 46.2 | 28.5 | 15 ms | 25 ms | rejected |
+
+Halving the internal resolution left `finishP95` unchanged at 13 ms, so the frame
+cost is dominated by per-frame draw submission and synchronisation rather than
+pixel fill. Lowering the internal scale further would reduce sharpness without
+raising the frame rate, so the 80% profile stays. The 60 FPS option is slower than
+the 120 setting on this device because every paced frame pays the wait cost; the
+renderer therefore keeps Minecraft's own FPS choice and adds no cap of its own.
+
+Remaining headroom is architectural. The per-frame GPU to CPU readback and the zink
+draw translation both sit on the game thread. A Vulkan swapchain presentation path
+would remove the readback and is the next step that could change the ceiling.
