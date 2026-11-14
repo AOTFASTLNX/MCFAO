@@ -205,3 +205,11 @@ from a capacity of 2 through 1024 while terrain was explored. GL41 now pre-sizes
 uniform rings to 4096 entries, removing those per-expansion buffer allocations without
 changing rendered content, geometry or UI assets. Native resolution and all game settings
 remain in their original form; the FPS option stays available at 120.
+
+CircleCI job 115 built source `eabc50646f9f7ec741db2c7ca006e9fa01fb3c8c`.
+Stage 4b changed exactly the expected eight client classes, including
+`DynamicUniforms`; the AOT link, Xcode build, and IPA packaging passed. The downloaded
+unsigned IPA passed ZIP and Mach-O audits and contains both the fixed-timeline and
+120 Hz refresh markers. Size: 466,614,499 bytes. SHA-256:
+`50589b86bc8a042061197e286616800a4d4de4e283840c0cd916381e8f705c19`.
+**v11 device performance: NOT RUN.**
