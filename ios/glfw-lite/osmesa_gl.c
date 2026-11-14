@@ -75,7 +75,7 @@ static int load_api(void) {
     /* This OSMesa export surface implements OpenGL 4.1 entry points. Hide 4.5 direct-state
      * access so Minecraft takes its verified non-DSA path instead of resolving absent slots. */
     set_default("MESA_EXTENSION_OVERRIDE", "-GL_ARB_direct_state_access");
-    set_default("mesa_glthread", "true");
+    set_default("mesa_glthread", "false");
     /* zink is a Vulkan driver; MoltenVK is the Vulkan implementation on iOS. */
     set_default("MVK_CONFIG_FAST_MATH_ENABLED", "2");
     set_default("MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS", "1");
