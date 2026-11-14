@@ -11,7 +11,10 @@ def check(report, directory):
     if data.get("status")!="FABRIC_AOT_INPUT_PREPARED":
         raise ValueError("Fabric transformation did not produce an AOT input")
     if data.get("excludedMods") or data.get("retiredJars"):
-        raise ValueError("Fabric export excluded mods; inspect the transformation report")
+        raise ValueError("Fabric export excluded mods: " + json.dumps({
+            "excludedMods": data.get("excludedMods", {}),
+            "retiredJars": data.get("retiredJars", []),
+        }, ensure_ascii=True, sort_keys=True))
     mods=sorted(Path(directory).glob("*.jar"))
     if not mods: raise ValueError("Fabric input contains no root mod JARs")
     expected=data.get("modSHA256",{})
