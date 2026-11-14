@@ -24,7 +24,7 @@ def main(argv=None):
     overlays=bridge_overlays(args.graphics_bridge)
     glfw=args.glfw_library.resolve(strict=True);validate_dylib(glfw,args.sdk=="iphonesimulator")
     out=args.output.resolve();out.mkdir(parents=True,exist_ok=False)
-    home=ROOT/".cache/toolchains/graalvm-25.0.2/graalvm-community-openjdk-25.0.2+10.1/Contents/Home"
+    home=(ROOT/".cache/toolchains/graalvm-25.0.2/graalvm-community-openjdk-25.0.2+10.1/Contents/Home").resolve(strict=True)
     manifest=json.loads((ROOT/"artifacts/b0/prepared-04/result.json").read_text())
     cp=[*overlays]
     for entry in manifest["referenceLibraries"]:
@@ -72,7 +72,7 @@ def main(argv=None):
         compiled_test=capture([str(home/"bin/javac"),"-proc:none","-cp",str(classes)+os.pathsep+os.pathsep.join(map(str,cp)),"-d",str(tests),str(ROOT/"interop/graphics/TextureSpecProbe.java")],out/"contract-compile",120)
         policy=out/"contract.sb";policy.write_text(sandbox_policy(out,home,cp))
         if not compiled_test["exitCode"]:
-            tested=capture(["/usr/bin/sandbox-exec","-f",str(policy),str(home/"bin/java"),"-Xmx128m","-cp",str(tests)+os.pathsep+str(classes)+os.pathsep+os.pathsep.join(map(str,cp)),"fabricaot.metal.TextureSpecProbe"],out/"contract-run",30)
+            tested=capture(["/usr/bin/sandbox-exec","-f",str(policy),str(home/"bin/java"),"-Xmx128m","-cp",str(tests)+os.pathsep+str(classes)+os.pathsep+os.pathsep.join(map(str,cp)),"fabricaot.metal.TextureSpecProbe"],out/"contract-run",30,cwd=out)
             result["hostContracts"]="PASS" if not tested["exitCode"] and "METAL_TEXTURE_CONTRACT_PASS" in (out/"contract-run/stdout.log").read_text() else "FAIL"
         else:result["hostContracts"]="FAIL"
         if result["hostContracts"]!="PASS":result["status"]="BLOCKED"

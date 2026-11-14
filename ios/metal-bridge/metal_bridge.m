@@ -248,7 +248,6 @@ JNIEXPORT jlong JNICALL Java_fabricaot_metal_MetalNative_cloneBuffer(JNIEnv *env
          * accounting; MetalNative.release() will recycle it after the GPU has
          * finished reading this storage. */
         [ctx.resources releaseTracked:FAOTResourceTexelBuffer bytes:snapshot.allocatedSize];
-        [ctx.resources track:FAOTResourceSnapshot bytes:snapshot.allocatedSize];
         return keepTracked(FAOTResourceSnapshot,snapshot);
     }
 }
@@ -310,11 +309,9 @@ JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_release(JNIEnv *env,jcla
          * moves the +1 retain into the completion handler. */
         if(category==FAOTResourceSnapshot){
             id<MTLCommandBuffer> pending=gPendingCommands;
-            if(pending){
-                id held=(__bridge_transfer id)(void *)(uintptr_t)handle;
-                [gActiveTracker recycleOwnedBuffer:held commandBuffer:pending];
-                return;
-            }
+            id held=(__bridge_transfer id)(void *)(uintptr_t)handle;
+            [gActiveTracker recycleOwnedBuffer:held commandBuffer:pending];
+            return;
         }
     }
     id owned=(__bridge_transfer id)(void *)(uintptr_t)handle;(void)owned;

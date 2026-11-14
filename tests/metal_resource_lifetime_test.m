@@ -13,9 +13,96 @@ static void check(BOOL condition, const char *message) {
     if (!condition) { fprintf(stderr, "FAIL: %s\n", message); failures++; }
 }
 
+static void testPersistentResourcesDoNotConsumeTransientBudget(id<MTLDevice> device) {
+    @autoreleasepool {
+        const NSUInteger cap = 1024 * 1024;
+        FAOTResourceTracker *tracker = [[FAOTResourceTracker alloc] initWithDevice:device maxTransientBytes:cap];
+        MTLTextureDescriptor *desc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm width:1024 height:1024 mipmapped:NO];
+        desc.storageMode = MTLStorageModePrivate;
+        id<MTLTexture> persistent = [device newTextureWithDescriptor:desc];
+        check(persistent != nil, "persistent startup texture must allocate");
+        [tracker track:FAOTResourceTexture bytes:persistent.allocatedSize];
+        check(persistent.allocatedSize > cap, "regression fixture must exceed transient budget with persistent storage");
+        id<MTLBuffer> upload = [tracker acquireTransientBufferOfLength:cap];
+        check(upload != nil, "persistent textures must not reject an in-budget startup upload");
+        if (upload) {
+            id<MTLCommandQueue> queue = [device newCommandQueue];
+            id<MTLCommandBuffer> cb = [queue commandBuffer];
+            [tracker recycleTransientBuffer:upload commandBuffer:cb];
+            [cb commit]; [cb waitUntilCompleted];
+            check(tracker.transientAllocatedBytes == cap, "recycling at the cap must preserve one backing allocation");
+            check([[tracker memorySnapshot] containsString:@"pool_entries=1"], "full-budget buffer must be reusable");
+            id<MTLBuffer> reused = [tracker acquireTransientBufferOfLength:cap];
+            check(reused == upload, "exact-size reuse must not allocate or count bytes twice");
+            [tracker releaseTracked:FAOTResourceTexelBuffer bytes:cap];
+            [tracker recycleOwnedBuffer:reused commandBuffer:nil];
+            id<MTLBuffer> smaller = [tracker acquireTransientBufferOfLength:cap / 2];
+            check(smaller != nil, "idle storage must be evicted to satisfy a different size");
+            check(tracker.transientAllocatedBytes == cap / 2, "trim must remove idle backing bytes");
+            [tracker releaseTracked:FAOTResourceTexelBuffer bytes:cap / 2];
+            [tracker recycleOwnedBuffer:smaller commandBuffer:nil];
+        }
+        [tracker releaseTracked:FAOTResourceTexture bytes:persistent.allocatedSize];
+        [tracker close];
+        check(tracker.transientAllocatedBytes == 0, "close must release all idle budget");
+    }
+}
+
+static void testReleasedSnapshotStaysChargedUntilCompletion(id<MTLDevice> device) {
+    @autoreleasepool {
+        const NSUInteger cap = 1024 * 1024;
+        FAOTResourceTracker *tracker = [[FAOTResourceTracker alloc] initWithDevice:device maxTransientBytes:cap];
+        id<MTLBuffer> buffer = [tracker acquireTransientBufferOfLength:cap];
+        check(buffer != nil, "snapshot fixture buffer must allocate");
+        if (!buffer) { [tracker close]; return; }
+        [tracker releaseTracked:FAOTResourceTexelBuffer bytes:cap];
+        [tracker track:FAOTResourceSnapshot bytes:cap];
+        [tracker releaseTracked:FAOTResourceSnapshot bytes:cap];
+        id<MTLCommandQueue> queue = [device newCommandQueue];
+        id<MTLSharedEvent> event = [device newSharedEvent];
+        id<MTLCommandBuffer> cb = [queue commandBuffer];
+        [cb encodeWaitForEvent:event value:1];
+        [tracker recycleOwnedBuffer:buffer commandBuffer:cb];
+        [cb commit];
+        check(tracker.transientAllocatedBytes == cap, "released snapshot must remain charged while GPU work is delayed");
+        check([[tracker memorySnapshot] containsString:@"pool_entries=0"], "in-flight storage must not enter the idle pool");
+        event.signaledValue = 1;
+        [cb waitUntilCompleted];
+        check(tracker.transientAllocatedBytes == cap, "GPU completion transfers storage without double counting");
+        [tracker close];
+        check(tracker.transientAllocatedBytes == 0, "completed snapshot must be reclaimed");
+    }
+}
+
+static void testConcurrentReservations(id<MTLDevice> device) {
+    @autoreleasepool {
+        const NSUInteger cap = 1024 * 1024, length = cap / 8;
+        FAOTResourceTracker *tracker = [[FAOTResourceTracker alloc] initWithDevice:device maxTransientBytes:cap];
+        NSMutableArray<id<MTLBuffer>> *buffers = [NSMutableArray array];
+        dispatch_apply(16, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^(size_t index) {
+            (void)index;
+            @autoreleasepool {
+                id<MTLBuffer> buffer = [tracker acquireTransientBufferOfLength:length];
+                if (buffer) { @synchronized(buffers) { [buffers addObject:buffer]; } }
+            }
+        });
+        check(buffers.count == 8, "concurrent requests must reserve no more than the cap");
+        check(tracker.transientAllocatedBytes == cap, "all concurrent reservations must be accounted");
+        for (id<MTLBuffer> buffer in buffers) {
+            [tracker releaseTracked:FAOTResourceTexelBuffer bytes:length];
+            [tracker recycleOwnedBuffer:buffer commandBuffer:nil];
+        }
+        [tracker close];
+        check(tracker.transientAllocatedBytes == 0, "concurrent allocations must be reclaimable");
+    }
+}
+
 int main(void) { @autoreleasepool {
     id<MTLDevice> device = MTLCreateSystemDefaultDevice();
     if (!device) { fprintf(stderr, "SKIP: no Metal device\n"); return 77; }
+    testPersistentResourcesDoNotConsumeTransientBudget(device);
+    testReleasedSnapshotStaysChargedUntilCompletion(device);
+    testConcurrentReservations(device);
     FAOTResourceTracker *tracker = [[FAOTResourceTracker alloc] initWithDevice:device maxTransientBytes:8 * 1024 * 1024];
     id<MTLCommandQueue> queue = [device newCommandQueue];
     dispatch_semaphore_t slots = dispatch_semaphore_create(2);

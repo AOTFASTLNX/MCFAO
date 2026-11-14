@@ -23,6 +23,7 @@ static const char *categoryNames[FAOTResourceCategoryCount] = {
     NSMutableArray<id<MTLBuffer>> *_pool;
     NSUInteger _poolEntries, _poolBytes;
     NSUInteger _maxTransientBytes;
+    NSUInteger _transientBytes; /* backing storage, including idle and GPU-held snapshots */
     double _started, _lastSummary;
     dispatch_group_t _drain;
     BOOL _closed;
@@ -48,6 +49,7 @@ static const char *categoryNames[FAOTResourceCategoryCount] = {
 }
 - (id<MTLDevice>)device{return _device;}
 - (NSUInteger)maxTransientBytes{return _maxTransientBytes;}
+- (NSUInteger)transientAllocatedBytes {@synchronized(_lock){return _transientBytes;}}
 
 - (uint64_t)totalLiveBytes {
     uint64_t total=0;for(NSUInteger i=0;i<FAOTResourceCategoryCount;i++)total+=_counters[i].liveBytes;return total;
@@ -94,6 +96,7 @@ static const char *categoryNames[FAOTResourceCategoryCount] = {
 - (id<MTLBuffer>)acquireTransientBufferOfLength:(NSUInteger)length {
     if(!length)return nil;
     @synchronized(_lock){
+        if(_closed)return nil;
         NSUInteger found=NSNotFound;
         for(NSUInteger i=0;i<_pool.count;i++)if(_pool[i].length==length){found=i;break;}
         if(found!=NSNotFound){
@@ -107,15 +110,35 @@ static const char *categoryNames[FAOTResourceCategoryCount] = {
             return reused;
         }
     }
-    BOOL over=NO;
-    @synchronized(_lock){over=[self totalLiveBytes]+length>_maxTransientBytes;}
-    if(over){
-        dispatch_group_wait(_drain,dispatch_time(DISPATCH_TIME_NOW,(int64_t)1*NSEC_PER_SEC));
-        @synchronized(_lock){over=[self totalLiveBytes]+length>_maxTransientBytes;}
-        if(over){[self recordFailure:FAOTResourceTexelBuffer bytes:length];return nil;}
+    /* Persistent textures and buffers are not part of this transient cap.
+     * Reserve backing bytes under the lock, including while newBuffer runs,
+     * so concurrent misses cannot each claim the same remaining capacity. */
+    BOOL reserved=NO;
+    for(NSUInteger attempt=0;attempt<2 && length<=_maxTransientBytes;attempt++){
+        @synchronized(_lock){
+            if(_closed)return nil;
+            if(length>_maxTransientBytes-_transientBytes){
+                /* Only idle buffers can be discarded; GPU-held storage remains
+                 * charged until its own completion handler releases it. */
+                _counters[FAOTResourcePool].freedCount+=_poolEntries;
+                _counters[FAOTResourcePool].freedBytes+=_poolBytes;
+                _counters[FAOTResourcePool].liveBytes=0;
+                _transientBytes-=_poolBytes;
+                [_pool removeAllObjects];_poolEntries=0;_poolBytes=0;
+            }
+            if(length<=_maxTransientBytes-_transientBytes){
+                _transientBytes+=length;reserved=YES;
+            }
+        }
+        if(reserved)break;
+        if(attempt==0)dispatch_group_wait(_drain,dispatch_time(DISPATCH_TIME_NOW,(int64_t)1*NSEC_PER_SEC));
     }
+    if(!reserved){[self recordFailure:FAOTResourceTexelBuffer bytes:length];return nil;}
     id<MTLBuffer> buffer=[_device newBufferWithLength:length options:MTLResourceStorageModeShared];
-    if(!buffer){[self recordFailure:FAOTResourceTexelBuffer bytes:length];return nil;}
+    if(!buffer){
+        @synchronized(_lock){_transientBytes-=length;}
+        [self recordFailure:FAOTResourceTexelBuffer bytes:length];return nil;
+    }
     [self track:FAOTResourceTexelBuffer bytes:length];
     return buffer;
 }
@@ -129,20 +152,15 @@ static const char *categoryNames[FAOTResourceCategoryCount] = {
         (void)finished;
         id<MTLBuffer> value=held;held=nil;
         @synchronized(self->_lock){
-            if(!self->_closed && self->_pool.count<FAOT_POOL_MAX_ENTRIES &&
-               [self totalLiveBytes]+length<=self->_maxTransientBytes){
+            FAOTResourceCounters *c=&self->_counters[FAOTResourceTexelBuffer];
+            c->liveBytes=(length>c->liveBytes)?0:c->liveBytes-length;
+            if(!self->_closed && self->_pool.count<FAOT_POOL_MAX_ENTRIES){
                 [self->_pool addObject:value];self->_poolEntries++;self->_poolBytes+=length;
                 self->_counters[FAOTResourcePool].allocatedCount++;
                 self->_counters[FAOTResourcePool].allocatedBytes+=length;
                 self->_counters[FAOTResourcePool].liveBytes+=length;
                 [self notePeak];
-            }
-        }
-        /* Moving into the pool is a transfer, not a free: keep the byte count
-         * accurate so allocated/free totals do not double count recycled storage. */
-        @synchronized(self->_lock){
-            FAOTResourceCounters *c=&self->_counters[FAOTResourceTexelBuffer];
-            c->liveBytes=(length>c->liveBytes)?0:c->liveBytes-length;
+            }else self->_transientBytes-=length;
         }
         dispatch_group_leave(self->_drain);
     }];
@@ -153,21 +171,21 @@ static const char *categoryNames[FAOTResourceCategoryCount] = {
     NSUInteger length=buffer.length;
     __block id held=buffer;
     dispatch_group_enter(_drain);
-    [commands addCompletedHandler:^(id<MTLCommandBuffer> finished){
+    void (^recycle)(id<MTLCommandBuffer>)=^(id<MTLCommandBuffer> finished){
         (void)finished;
         id<MTLBuffer> value=held;held=nil;
         @synchronized(self->_lock){
-            if(!self->_closed && self->_pool.count<FAOT_POOL_MAX_ENTRIES &&
-               [self totalLiveBytes]+length<=self->_maxTransientBytes){
+            if(!self->_closed && self->_pool.count<FAOT_POOL_MAX_ENTRIES){
                 [self->_pool addObject:value];self->_poolEntries++;self->_poolBytes+=length;
                 self->_counters[FAOTResourcePool].allocatedCount++;
                 self->_counters[FAOTResourcePool].allocatedBytes+=length;
                 self->_counters[FAOTResourcePool].liveBytes+=length;
                 [self notePeak];
-            }
+            }else self->_transientBytes-=length;
         }
         dispatch_group_leave(self->_drain);
-    }];
+    };
+    if(commands)[commands addCompletedHandler:recycle];else recycle(nil);
 }
 
 - (void)noteCommandBufferCommitted {
@@ -199,8 +217,8 @@ static const char *categoryNames[FAOTResourceCategoryCount] = {
             categoryNames[i],(unsigned long long)c->freedCount,categoryNames[i],(unsigned long long)c->freedBytes,
             categoryNames[i],(unsigned long long)c->liveBytes];
     }
-    [line appendFormat:@" pool_entries=%lu pool_bytes=%lu transient_budget_bytes=%lu",
-        (unsigned long)_poolEntries,(unsigned long)_poolBytes,(unsigned long)_maxTransientBytes];
+    [line appendFormat:@" pool_entries=%lu pool_bytes=%lu transient_budget_bytes=%lu transient_allocated_bytes=%lu",
+        (unsigned long)_poolEntries,(unsigned long)_poolBytes,(unsigned long)_maxTransientBytes,(unsigned long)_transientBytes];
     return line;
 }
 - (NSString *)memorySnapshot {
@@ -221,6 +239,7 @@ static const char *categoryNames[FAOTResourceCategoryCount] = {
         _counters[FAOTResourcePool].freedCount+=_poolEntries;
         _counters[FAOTResourcePool].freedBytes+=_poolBytes;
         _counters[FAOTResourcePool].liveBytes=0;
+        _transientBytes-=_poolBytes;
         [_pool removeAllObjects];_poolEntries=0;_poolBytes=0;
     }
     fprintf(stderr,"%s\n",[self memorySnapshot].UTF8String);

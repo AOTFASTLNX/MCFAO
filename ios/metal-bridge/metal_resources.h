@@ -40,6 +40,9 @@ typedef struct {
 - (instancetype)initWithDevice:(id<MTLDevice>)device maxTransientBytes:(NSUInteger)cap;
 @property(nonatomic,readonly) id<MTLDevice> device;
 @property(nonatomic,readonly) NSUInteger maxTransientBytes;
+/* Requested backing lengths, counted once across pool/Java/GPU ownership.
+ * Separate from total live resources and MTLDevice.currentAllocatedSize. */
+@property(nonatomic,readonly) NSUInteger transientAllocatedBytes;
 
 /* Track a Java-owned allocation. Call releaseTracked:bytes: from the matching
  * MetalNative.release() so live bytes fall when ownership is dropped. */
@@ -60,7 +63,8 @@ typedef struct {
 - (id<MTLBuffer>)acquireTransientBufferOfLength:(NSUInteger)length;
 - (void)recycleTransientBuffer:(id<MTLBuffer>)buffer commandBuffer:(id<MTLCommandBuffer>)commands;
 /* Recycle a buffer whose +1 retain comes from a released JNI handle. The
- * completion handler owns the object; counters were already released. */
+ * completion handler owns the object; counters were already released. A nil
+ * command buffer means there is no pending GPU owner and recycles immediately. */
 - (void)recycleOwnedBuffer:(id<MTLBuffer>)buffer commandBuffer:(id<MTLCommandBuffer>)commands;
 
 - (NSUInteger)inFlightCommandBuffers;

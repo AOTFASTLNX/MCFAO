@@ -55,6 +55,11 @@ class MetalResourceLifetimeTests(unittest.TestCase):
         self.assertTrue(LIFETIME_TEST.is_file())
         self.assertIn("METAL_RESOURCE_LIFETIME_PASS", LIFETIME_TEST.read_text(encoding="utf-8"))
 
+    def test_contract_probe_uses_physical_java_home_and_allowed_work_directory(self):
+        build = BUILD.read_text(encoding="utf-8")
+        self.assertIn('Contents/Home").resolve(strict=True)', build)
+        self.assertIn('out/"contract-run",30,cwd=out)', build)
+
     def test_java_release_path_is_single_ownership_boundary(self):
         release = self.bridge.split("MetalNative_release", 1)[1].split("MetalNative_createTexture", 1)[0]
         self.assertIn("__bridge_transfer", release)
