@@ -1,0 +1,75 @@
+workflow 75d7de1a-fce6-4b61-b14a-d77ea5ef7de0
+[
+  {
+    "name": "build-aot",
+    "status": "failed",
+    "job_number": 116,
+    "id": "d7d0944b-3ed5-49af-b9cd-4d3150452e66",
+    "steps": [
+      {
+        "name": "Spin up environment",
+        "status": [
+          "success"
+        ],
+        "run_time_millis": [
+          1367
+        ]
+      },
+      {
+        "name": "Preparing environment variables",
+        "status": [
+          "success"
+        ],
+        "run_time_millis": [
+          92
+        ]
+      },
+      {
+        "name": "Host facts",
+        "status": [
+          "success"
+        ],
+        "run_time_millis": [
+          423
+        ]
+      },
+      {
+        "name": "Build the game IPA",
+        "status": [
+          "failed"
+        ],
+        "run_time_millis": [
+          516692
+        ]
+      },
+      {
+        "name": "Uploading artifacts",
+        "status": [
+          "success"
+        ],
+        "run_time_millis": [
+          78
+        ]
+      },
+      {
+        "name": "Uploading artifacts",
+        "status": [
+          "success"
+        ],
+        "run_time_millis": [
+          572
+        ]
+      },
+      {
+        "name": "Tail on failure",
+        "status": [
+          "success"
+        ],
+        "run_time_millis": [
+          354
+        ]
+      }
+    ],
+    "output": "\r\n=== [10:40:21] host: arm64 28 GiB, Xcode 27.1, workdir /Users/distiller/mcfao-build ===\r\n\r\n=== [10:40:21] fetch sources (public, commit-pinned; no token) ===\r\nCloning into 'repo'...\r\nCloning into 'src'...\r\n\r\n=== [10:40:23] pinned source commit: bf999cd697d43f488184dd99f1e87ea54d1dcdcb ===\r\nadapted: tools/build_method_splitter.py\r\nadapted: tools/build_method_splitter.py\r\nadapted: tools/prepare_shader_toolchain.py\r\nadapted: tools/prepare_shader_toolchain.py\r\nadapted: tools/prepare_shader_toolchain.py\r\nadapted: tools/build_openal_soft.py\r\nadapted: tools/prepare_b0.py\r\nadapted: ios/glfw-lite/uikit_surface.m (4 replacements)\r\nCI patches applied: original integrated AOT and pointer paths retained\r\n ios/glfw-lite/uikit_surface.m     | 8 ++++----\r\n tools/build_method_splitter.py    | 7 ++++++-\r\n tools/build_openal_soft.py        | 2 +-\r\n tools/prepare_b0.py               | 2 +-\r\n tools/prepare_shader_toolchain.py | 8 +++++---\r\n 5 files changed, 17 insertions(+), 10 deletions(-)\r\n\r\n=== [10:40:23] xcode: /Applications/Xcode-27.1.app (/Applications/Xcode-27.1.app/Contents/Developer) ===\r\n\r\n=== [10:40:23] host tools ===\r\n==> Downloading bottle manifests\r\n✔︎ Bottle Manifest cmake (4.5.0)\r\n✔︎ Bottle Manifest automake (1.20)\r\n==> Fetching downloads for: automake and cmake\r\n✔︎ Bottle automake (1.20)\r\n✔︎ Bottle cmake (4.5.0)\r\n==> Pouring automake--1.20.arm64_tahoe.bottle.tar.gz\r\n🍺  /opt/homebrew/Cellar/automake/1.20: 137 files, 3.7MB\r\n==> Pouring cmake--4.5.0.arm64_tahoe.bottle.tar.gz\r\n🍺  /opt/homebrew/Cellar/cmake/4.5.0: 4,291 files, 70.8MB\r\n\r\n=== [10:40:26] stage 1: GraalVM + upstream sources ===\r\nVerified ios-graal-jdk25.zip: 32a324351412194cba932d86e39d2f30653194e7ee121d8c0075420dee5fedaa\r\nVerified graalvm-community-jdk-25.0.2_macos-aarch64_bin.tar.gz: 50201fb8e8e653e7a253d955877a6b6ad634b42e60c84f45df7e1bb51361635f\r\nGRAALVM_HOME=/Users/distiller/mcfao-build/src/.cache/toolchains/graalvm-25.0.2/graalvm-community-openjdk-25.0.2+10.1/Contents/Home\r\n\r\nreal\t0m6.325s\r\nuser\t0m1.839s\r\nsys\t0m0.636s\r\nDownloading graalvm/labs-openjdk at 3bdcc4536ac3ee02420bcfbfa6fdd3f4bc7d6831\r\n{\"repository\": \"graalvm/labs-openjdk\", \"commit\": \"3bdcc4536ac3ee02420bcfbfa6fdd3f4bc7d6831\", \"path\": \"/Users/distiller/mcfao-build/src/.cache/upstream/jdk/labs-openjdk-3bdcc4536ac3ee02420bcfbfa6fdd3f4bc7d6831\", \"archiveSHA256\": \"bc50a0ec79c2a6a57c8c8547d1e99661713dac043c405722612b5a78f3e93a54\", \"archiveBytes\": 119436939, \"transport\": \"verified HTTPS at immutable upstream revision; observed archive hash\", \"licenseFilesSHA256\": {\"LICENSE\": \"4b9abebc4338048a7c2dc184e9f800deb349366bdf28eb23c2677a77b4c87726\", \"ADDITIONAL_LICENSE_INFO\": \"a69bce275ba7a3570af6579cb0f55682cd75fedfcd49e0e8e9022270c447c916\", \"ASSEMBLY_EXCEPTION\": \"75292f03bf23d3db7c985aecc191029b93883200721ed23ed34a2e601463df33\"}}\r\nDownloading oracle/graal at 6589574a0c5561605d619d2a5aa0d9ad11c61efa\r\n{\"repository\": \"oracle/graal\", \"commit\": \"6589574a0c5561605d619d2a5aa0d9ad11c61efa\", \"path\": \"/Users/distiller/mcfao-build/src/.cache/upstream/graal/graal-6589574a0c5561605d619d2a5aa0d9ad11c61efa\", \"archiveSHA256\": \"d88726885469868457898ee204673a4c849bc03f897d53120c46e6c4ffa27e0b\", \"archiveBytes\": 46090456, \"transport\": \"verified HTTPS at immutable upstream revision; observed archive hash\", \"licenseFilesSHA256\": {\"substratevm/LICENSE\": \"11a8fe0c63dcff8bd8674b89a5895dfbcf5f7e5453cf0a33566c4b3fb64e404c\"}}\r\n\r\nreal\t0m37.703s\r\nuser\t0m8.717s\r\nsys\t0m10.676s\r\nnative-image 25.0.2 2026-01-20\r\nGraalVM Runtime Environment GraalVM CE 25.0.2+10.1 (build 25.0.2+10-jvmci-b01)\r\nSubstrate VM GraalVM CE 25.0.2+10.1 (build 25.0.2+10, serial gc)\r\n\r\n=== [10:41:11] stage 2a: OpenJDK configure + java.base-java (slow, 10-25 min) ===\r\n\r\n=== [10:41:49] stage 2b: iOS bootstrap runtime ===\r\nCompiling 120 upstream translation units for arm64-apple-ios17.0\r\n{\r\n  \"status\": \"COMPILED\",\r\n  \"target\": \"arm64-apple-ios17.0\",\r\n  \"translationUnits\": 120,\r\n  \"failed\": [],\r\n  \"archives\": {\r\n    \"libjava\": {\r\n      \"path\": \"/Users/distiller/mcfao-build/src/artifacts/b1/runtime-ios/libjava.a\",\r\n      \"sha256\": \"080811ae284d749f249200850f9442119d946633d87b92f33a37683579318186\"\r\n    },\r\n    \"libnet\": {\r\n      \"path\": \"/Users/distiller/mcfao-build/src/artifacts/b1/runtime-ios/libnet.a\",\r\n      \"sha256\": \"f800bcaa7a81b4fdc274caaa133ed469571312614be3e99ffd3b1d981994d23e\"\r\n    },\r\n    \"libnio\": {\r\n      \"path\": \"/Users/distiller/mcfao-build/src/artifacts/b1/runtime-ios/libnio.a\",\r\n      \"sha256\": \"d305a04df989b5b16602debb5e81b6ad83909a9d339a797443dd4a3a904892a7\"\r\n    },\r\n    \"libzip\": {\r\n      \"path\": \"/Users/distiller/mcfao-build/src/artifacts/b1/runtime-ios/libzip.a\",\r\n      \"sha256\": \"e120f33bb8bdee2d0f7abe8f2fb5076f8c6b04e2ce26986470b768c32e1f73ad\"\r\n    },\r\n    \"libextnet\": {\r\n      \"path\": \"/Users/distiller/mcfao-build/src/artifacts/b1/runtime-ios/libextnet.a\",\r\n      \"sha256\": \"8f7ffa7348fb0c1e3719676d88b7217462782d8364c344be9850e9dbab5ccb1e\"\r\n    },\r\n    \"libsvm\": {\r\n      \"path\": \"/Users/distiller/mcfao-build/src/artifacts/b1/runtime-ios/libsvm.a\",\r\n      \"sha256\": \"47508c03d2bf149778adb5121afc9f3bfe98ad7dd0fefdc5c7aa4160e10e170b\"\r\n    }\r\n  },\r\n  \"deviceRun\": \"NOT RUN\",\r\n  \"unsupportedJVMEntrypoints\": []\r\n}\r\n\r\nreal\t0m3.332s\r\nuser\t0m3.489s\r\nsys\t0m1.517s\r\n\r\n=== [10:41:52] stage 2c: Minecraft 26.1.2 inputs (Mojang CDN) ===\r\n{\r\n  \"version\": \"26.1.2\",\r\n  \"clientBytes\": 38113927,\r\n  \"jars\": 79,\r\n  \"libraries\": 110494176,\r\n  \"metadata\": \"/Users/distiller/mcfao-build/src/artifacts/ci/mc/26.1.2.json\"\r\n}\r\n\r\nreal\t0m11.535s\r\nuser\t0m0.770s\r\nsys\t0m0.678s\r\n\r\n=== [10:42:04] stage 2d: B0 prepared reference ===\r\n{\r\n  \"status\": \"PREPARED\",\r\n  \"classFiles\": 12,\r\n  \"testExecution\": \"NONE\"\r\n}\r\n\r\nreal\t0m0.507s\r\nuser\t0m0.793s\r\nsys\t0m0.073s\r\n\r\n=== [10:42:04] stage 2e: method splitter + game assets ===\r\n{\r\n  \"status\": \"BUILT\",\r\n  \"sourceSHA256\": \"7e214a65fc210f4a597997c5d5545cc809dadab14307a3ef0e5c652dd5c6b433\",\r\n  \"classesDirectory\": \"/Users/distiller/mcfao-build/src/artifacts/compiler/method-splitter-01/classes\"\r\n}\r\n{\r\n  \"status\": \"OWNED_ASSETS_VERIFIED_STAGED\",\r\n  \"assetIndex\": \"30\",\r\n  \"source\": \"/Users/distiller/mcfao-build/src/artifacts/ci/empty-assets\",\r\n  \"metadataSHA256\": \"a7d48a19fe1ea25cb8529c7d718c4c1b4186847c910caaaf9d5a7fa5c790d141\",\r\n  \"indexSHA256\": \"cd6464d5c2bf5dd2c08228058dddc812f1bb27f0da88dcef9fc1b26dc910f61c\",\r\n  \"objects\": 4752,\r\n  \"bytes\": 460195400,\r\n  \"sourcesSHA256\": {\r\n    \"/Users/distiller/mcfao-build/src/tools/stage_game_assets.py\": \"662e75f0de4a638fb133f043206bbd4a00fc532d39e07dacc39a67cc12b6996d\"\r\n  },\r\n  \"scope\": \"local owned assets only; no accounts, access tokens, worlds or Mods\"\r\n}\r\n\r\nreal\t6m50.010s\r\nuser\t1m0.382s\r\nsys\t0m13.116s\r\n\r\n=== [10:48:55] stage 3a: GLFW-lite ===\r\n{\r\n  \"status\": \"NATIVE_SUBSET_BUILT\",\r\n  \"gateC0\": \"BLOCKED\",\r\n  \"target\": \"arm64-apple-ios17.0\",\r\n  \"scope\": \"GLFW native subset only; no Java bridge or Minecraft renderer acceptance\",\r\n  \"sourcesSHA256\": {\r\n    \"ios/glfw-lite/osmesa_gl.h\": \"e8957ffc45315d4c616e6d419d1f26984682bcd05fd5e40f05d0bd43ff7201a6\",\r\n    \"ios/glfw-lite/uikit_surface.m\": \"3afcb0cd0cef59648e27bd1e6bddfbf32337a963345490a89a810263989b5258\",\r\n    \"ios/glfw-lite/pointer_motion.h\": \"5020b94c12c069987eb10c15858cda55390376a52a7a65eedb9899e40b4a2c62\",\r\n    \"ios/glfw-lite/input_mapping.h\": \"49f8d9aec67261bf9285a57f16c3f4ad1d414571ef45dd39bcc82b8c3eca2804\",\r\n    \"ios/glfw-lite/glfw_lite.h\": \"88065b0dbc7c28ea0c6a2d2b2f7e120cef1c011bf19e65da21562f7436dbe3b3\",\r\n    \"ios/glfw-lite/osmesa_present_host_stub.c\": \"8e405ae227060f04f7c970eabbe0306fec347e45a280a3d20e9c5a5bcfbd5d94\",\r\n    \"ios/glfw-lite/osmesa_gl.c\": \"7e7dd9f3e983f15c22ceeb64f9eba153d77a44008177ccef993e5b14589f5b4c\",\r\n    \"ios/glfw-lite/glfw_lite.c\": \"ecfcd891dc347ebde09fd4bf6b97692e00eac4f4f46518e6effe8553b0b99668\"\r\n  },\r\n  \"requiredCExports\": [\r\n    \"glfwCreateStandardCursor\",\r\n    \"glfwCreateWindow\",\r\n    \"glfwDefaultWindowHints\",\r\n    \"glfwDestroyWindow\",\r\n    \"glfwGetClipboardString\",\r\n    \"glfwGetCocoaWindow\",\r\n    \"glfwGetCurrentContext\",\r\n    \"glfwGetError\",\r\n    \"glfwGetFramebufferSize\",\r\n    \"glfwGetInputMode\",\r\n    \"glfwGetKey\",\r\n    \"glfwGetKeyName\",\r\n    \"glfwGetMonitorPos\",\r\n    \"glfwGetMonitors\",\r\n    \"glfwGetPlatform\",\r\n    \"glfwGetPrimaryMonitor\",\r\n    \"glfwGetTime\",\r\n    \"glfwGetVideoMode\",\r\n    \"glfwGetVideoModes\",\r\n    \"glfwGetWindowMonitor\",\r\n    \"glfwGetWindowPos\",\r\n    \"glfwInit\",\r\n    \"glfwInitHint\",\r\n    \"glfwMakeContextCurrent\",\r\n    \"glfwPlatformSupported\",\r\n    \"glfwPollEvents\",\r\n    \"glfwRawMouseMotionSupported\",\r\n    \"glfwSetCharCallback\",\r\n    \"glfwSetClipboardString\",\r\n    \"glfwSetCursor\",\r\n    \"glfwSetCursorEnterCallback\",\r\n    \"glfwSetCursorPos\",\r\n    \"glfwSetCursorPosCallback\",\r\n    \"glfwSetDropCallback\",\r\n    \"glfwSetErrorCallback\",\r\n    \"glfwSetFramebufferSizeCallback\",\r\n    \"glfwSetIMEStatusCallback\",\r\n    \"glfwSetInputMode\",\r\n    \"glfwSetKeyCallback\",\r\n    \"glfwSetMonitorCallback\",\r\n    \"glfwSetMouseButtonCallback\",\r\n    \"glfwSetPreeditCallback\",\r\n    \"glfwSetPreeditCursorRectangle\",\r\n    \"glfwSetScrollCallback\",\r\n    \"glfwSetWindowCloseCallback\",\r\n    \"glfwSetWindowFocusCallback\",\r\n    \"glfwSetWindowIcon\",\r\n    \"glfwSetWindowIconifyCallback\",\r\n    \"glfwSetWindowMonitor\",\r\n    \"glfwSetWindowPosCallback\",\r\n    \"glfwSetWindowSizeCallback\",\r\n    \"glfwSetWindowSizeLimits\",\r\n    \"glfwSetWindowTitle\",\r\n    \"glfwSwapBuffers\",\r\n    \"glfwSwapInterval\",\r\n    \"glfwTerminate\",\r\n    \"glfwWindowHint\",\r\n    \"glfwWindowShouldClose\"\r\n  ],\r\n  \"missingCExports\": [],\r\n  \"binarySHA256\": \"cce05c1355cf860fa98f1bea922febb129efb90c350951b8cacf5c88ae7a69f1\",\r\n  \"hostStateFixture\": \"FAIL\"\r\n}\r\n"
+  }
+]
