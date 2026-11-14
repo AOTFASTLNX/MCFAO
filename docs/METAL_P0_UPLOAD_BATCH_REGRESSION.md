@@ -59,3 +59,38 @@ These host results establish the reproduced upload defect and its correction.
 They do not establish device world entry, long-run memory stability, or device
 sync latency. Other nonfatal mod/config/audio errors in the supplied log
 remain separate compatibility issues.
+
+## Matching full-game export
+
+Runtime source: `c99942a7924f1862d8a3aaaa166039d6af6524f0`. A fresh full-game
+iOS ARM64 AOT completed in 660.3 seconds, followed by full linking and
+`SIGNED_DEVICE_APP`. The link has no unresolved symbols; the pre-existing
+unsupported/trapping `OperatingSystemImpl.initialize0` entrypoint remains,
+so linking does not establish complete runtime compatibility.
+
+Local licensed export:
+`artifacts/mcfao/metal-p0-upload-full-game-signed-01/export/FabricAOT World.ipa`.
+Export status: `DEVELOPMENT_IPA_VERIFIED`; 714,166,382 bytes. SHA256:
+`e4a862ea0a13a952a670324ca5430531ce3b2bd1fcbbb8b4534571713a35b600`.
+Fresh AOT object SHA256:
+`399529017dbcf9af13cfc93eb25b353c463b89ca10c8e074a2d62d26b9ec527a`.
+
+The input manifest selects `metal-p0-upload-02`. Packaged AOT and Metal
+Mach-O UUIDs match the staged outputs; the Metal UUID also matches that
+backend. Present metallib and all packaged shader hashes match the inputs.
+Signature verification covers the requested iPhone, with no dynamic-code
+entitlements. The profile expires at 2026-11-17 13:48:54 UTC.
+
+Evidence in the main checkout: `artifacts/metal-p0-upload-delivery.json`,
+`artifacts/metal-p0-upload-abi-inputs.json`,
+`artifacts/metal-p0-upload-full-game-01.log`,
+`artifacts/metal-p0-upload-full-game-export-01.log`, and the build/export
+directories' manifests and command logs. No proprietary IPA is uploaded.
+
+No installation or launch of this export was performed. The previously
+installed app uses another re-signing identity/application identifier; the
+previous in-place Xcode installation was rejected by iOS. The user must
+retain the same re-signing settings for an update that preserves the app
+container. No uninstall or world deletion was performed. Device world entry,
+10/10/15-minute scenarios, memory curves, and sync P95/P99 remain unverified;
+Gate E remains BLOCKED.
