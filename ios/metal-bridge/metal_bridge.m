@@ -14,6 +14,8 @@
 #include "perf_window.h"
 #include "metal_resources.h"
 
+enum { FAOT_PRESENTATION_DEPTH = 3 };
+
 @interface FAOTPerfCollector : NSObject {
     FAOTPerfWindow _window;
     double _gpuSeconds;
@@ -67,6 +69,7 @@
 @property(nonatomic) NSUInteger fenceReuseCount;
 @property(nonatomic) double slotWaitSeconds;
 @property(nonatomic) double drawableWaitSeconds;
+@property(nonatomic) NSUInteger earlyRenderSubmissions;
 @property(nonatomic) double uploadWaitSeconds;
 @property(nonatomic,strong) FAOTPerfCollector *perf;
 @property(nonatomic,strong) CAMetalLayer *layer;
@@ -79,7 +82,7 @@
 @property(nonatomic,strong) id<MTLCommandBuffer> lastCommitted;
 // Last fence is reusable only until another command buffer is committed.
 @property(nonatomic,strong) FAOTMetalFence *lastFence;
-// Keep a bounded two-frame pipeline. This removes the per-frame GPU completion stall while
+// Keep a bounded three-frame pipeline. This removes the per-frame GPU completion stall while
 // preventing unbounded command-buffer growth and drawable starvation on slower devices.
 @property(nonatomic) dispatch_semaphore_t presentationSlots;
 @property(nonatomic) NSUInteger snapshotBytesThisFrame;
@@ -224,16 +227,16 @@ JNIEXPORT jlong JNICALL Java_fabricaot_metal_MetalNative_create(JNIEnv *env,jcla
     (void)cls;
     @autoreleasepool {
         CAMetalLayer *layer=(__bridge CAMetalLayer *)faot_glfw_metal_layer((GLFWwindow *)(uintptr_t)window);
-        // Match the two in-flight command buffers. A third drawable lets CPU work queue ahead
-        // of the display and produces the long/short frame intervals visible on 120 Hz devices.
-        layer.maximumDrawableCount=2;
+        layer.maximumDrawableCount=FAOT_PRESENTATION_DEPTH;
         layer.framebufferOnly=YES;
         if(!layer||!layer.device){failure(env,"Window has no CAMetalLayer/MTLDevice");return 0;}
         FAOTMetalContext *ctx=[FAOTMetalContext new];ctx.perf=[FAOTPerfCollector new];ctx.sampleStarted=CACurrentMediaTime();ctx.layer=layer;ctx.device=layer.device;ctx.queue=[ctx.device newCommandQueue];
         if(!ctx.queue){failure(env,"MTLCommandQueue allocation failed");return 0;}
         ctx.resources=[[FAOTResourceTracker alloc] initWithDevice:ctx.device maxTransientBytes:64*1024*1024];
         gActiveTracker=ctx.resources;
-        ctx.presentationSlots=dispatch_semaphore_create(2);
+        ctx.presentationSlots=dispatch_semaphore_create(FAOT_PRESENTATION_DEPTH);
+        fprintf(stderr,"[MetalPresentation] drawable_count=%lu in_flight_frames=%d\n",
+            (unsigned long)layer.maximumDrawableCount,FAOT_PRESENTATION_DEPTH);
         return keep(ctx);
     }
 }
@@ -515,6 +518,18 @@ JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_presentFrame(JNIEnv *env
         double slotStart=CACurrentMediaTime();
         dispatch_semaphore_wait(ctx.presentationSlots, DISPATCH_TIME_FOREVER);
         ctx.slotWaitSeconds+=CACurrentMediaTime()-slotStart;
+        // Offscreen work can execute while Core Animation holds the drawables.
+        // Commit on the same serial queue; the later presentation reads the
+        // finished render target without a CPU completion wait.
+        if(ctx.pending){
+            id<MTLCommandBuffer> render=ctx.pending;
+            ctx.pending=nil;ctx.lastFence=nil;ctx.lastCommitted=render;
+            [render addCompletedHandler:^(id<MTLCommandBuffer> completed){
+                if(completed.status==MTLCommandBufferStatusError)
+                    fprintf(stderr,"[Metal] early render failed: %s\n",completed.error.localizedDescription.UTF8String ?: "unknown error");
+            }];
+            commit(ctx,render);ctx.earlyRenderSubmissions++;
+        }
         double drawableStart=CACurrentMediaTime();
         id<CAMetalDrawable> drawable=[ctx.layer nextDrawable];
         ctx.drawableWaitSeconds+=CACurrentMediaTime()-drawableStart;
@@ -545,6 +560,9 @@ JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_presentFrame(JNIEnv *env
             double now=CACurrentMediaTime(), factor=1000.0/ctx.sampleFrames;
             double gpuSeconds,fenceSeconds;NSUInteger gpuCompleted,gpuUnavailable,fenceCount;
             [ctx.perf takeGPUSeconds:&gpuSeconds completed:&gpuCompleted unavailable:&gpuUnavailable fenceSeconds:&fenceSeconds fenceCount:&fenceCount];
+            fprintf(stderr,"[MetalPresentation] drawable_count=%lu in_flight_frames=%d early_render_submits=%lu\n",
+                (unsigned long)ctx.layer.maximumDrawableCount,FAOT_PRESENTATION_DEPTH,(unsigned long)ctx.earlyRenderSubmissions);
+            ctx.earlyRenderSubmissions=0;
             fprintf(stderr,"[MetalPerf] submitted=%lu submit_interval_ms=%.3f cpu_sync_wait_ms=%.3f slot_wait_ms=%.3f drawable_wait_ms=%.3f fence_wait_ms_per_submit=%.3f fence_wait_count=%lu gpu_command_sum_ms_per_submit=%.3f gpu_completed=%lu gpu_unavailable=%lu texel_shared=%.2f texel_private=%.2f texel_upload_wait_ms=%.3f buffer_snapshots=%.2f snapshot_fallbacks=%.2f sync_count=%lu readback_count=%lu readback_wait_ms=%.3f fence_reused=%lu\n",
                 (unsigned long)ctx.sampleFrames,(now-ctx.sampleStarted)*factor,ctx.syncWaitSeconds*factor,
                 ctx.slotWaitSeconds*factor,ctx.drawableWaitSeconds*factor,fenceSeconds*factor,(unsigned long)fenceCount,gpuSeconds*factor,(unsigned long)gpuCompleted,(unsigned long)gpuUnavailable,

@@ -134,6 +134,53 @@ static void testConcurrentReservations(id<MTLDevice> device) {
     }
 }
 
+static void testThreeFramesSplitOnSameQueue(id<MTLDevice> device) {
+    @autoreleasepool {
+        FAOTResourceTracker *tracker=[[FAOTResourceTracker alloc] initWithDevice:device maxTransientBytes:1024*1024];
+        id<MTLCommandQueue> queue=[device newCommandQueue];
+        id<MTLSharedEvent> gate=[device newSharedEvent];
+        NSMutableArray<id<MTLBuffer>> *outputs=[NSMutableArray new];
+        NSMutableArray<id<MTLCommandBuffer>> *tails=[NSMutableArray new];
+        // Delay all GPU work until three complete frame pairs have been queued.
+        // CPU submission must not need a completion wait to order either pass.
+        for(NSUInteger frame=0;frame<3;frame++){
+            id<MTLBuffer> source=[tracker acquireTransientBufferOfLength:256];
+            memset(source.contents,(int)(frame+1),256);
+            id<MTLBuffer> intermediate=[device newBufferWithLength:256 options:MTLResourceStorageModePrivate];
+            id<MTLBuffer> output=[device newBufferWithLength:256 options:MTLResourceStorageModeShared];
+            id<MTLCommandBuffer> render=[queue commandBuffer];
+            [tracker prepareCommandBuffer:render];
+            if(frame==0)[render encodeWaitForEvent:gate value:1];
+            id<MTLBlitCommandEncoder> first=[render blitCommandEncoder];
+            [first copyFromBuffer:source sourceOffset:0 toBuffer:intermediate destinationOffset:0 size:256];
+            [first endEncoding];[render commit];
+            [tracker releaseTracked:FAOTResourceTexelBuffer bytes:source.allocatedSize];
+            [tracker recycleOwnedBuffer:source commandBuffer:render];
+            id<MTLCommandBuffer> present=[queue commandBuffer];
+            [tracker prepareCommandBuffer:present];
+            id<MTLBlitCommandEncoder> second=[present blitCommandEncoder];
+            [second copyFromBuffer:intermediate sourceOffset:0 toBuffer:output destinationOffset:0 size:256];
+            [second endEncoding];[present commit];
+            [outputs addObject:output];[tails addObject:present];
+        }
+        check([[tracker memorySnapshot] containsString:@"pool_entries=0"],
+              "three delayed frames must not recycle GPU-held backing");
+        gate.signaledValue=1;
+        for(NSUInteger frame=0;frame<3;frame++){
+            id<MTLCommandBuffer> tail=tails[frame];[tail waitUntilCompleted];
+            check(tail.status==MTLCommandBufferStatusCompleted,
+                  "same-queue split presentation must complete");
+            const uint8_t *bytes=[outputs[frame] contents];
+            for(NSUInteger i=0;i<256;i++)if(bytes[i]!=frame+1){
+                check(NO,"split presentation must observe its own rendered data");break;
+            }
+        }
+        [tracker close];
+        check(tracker.transientAllocatedBytes==0,
+              "three-frame split submission must release all backing on close");
+    }
+}
+
 int main(void) { @autoreleasepool {
     id<MTLDevice> device = MTLCreateSystemDefaultDevice();
     if (!device) { fprintf(stderr, "SKIP: no Metal device\n"); return 77; }
@@ -141,6 +188,7 @@ int main(void) { @autoreleasepool {
     testReleasedSnapshotStaysChargedUntilCompletion(device);
     testConcurrentReservations(device);
     testLateConcurrentAndOutOfOrderCompletion(device);
+    testThreeFramesSplitOnSameQueue(device);
     FAOTResourceTracker *tracker = [[FAOTResourceTracker alloc] initWithDevice:device maxTransientBytes:8 * 1024 * 1024];
     id<MTLCommandQueue> queue = [device newCommandQueue];
     dispatch_semaphore_t slots = dispatch_semaphore_create(2);
