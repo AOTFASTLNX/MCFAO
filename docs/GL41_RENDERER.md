@@ -235,3 +235,11 @@ rate the GL41 renderer can hold without dropped frames; lower in-game choices ar
 honoured. Together the 80% scale gives each frame enough headroom that the remaining
 readback spikes stay under the 16.7 ms budget, and the cap stops the game from surging
 into a 120 FPS target it cannot meet.
+
+CircleCI job 117 built source `affd1c168e07a58bb43cac33bc2531e4155c74b7`.
+Stage 3a compiled the scaled GLFW sizes and the host fixture passed with 312x675 points /
+936x2026 pixels. Stage 4b applied the client patches, AOT link, Xcode build and IPA
+packaging passed. The downloaded unsigned IPA passed ZIP, arm64, signature and GL41
+marker audits. Size: 466,715,489 bytes. SHA-256:
+`0900f0b1dce09695aa636d90b56ef98945abc94bbf01895adc24bad9ea3105f2`.
+**v12 device performance: NOT RUN.**
