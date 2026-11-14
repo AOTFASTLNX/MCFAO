@@ -586,7 +586,7 @@ void faot_surface_present_bgra(void *raw,const void *pixels,int width,int height
         surface.presentSlot=0;
         surface.presentWidth=width;surface.presentHeight=height;
     }
-    dispatch_semaphore_wait(surface.presentSemaphore,DISPATCH_TIME_FOREVER);
+    (void)dispatch_semaphore_wait(surface.presentSemaphore,DISPATCH_TIME_FOREVER);
     id<MTLTexture> texture=surface.presentTextures[(NSUInteger)surface.presentSlot];
     surface.presentSlot=(surface.presentSlot+1)%3;
     [texture replaceRegion:MTLRegionMake2D(0,0,(NSUInteger)width,(NSUInteger)height)
@@ -618,7 +618,7 @@ void faot_surface_present_bgra(void *raw,const void *pixels,int width,int height
     }
     [command presentDrawable:drawable];
     dispatch_semaphore_t semaphore=surface.presentSemaphore;
-    [command addCompletedHandler:^(id<MTLCommandBuffer> completed){dispatch_semaphore_signal(semaphore);}];
+    [command addCompletedHandler:^(id<MTLCommandBuffer> completed){(void)completed;dispatch_semaphore_signal(semaphore);}];
     [command commit];
 }
 void faot_surface_title(void *raw,const char *title) {
