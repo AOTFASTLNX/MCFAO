@@ -136,3 +136,17 @@ record packet arrival, decoded chunks, readiness transitions, and client tick ag
 captures stalled client ticks even when join stopped before a tracker was assigned. CI
 checks that the final linked GL41 client contains the new diagnostics before packaging.
 The game uses its existing OpenGL backend and the same native size as v7.
+
+## Build record: GL41 v9 (2026-11-14)
+
+CircleCI job 113 built source `9a7592696fb0b2fd9ad4849a6642827322a6a599`.
+AOT linking, the GL41 join-diagnostics check, Xcode build and IPA packaging passed.
+The downloaded unsigned IPA passed ZIP integrity, arm64 and signature checks, and includes
+the three GL41 libraries and the new join diagnostics in the shipped client.
+Size: 466,636,647 bytes. SHA-256:
+`083a3c1ffdc9034550164d54bdfc1cdec5f4404d658f04c73f3fe92ff3d3cd88`.
+
+**Device run: NOT RUN.** Cover an existing world, movement, and exit/rejoin on device.
+If it still stalls, let the watchdog run for at least 35 seconds before exporting
+the log. Check `client_tick_stall`, `level_load_tracker`, `level_load_ready`
+and the accompanying thread frames.
