@@ -42,29 +42,30 @@ v14 的代码路径是 `$HOME/Documents/.mesa_shader_cache`，其中 `HOME` 已�
 平均帧率 57.3 vs 57.1，差异在噪声范围内。缓存对稳定游玩阶段的帧率没有可测贡献，
 这与 v14 已经测出的结论一致：**瓶颈是每帧的提交与 GPU→CPU 回读，不是着色器编译**。
 
-## 发现 3：帧限速器与实际帧率、`maxFps` 不一致（待查）
+## 发现 3：限速器先按 60 起跑、选项加载后切到 120（不是缺陷）
 
 - 设备上的 `Documents/game/options.txt`：`maxFps:120`、`enableVsync:true`。
 - 启动日志：`[GL41] refresh request=80-120 preferred=120 maximum=120 drawables=3`。
-- 但同一份日志里有：`[GL41] frame limiter=fixed-timeline fps=60 intervalNs=16666666`。
-- 实测帧率却是 65–76 FPS。
+- 同一次运行里限速器有两行：
 
-即 `FramePacing.limitDisplayFPS` 收到了 `60`，却没把帧率压到 60。三种可能：
+```
+[17:00:25] [GL41] frame limiter=fixed-timeline fps=60 intervalNs=16666666
+[17:00:54] [GL41] frame limiter=fixed-timeline fps=120 intervalNs=8333333
+```
 
-1. 补丁替换的调用点不是每一帧都会走到的位置（Minecraft 26.1.2 的调用链变化）；
-2. 传进来的 `60` 是 iOS 报告的显示刷新率，而不是 `maxFps`；
-3. 固定截止时间的“迟到即重置”分支（`FramePacing.java:31`）在帧时间 < 16.6 ms 时被反复触发，导致限速形同虚设。
+即应用启动时先按默认 60 起跑，约 29 秒后（选项加载完成）切到 120。四个日志文件的规律一致
+（`run-1794673898510` 只跑到加载阶段，故只有 60 那行）。
 
-需要一次带额外日志的构建来定位（记录调用次数与传入值来源）。
+结论：不是限速器缺陷，但**进世界前的加载窗口是按 60 Hz 节拍跑的**，如果后续要优化「进世界第一分钟」，
+这一段值得单独处理（例如在 `FramePacing` 里对加载期按 120 节拍，或直接跳过限速）。
 
 ## 结论与下一步
 
 1. **v15 不用下载验证**：缓存已在工作，且对帧率无贡献。v15 的产物（466 MB）在当前网络下不值得再花一小时下载。
 2. 真正的提升仍来自渲染管线：把「整帧 GPU→CPU 回读 + CPU 写 Metal 中转纹理」换成 MoltenVK 交换链直出。
-3. 另一条低风险线索是发现 3 的限速器异常：如果 iOS 的 ProMotion 实际按 60 Hz 节拍在跑，
-   那么即使渲染出 75 帧，呈现仍是 60 Hz 节奏，表现为 `long34` 与不均匀帧间隔。
-   可以先加日志定位，再决定是否改成按 `CADisplayLink` 的 `targetTimestamp` 对齐。
-4. 新构建的下载是当前最大瓶颈：校园 Wi-Fi 到 CircleCI 产物主机约 1 KB/s；
+3. 另一条低风险线索是加载窗口：进世界前的约 30 秒仍按 60 Hz 节拍限速（发现 3），
+   这一段恰好也是 `long34` 最密集的阶段；可以先让 `FramePacing` 在加载期按 120 节拍走，成本很小。
+4. 新构建的下载是当前最大瓶颈：校园 Wi-Fi 到 CircleCI 产物主机约 1 KB/s（且 GitHub 已出现连接重置）；
    USB 共享（蜂窝）单连接约 10 KB/s、8 并发约 79 KB/s，466 MB 需要 30–100 分钟。
 
 ## 证据
