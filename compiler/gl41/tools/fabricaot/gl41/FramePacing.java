@@ -6,14 +6,9 @@ import java.util.concurrent.locks.LockSupport;
 public final class FramePacing {
     private static final long NANOS_PER_SECOND = 1_000_000_000L;
     private static final long NO_DEADLINE = Long.MIN_VALUE;
-    /* The full-frame OSMesa readback cannot hold 120 FPS on device; cap the steady state
-       at a rate the GL41 renderer can deliver without frame drops. Lower in-game choices
-       are still honoured. */
-    private static final int STABLE_FPS_CAP = 60;
 
     private static long nextDeadlineNs = NO_DEADLINE;
     private static int currentFps;
-    private static int reportedCap;
 
     private FramePacing() {}
 
@@ -23,16 +18,6 @@ public final class FramePacing {
      */
     public static void limitDisplayFPS(int fps) {
         if (fps <= 0) return;
-        if (fps > STABLE_FPS_CAP) {
-            if (reportedCap != STABLE_FPS_CAP) {
-                reportedCap = STABLE_FPS_CAP;
-                System.err.println("[GL41] frame limiter caps " + fps + " fps at a stable "
-                        + STABLE_FPS_CAP + " fps");
-            }
-            fps = STABLE_FPS_CAP;
-        } else if (reportedCap != 0) {
-            reportedCap = 0;
-        }
         long intervalNs = NANOS_PER_SECOND / fps;
         long now = System.nanoTime();
         if (fps != currentFps || nextDeadlineNs == NO_DEADLINE) {
@@ -50,8 +35,10 @@ public final class FramePacing {
                 nextDeadlineNs = now + intervalNs;
                 return;
             }
-            if (waitNs > 1_000_000L) {
-                LockSupport.parkNanos(waitNs - 500_000L);
+            /* parkNanos oversleeps by several milliseconds on iOS. Park only the bulk of a
+               long wait and spin the final few milliseconds so pacing does not add latency. */
+            if (waitNs > 3_000_000L) {
+                LockSupport.parkNanos(waitNs - 2_000_000L);
             } else {
                 Thread.onSpinWait();
             }

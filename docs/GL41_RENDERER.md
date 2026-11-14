@@ -243,3 +243,16 @@ packaging passed. The downloaded unsigned IPA passed ZIP, arm64, signature and G
 marker audits. Size: 466,715,489 bytes. SHA-256:
 `0900f0b1dce09695aa636d90b56ef98945abc94bbf01895adc24bad9ea3105f2`.
 **v12 device performance: NOT RUN.**
+
+## GL41 v13: undo the frame-cap regression
+
+`归档(13)` (v12 on device) confirmed the 80% internal scale worked: the first render was
+2098x965 and the OSMesa finish time fell to 9-11 ms with no 15-16 ms spikes. But the
+in-game rate dropped to 40-54 FPS. The regression was the 60 FPS steady cap: on iOS a
+`LockSupport.parkNanos` sleep overshoots by several milliseconds, so each frame paid the
+sleep overshoot and the renderer fell below its natural rate.
+
+v13 keeps the 80% render scale, drops the 60 FPS cap (Minecraft's 120 FPS option is passed
+through again), and only parks the bulk of a long wait while spinning the final few
+milliseconds. Frames that exceed the interval run free, as in v11, but now render at the
+smaller size with the reduced readback spikes.
