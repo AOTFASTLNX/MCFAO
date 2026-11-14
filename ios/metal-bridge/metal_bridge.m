@@ -152,6 +152,7 @@ static id<MTLCommandBuffer> commands(FAOTMetalContext *ctx){
     if(!ctx.pending){
         ctx.pendingUploadBytes=0;ctx.pendingUploadCount=0;
         ctx.pending=[ctx.queue commandBuffer];
+        [ctx.resources prepareCommandBuffer:ctx.pending];
         FAOTPerfCollector *perf=ctx.perf;
         /* Break the retain cycle: the command buffer retains its completion
          * handler, and the context retains the command buffer. A weak context

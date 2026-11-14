@@ -53,9 +53,13 @@ typedef struct {
  * snapshot is a plain NSString and holds no Metal objects. */
 - (NSString *)recordFailure:(FAOTResourceCategory)category bytes:(NSUInteger)bytes;
 
+/* Install the completion mailbox before commit. Later Java releases may enqueue
+ * reclamation after commit or completion without adding another Metal handler. */
+- (void)prepareCommandBuffer:(id<MTLCommandBuffer>)commands;
+
 /* Defer an owning reference until the GPU finishes the given command buffer.
- * The object is captured by the completion handler only, never by a container,
- * and is released when the handler runs. */
+ * A mailbox retains the reclamation action until its preinstalled handler runs.
+ * Diagnostics retain no resources. */
 - (void)deferUntilCompleted:(id<MTLCommandBuffer>)commands object:(id)object category:(FAOTResourceCategory)category bytes:(NSUInteger)bytes;
 
 /* Bounded recycling of transient shared buffers. A miss allocates a new buffer

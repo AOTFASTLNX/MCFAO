@@ -5,6 +5,42 @@ static int errors;
 static jclass JNICALL fakeFindClass(JNIEnv *env, const char *name) {
     (void)env; (void)name; errors++; return NULL;
 }
+// Matches prepareCpuWrite dropping a snapshot after its reading buffer commits.
+static int releaseAfterCommit(void) { @autoreleasepool {
+    id<MTLDevice> device=MTLCreateSystemDefaultDevice();
+    if(!device)return 77;
+    FAOTMetalContext *ctx=[FAOTMetalContext new];
+    ctx.device=device;ctx.queue=[device newCommandQueue];ctx.perf=[FAOTPerfCollector new];
+    ctx.resources=[[FAOTResourceTracker alloc] initWithDevice:device maxTransientBytes:4096];
+    gActiveTracker=ctx.resources;
+    id<MTLBuffer> snapshot=[ctx.resources acquireTransientBufferOfLength:4096];
+    [ctx.resources releaseTracked:FAOTResourceTexelBuffer bytes:4096];
+    jlong handle=keepTracked(FAOTResourceSnapshot,snapshot);
+    memset(snapshot.contents,0x5a,4096);
+    id<MTLBuffer> readback=[device newBufferWithLength:4096 options:MTLResourceStorageModeShared];
+    id<MTLSharedEvent> event=[device newSharedEvent];
+    id<MTLCommandBuffer> cb=commands(ctx);
+    [cb encodeWaitForEvent:event value:1];
+    id<MTLBlitCommandEncoder> blit=[cb blitCommandEncoder];
+    [blit copyFromBuffer:snapshot sourceOffset:0 toBuffer:readback destinationOffset:0 size:4096];
+    [blit endEncoding];
+    ctx.pending=nil;ctx.lastCommitted=cb;commit(ctx,cb);
+    Java_fabricaot_metal_MetalNative_release(NULL,NULL,handle);
+    if(![ctx.resources.memorySnapshot containsString:@"pool_entries=0"])return 1;
+    event.signaledValue=1;[cb waitUntilCompleted];
+    for(NSUInteger i=0;i<4096;i++)if(((uint8_t *)readback.contents)[i]!=0x5a)return 1;
+    id<MTLBuffer> reused=[ctx.resources acquireTransientBufferOfLength:4096];
+    if(reused!=snapshot)return 1;
+    // The pending pointer may still name a completed command buffer.
+    [ctx.resources releaseTracked:FAOTResourceTexelBuffer bytes:4096];
+    handle=keepTracked(FAOTResourceSnapshot,reused);
+    Java_fabricaot_metal_MetalNative_release(NULL,NULL,handle);
+    if(![ctx.resources.memorySnapshot containsString:@"pool_entries=1"])return 1;
+    [ctx.resources close];gActiveTracker=nil;gPendingCommands=nil;
+    puts("METAL_LATE_JNI_RELEASE_PASS delayed_gpu=verified completed_gpu=verified pixels=verified");
+    return 0;
+}}
+
 static int uploadBurst(NSUInteger cap, NSUInteger maxBatches) { @autoreleasepool {
     id<MTLDevice> device=MTLCreateSystemDefaultDevice();
     if(!device)return 77;
@@ -71,7 +107,9 @@ static int uploadBurst(NSUInteger cap, NSUInteger maxBatches) { @autoreleasepool
 }}
 
 int main(void) {
-    int result=uploadBurst(64*1024*1024,200);
+    int result=releaseAfterCommit();
+    if(result)return result;
+    result=uploadBurst(64*1024*1024,200);
     if(result)return result;
     // A cap below the proactive batch size forces the pre-allocation submit
     // path. The allocator must never wait on uncommitted uploads.

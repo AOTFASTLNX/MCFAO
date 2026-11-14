@@ -2,6 +2,43 @@
 #import <QuartzCore/CAMetalLayer.h>
 #include <stdio.h>
 #include <string.h>
+#import <objc/runtime.h>
+
+/* Owned by the command buffer, never owns the command buffer. Actions retain
+ * resources only until its preinstalled completion handler drains the mailbox. */
+@interface FAOTCompletionMailbox : NSObject
+@property(nonatomic) BOOL completed;
+@property(nonatomic,strong) NSMutableArray *actions;
+- (void)enqueue:(dispatch_block_t)action;
+- (void)finish;
+@end
+@implementation FAOTCompletionMailbox
+- (instancetype)init {self=[super init];if(self)_actions=[NSMutableArray new];return self;}
+- (void)enqueue:(dispatch_block_t)action {
+    @synchronized(self){if(!_completed){[_actions addObject:[action copy]];return;}}
+    action();
+}
+- (void)finish {
+    NSArray *ready;
+    @synchronized(self){_completed=YES;ready=[_actions copy];[_actions removeAllObjects];}
+    for(dispatch_block_t action in ready)action();
+}
+@end
+
+static char completionMailboxKey;
+static FAOTCompletionMailbox *completionMailbox(id<MTLCommandBuffer> commands) {
+    @synchronized(commands){
+        FAOTCompletionMailbox *mailbox=objc_getAssociatedObject(commands,&completionMailboxKey);
+        if(!mailbox){
+            mailbox=[FAOTCompletionMailbox new];
+            NSCAssert(commands.status<MTLCommandBufferStatusCommitted,
+                      @"Resource completion mailbox must be installed before commit");
+            objc_setAssociatedObject(commands,&completionMailboxKey,mailbox,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            [commands addCompletedHandler:^(id<MTLCommandBuffer> finished){(void)finished;[mailbox finish];}];
+        }
+        return mailbox;
+    }
+}
 
 /* Hard ceiling for transient (non Java-owned) Metal allocations. 64 MiB is well
  * above one frame of cloud texel + vertex snapshots (~0.3 MiB) and below the
@@ -50,6 +87,7 @@ static const char *categoryNames[FAOTResourceCategoryCount] = {
 - (id<MTLDevice>)device{return _device;}
 - (NSUInteger)maxTransientBytes{return _maxTransientBytes;}
 - (NSUInteger)transientAllocatedBytes {@synchronized(_lock){return _transientBytes;}}
+- (void)prepareCommandBuffer:(id<MTLCommandBuffer>)commands {(void)completionMailbox(commands);}
 
 - (uint64_t)totalLiveBytes {
     uint64_t total=0;for(NSUInteger i=0;i<FAOTResourceCategoryCount;i++)total+=_counters[i].liveBytes;return total;
@@ -85,8 +123,7 @@ static const char *categoryNames[FAOTResourceCategoryCount] = {
     if(!object)return;
     __block id held=object;
     dispatch_group_enter(_drain);
-    [commands addCompletedHandler:^(id<MTLCommandBuffer> finished){
-        (void)finished;
+    [completionMailbox(commands) enqueue:^{
         held=nil;                       /* release exactly at GPU completion */
         [self releaseTracked:category bytes:bytes];
         dispatch_group_leave(self->_drain);
@@ -148,8 +185,7 @@ static const char *categoryNames[FAOTResourceCategoryCount] = {
     NSUInteger length=buffer.length;
     __block id held=buffer;
     dispatch_group_enter(_drain);
-    [commands addCompletedHandler:^(id<MTLCommandBuffer> finished){
-        (void)finished;
+    [completionMailbox(commands) enqueue:^{
         id<MTLBuffer> value=held;held=nil;
         @synchronized(self->_lock){
             FAOTResourceCounters *c=&self->_counters[FAOTResourceTexelBuffer];
@@ -185,7 +221,7 @@ static const char *categoryNames[FAOTResourceCategoryCount] = {
         }
         dispatch_group_leave(self->_drain);
     };
-    if(commands)[commands addCompletedHandler:recycle];else recycle(nil);
+    if(commands)[completionMailbox(commands) enqueue:^{recycle(nil);}];else recycle(nil);
 }
 
 - (void)noteCommandBufferCommitted {

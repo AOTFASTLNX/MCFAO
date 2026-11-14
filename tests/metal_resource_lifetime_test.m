@@ -74,6 +74,43 @@ static void testReleasedSnapshotStaysChargedUntilCompletion(id<MTLDevice> device
     }
 }
 
+static void testLateConcurrentAndOutOfOrderCompletion(id<MTLDevice> device) {
+    @autoreleasepool {
+        const NSUInteger count=16, length=4096;
+        FAOTResourceTracker *tracker=[[FAOTResourceTracker alloc] initWithDevice:device maxTransientBytes:count*length];
+        id<MTLCommandQueue> slowQueue=[device newCommandQueue], fastQueue=[device newCommandQueue];
+        id<MTLCommandBuffer> slow=[slowQueue commandBuffer], fast=[fastQueue commandBuffer];
+        id<MTLSharedEvent> event=[device newSharedEvent];
+        [slow encodeWaitForEvent:event value:1];
+        [tracker prepareCommandBuffer:slow];[tracker prepareCommandBuffer:fast];
+        NSMutableArray *buffers=[NSMutableArray new];
+        for(NSUInteger i=0;i<count;i++)[buffers addObject:[tracker acquireTransientBufferOfLength:length]];
+        [slow commit];[fast commit];[fast waitUntilCompleted];
+        dispatch_apply(count,dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0),^(size_t i){
+            [tracker releaseTracked:FAOTResourceTexelBuffer bytes:length];
+            [tracker recycleOwnedBuffer:buffers[i] commandBuffer:(i%2?fast:slow)];
+        });
+        check([[tracker memorySnapshot] containsString:@"pool_entries=8"], "only completed queue resources may pool after late concurrent release");
+        check(tracker.transientAllocatedBytes==count*length,"delayed queue storage must remain charged");
+        event.signaledValue=1;[slow waitUntilCompleted];
+        check([[tracker memorySnapshot] containsString:@"pool_entries=16"],"out-of-order queues must each reclaim exactly once");
+        for(NSUInteger round=0;round<32;round++){
+            id<MTLCommandBuffer> cb=[fastQueue commandBuffer];
+            [tracker prepareCommandBuffer:cb];[cb commit];
+            dispatch_apply(count,dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0),^(size_t i){
+                (void)i;
+                id<MTLBuffer> buffer=[tracker acquireTransientBufferOfLength:length];
+                [tracker releaseTracked:FAOTResourceTexelBuffer bytes:length];
+                [tracker recycleOwnedBuffer:buffer commandBuffer:cb];
+            });
+            [cb waitUntilCompleted];
+        }
+        [tracker close];
+        check(tracker.transientAllocatedBytes==0,"completion races must drain without leaks or double recycling");
+        puts("METAL_LATE_COMPLETION_PASS concurrent=16 queues=2 races=32");
+    }
+}
+
 static void testConcurrentReservations(id<MTLDevice> device) {
     @autoreleasepool {
         const NSUInteger cap = 1024 * 1024, length = cap / 8;
@@ -103,6 +140,7 @@ int main(void) { @autoreleasepool {
     testPersistentResourcesDoNotConsumeTransientBudget(device);
     testReleasedSnapshotStaysChargedUntilCompletion(device);
     testConcurrentReservations(device);
+    testLateConcurrentAndOutOfOrderCompletion(device);
     FAOTResourceTracker *tracker = [[FAOTResourceTracker alloc] initWithDevice:device maxTransientBytes:8 * 1024 * 1024];
     id<MTLCommandQueue> queue = [device newCommandQueue];
     dispatch_semaphore_t slots = dispatch_semaphore_create(2);
