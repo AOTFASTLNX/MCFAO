@@ -68,6 +68,29 @@ int main(void) { @autoreleasepool {
     if(bufferCommand.status!=MTLCommandBufferStatusCompleted){fprintf(stderr,"%s\n",bufferCommand.error.description.UTF8String);return 1;}
     uint32_t expectedOld[4]={10,20,30,40},expectedNew[4]={10,20,99,40};
     if(memcmp(oldOutput.contents,expectedOld,16)||memcmp(newOutput.contents,expectedNew,16)){fprintf(stderr,"Buffer snapshot data mismatch\n");return 1;}
+    // The expanded snapshot path must also preserve an in-flight read above
+    // the former 64 KiB threshold, including untouched bytes after a partial write.
+    NSUInteger largeBytes=128*1024, largeWords=largeBytes/sizeof(uint32_t);
+    id<MTLBuffer> largeOld=[device newBufferWithLength:largeBytes options:MTLResourceStorageModeShared];
+    id<MTLBuffer> largeNew=[device newBufferWithLength:largeBytes options:MTLResourceStorageModeShared];
+    id<MTLBuffer> largeOldOut=[device newBufferWithLength:largeBytes options:MTLResourceStorageModeShared];
+    id<MTLBuffer> largeNewOut=[device newBufferWithLength:largeBytes options:MTLResourceStorageModeShared];
+    for(NSUInteger i=0;i<largeWords;i++)((uint32_t *)largeOld.contents)[i]=(uint32_t)i;
+    memcpy(largeNew.contents,largeOld.contents,largeBytes);
+    ((uint32_t *)largeNew.contents)[largeWords/2]=0xdeadbeef;
+    id<MTLCommandBuffer> largeCmd=[queue commandBuffer];
+    for(NSUInteger pass=0;pass<2;pass++){
+        id<MTLComputeCommandEncoder> largeEncoder=[largeCmd computeCommandEncoder];
+        [largeEncoder setComputePipelineState:bufferPipeline];
+        [largeEncoder setBuffer:pass?largeNew:largeOld offset:0 atIndex:0];
+        [largeEncoder setBuffer:pass?largeNewOut:largeOldOut offset:0 atIndex:1];
+        [largeEncoder dispatchThreads:MTLSizeMake(largeWords,1,1) threadsPerThreadgroup:MTLSizeMake(64,1,1)];
+        [largeEncoder endEncoding];
+    }
+    [largeCmd commit];[largeCmd waitUntilCompleted];
+    if(largeCmd.status!=MTLCommandBufferStatusCompleted||memcmp(largeOld.contents,largeOldOut.contents,largeBytes)||memcmp(largeNew.contents,largeNewOut.contents,largeBytes)){
+        fprintf(stderr,"Large snapshot mismatch: %s\n",largeCmd.error.description.UTF8String ?: "incorrect data");return 1;
+    }
     // A 40-byte uniform needs 48 bytes of backing storage for Metal's 16-byte
     // struct alignment. Verify cloning keeps those padding bytes addressable.
     NSUInteger logicalSize=40, alignedSize=(logicalSize+15)&~(NSUInteger)15;

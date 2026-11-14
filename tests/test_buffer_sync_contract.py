@@ -41,6 +41,24 @@ class BufferSyncContractTests(unittest.TestCase):
         device = (root / "MetalDevice.java").read_text(encoding="utf-8")
         self.assertIn("MetalNative.synchronize(context);bufferHazards.completed()", device)
 
+    def test_snapshot_limits_match_and_remain_bounded(self):
+        root = ROOT / "compiler/metal-backend/src/fabricaot/metal"
+        encoder = (root / "MetalCommandEncoder.java").read_text(encoding="utf-8")
+        native = (ROOT / "ios/metal-bridge/metal_bridge.m").read_text(encoding="utf-8")
+        self.assertIn("MAX_BUFFER_SNAPSHOT_BYTES=1024L*1024", encoder)
+        self.assertIn("bytes>1024*1024", native)
+        self.assertIn("ctx.snapshotBytesThisFrame+length>16*1024*1024", native)
+        self.assertIn("else device.waitForGpu()", encoder)
+
+    def test_render_submission_precedes_drawable_wait(self):
+        source = (ROOT / "ios/metal-bridge/metal_bridge.m").read_text(encoding="utf-8")
+        present = source.split("Java_fabricaot_metal_MetalNative_presentFrame", 1)[1]
+        self.assertLess(present.index("dispatch_semaphore_wait("), present.index("[render commit]"))
+        self.assertLess(present.index("[render commit]"), present.index("[ctx.layer nextDrawable]"))
+        self.assertIn("ctx.pending=nil;ctx.lastFence=nil;ctx.lastCommitted=render", present)
+        self.assertIn("layer.maximumDrawableCount=3", source)
+        self.assertIn("dispatch_semaphore_create(2)", source)
+
     def test_copy_uses_snapshot_and_preserves_overlap_semantics(self):
         source = (ROOT / "compiler/metal-backend/src/fabricaot/metal/MetalCommandEncoder.java").read_text(encoding="utf-8")
         copy = source.split("public void copyToBuffer(", 1)[1].split("public void writeToTexture(", 1)[0]
