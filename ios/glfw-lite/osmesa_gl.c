@@ -33,6 +33,7 @@ typedef unsigned char (*MakeCurrent)(OSMesaContext, void *, int, int, int);
 typedef void (*PixelStore)(int, int);
 typedef unsigned char *(*GetString)(int);
 typedef void (*Finish)(void);
+typedef void (*Flush)(void);
 
 typedef struct {
     void *library;
@@ -42,6 +43,7 @@ typedef struct {
     PixelStore pixel_store;
     GetString get_string;
     Finish finish;
+    Flush flush;
 } OSMesaAPI;
 
 static OSMesaAPI api;
@@ -53,7 +55,7 @@ static int frame_width, frame_height;
 static void *present_surface;
 static int current_width, current_height, logged, made_current, bgra_format = 1;
 static int qos_set, perf_frames;
-static double perf_last, perf_finish_ms, perf_present_ms;
+static double perf_last, perf_finish_ms, perf_present_ms, perf_flush_ms, perf_gpu_ms;
 /* One-millisecond buckets, with 100 representing 100 ms or longer. */
 enum { PERF_LAST_BUCKET = 100 };
 static unsigned perf_finish_hist[PERF_LAST_BUCKET + 1];
@@ -78,7 +80,7 @@ static unsigned perf_p95(const unsigned *hist, unsigned samples) {
 
 static void perf_reset_window(void) {
     perf_frames = 0;
-    perf_finish_ms = perf_present_ms = 0;
+    perf_finish_ms = perf_present_ms = perf_flush_ms = perf_gpu_ms = 0;
     perf_outside_frames = 0;
     memset(perf_finish_hist, 0, sizeof perf_finish_hist);
     memset(perf_outside_hist, 0, sizeof perf_outside_hist);
@@ -141,6 +143,8 @@ static int load_api(void) {
     api.pixel_store = (PixelStore)dlsym(api.library, "OSMesaPixelStore");
     api.get_string = (GetString)dlsym(api.library, "glGetString");
     api.finish = (Finish)dlsym(api.library, "glFinish");
+    /* glFlush is optional: it only splits the frame cost into submission and GPU/drain. */
+    api.flush = (Flush)dlsym(api.library, "glFlush");
     if (!api.create || !api.destroy || !api.make_current || !api.pixel_store || !api.finish) {
         fprintf(stderr, "[GL41] libOSMesa is missing required entry points\n");
         return 0;
@@ -234,6 +238,12 @@ int faot_gl41_make_current(void *surface, int width, int height) {
 void faot_gl41_swap(void *surface) {
     if (!context || !frame) return;
     double start = now_ms();
+    /* Split the frame cost: glFlush returns once the command stream is handed to zink,
+     * glFinish then covers the GPU drain, the OSMesa copy-back and the fence wait. A large
+     * flush means per-frame submission overhead (draw-call/state cost on the CPU side); a
+     * large gpu means the work is waiting on Metal or on the read-back. */
+    if (api.flush) api.flush();
+    double flushed = now_ms();
     if (api.finish) api.finish();
     double finished = now_ms();
     if (!bgra_format) {
@@ -247,6 +257,8 @@ void faot_gl41_swap(void *surface) {
     faot_surface_present_bgra(surface ? surface : present_surface, frame, frame_width, frame_height);
     double presented = now_ms();
     perf_finish_ms += finished - start;
+    perf_flush_ms += flushed - start;
+    perf_gpu_ms += finished - flushed;
     perf_present_ms += presented - finished;
     perf_frames++;
     perf_observe(perf_finish_hist, finished - start);
@@ -258,8 +270,9 @@ void faot_gl41_swap(void *surface) {
     if (perf_last == 0) perf_last = start;
     if (presented - perf_last >= 5000.0) {
         double seconds = (presented - perf_last) / 1000.0;
-        fprintf(stderr, "[GL41] perf fps=%.1f finish=%.2fms present=%.2fms finishP95=%ums outsideSwapP95=%ums\n",
-                perf_frames / seconds, perf_finish_ms / perf_frames, perf_present_ms / perf_frames,
+        fprintf(stderr, "[GL41] perf fps=%.1f flush=%.2fms gpu=%.2fms finish=%.2fms present=%.2fms finishP95=%ums outsideSwapP95=%ums\n",
+                perf_frames / seconds, perf_flush_ms / perf_frames, perf_gpu_ms / perf_frames,
+                perf_finish_ms / perf_frames, perf_present_ms / perf_frames,
                 perf_p95(perf_finish_hist, (unsigned)perf_frames),
                 perf_p95(perf_outside_hist, perf_outside_frames));
         perf_last = presented;
