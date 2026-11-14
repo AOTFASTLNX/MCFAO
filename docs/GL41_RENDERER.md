@@ -48,17 +48,27 @@ FAOT_RENDERER=gl41 FAOT_BUILD_LOADER=vanilla bash ci/build_mac.sh
 
 The resulting unsigned IPA is exported by the existing `tools/package_unsigned_ipa.py` step.
 
-## Build record: GL41 v2 (2026-11-14)
+## Build record: GL41 v3 (2026-11-14)
 
-- CircleCI job 105 (`build/gl41-renderer-2026-11-14`, source `0d9fe55`): **success**. This build
-  includes the minimal OSMesa context fallback; it supersedes the v1 job 104 artifact.
+- Device feedback for v2 (`0d9fe55`) showed that OSMesa/Zink/MoltenVK started correctly:
+  `GL_VERSION=4.1 (Compatibility Profile) Mesa 25.0.7`, `GL_RENDERER=zink Vulkan 1.4(Apple A18 Pro GPU (MOLTENVK))`.
+  The crash was `GL.create()` throwing *There is no OpenGL context management API available*:
+  LWJGL's `Configuration.OPENGL_LIBRARY_NAME_DEFAULTS()` has no iOS branch and throws. Mesa also
+  advertises `GL_ARB_direct_state_access` while the 4.1 OSMesa export table lacks the 4.5 entry
+  points, and Mesa refused to hide the extension.
+- Fix: the `lwjgl-ios.jar` overlay now makes both OpenGL library-default methods return
+  `lwjgl_opengl`; `main.m` also sets `org.lwjgl.opengl.libname=liblwjgl_opengl.dylib`.
+  `tools/patch_gl41_client.py` rewrites only `GlDevice.<clinit>` so
+  `USE_GL_ARB_direct_state_access=false`, selecting Minecraft's emulated DSA path.
+- CircleCI job 106 (`build/gl41-renderer-2026-11-14`, source `d91dc4f`): **success**. Stage 4b
+  patched exactly `GlDevice.class`; GLFW, shim, AOT, link and Xcode build all passed.
 - Stage 3a GLFW host state fixture: PASS. Stage 3c2: runtime fetched and verified; GL shim built
   with 2,236 JNI exports (554,808 bytes). Stage 3d/3e: shader and Metal/OpenAL inputs built.
 - Stage 4d native-image analysis: 6m21s, object 168,365,440 bytes. Stage 4e link: only the
   pre-existing `OperatingSystemImpl.initialize0` JDK management native was stubbed; no GL symbols
   were stubbed. Stage 4g Xcode build: `BUILD SUCCEEDED`.
-- Unsigned IPA: `FabricAOT-game.ipa`, 441,514,264 bytes, SHA-256
-  `c05c7704ea1a33784555877b5e70fec6fc3b4379a6dcf9a9ab44412d53849064`.
+- Unsigned IPA: `FabricAOT-game.ipa`, 466,524,422 bytes, SHA-256
+  `51de3d0b7e3e863aa8f246173921bd4a017e24c092c8afcc075bea563df48f35`.
 - Package audit: `client-graph.dylib` contains `GlBackend`/`GlDevice` and no `MetalBackend`;
   `liblwjgl_opengl.dylib` depends on `@rpath/libOSMesa.8.dylib` and exports the generated GL JNI
   entries; `libOSMesa.8.dylib` and `libMoltenVK.dylib` are in `Payload/C0Harness.app/Frameworks`.
