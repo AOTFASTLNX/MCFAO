@@ -40,7 +40,7 @@ static GLFWmonitorfun monitorCallback;
 static int initialized, clientAPI = GLFW_OPENGL_API;
 static double gl41_scale_value(void) {
     const char *text = getenv("FAOT_GL41_SCALE");
-    double value = text ? atof(text) : 1.0;
+    double value = text ? atof(text) : 0.8;
     if (!(value >= 0.5 && value <= 1.0)) value = 0.8;
     return value;
 }
@@ -183,8 +183,9 @@ void glfwPollEvents(void) {
             pthread_mutex_lock(&mutex);
             int width=w->width,height=w->height,pw=w->pixelWidth,ph=w->pixelHeight;
             pthread_mutex_unlock(&mutex);
-            if(w->size)w->size(w,width,height);
-            if(w==live && w->framebuffer)w->framebuffer(w,pw,ph);
+            double scale=gl41_scale_value();
+            if(w->size)w->size(w,(int)(width*scale+0.5),(int)(height*scale+0.5));
+            if(w==live && w->framebuffer)w->framebuffer(w,(int)(pw*scale+0.5),(int)(ph*scale+0.5));
             break;
         }
         case FAOT_EVENT_FOCUS:
@@ -194,7 +195,12 @@ void glfwPollEvents(void) {
                 for(int b=0;b<8&&w==live;b++)w->mouseButtons[b]=0;
             }
             if(w==live&&w->focused)w->focused(w,w->focus);break;
-        case FAOT_EVENT_CURSOR: w->cursorX=e.a; w->cursorY=e.b; if(w->cursor)w->cursor(w,e.a,e.b); break;
+        case FAOT_EVENT_CURSOR: {
+            double scale=gl41_scale_value();
+            w->cursorX=e.a*scale; w->cursorY=e.b*scale;
+            if(w->cursor)w->cursor(w,w->cursorX,w->cursorY);
+            break;
+        }
         case FAOT_EVENT_CURSOR_DELTA:
             if(w->cursorMode==GLFW_CURSOR_DISABLED){w->cursorX+=e.a;w->cursorY+=e.b;if(w->cursor)w->cursor(w,w->cursorX,w->cursorY);}break;
         case FAOT_EVENT_BUTTON:
@@ -211,8 +217,8 @@ void glfwPollEvents(void) {
         }
     }
 }
-void glfwGetWindowSize(GLFWwindow *w,int *a,int *b) { if(valid(w)){pthread_mutex_lock(&mutex);if(a)*a=w->width;if(b)*b=w->height;pthread_mutex_unlock(&mutex);} }
-void glfwGetFramebufferSize(GLFWwindow *w,int *a,int *b) { if(valid(w)){pthread_mutex_lock(&mutex);if(a)*a=w->pixelWidth;if(b)*b=w->pixelHeight;pthread_mutex_unlock(&mutex);} }
+void glfwGetWindowSize(GLFWwindow *w,int *a,int *b) { if(valid(w)){double scale=gl41_scale_value();pthread_mutex_lock(&mutex);if(a)*a=(int)(w->width*scale+0.5);if(b)*b=(int)(w->height*scale+0.5);pthread_mutex_unlock(&mutex);} }
+void glfwGetFramebufferSize(GLFWwindow *w,int *a,int *b) { if(valid(w)){double scale=gl41_scale_value();pthread_mutex_lock(&mutex);if(a)*a=(int)(w->pixelWidth*scale+0.5);if(b)*b=(int)(w->pixelHeight*scale+0.5);pthread_mutex_unlock(&mutex);} }
 void glfwGetWindowPos(GLFWwindow *w,int *a,int *b) { if(valid(w)){if(a)*a=0;if(b)*b=0;} }
 void glfwSetWindowTitle(GLFWwindow *w,const char *title) { if(valid(w)&&title)faot_surface_title(w->surface,title); }
 void glfwSetWindowSizeLimits(GLFWwindow *w,int a,int b,int c,int d) { (void)a;(void)b;(void)c;(void)d;if(valid(w))fprintf(stderr,"[GLFW-lite] window size limits are controlled by UIWindowScene\n"); }
@@ -275,7 +281,7 @@ int glfwRawMouseMotionSupported(void) { return 0; }
 int glfwGetKey(GLFWwindow *w,int key) { return valid(w)&&key>=0&&key<349?w->keys[key]:0; }
 int glfwGetMouseButton(GLFWwindow *w,int button) { return valid(w)&&button>=0&&button<8?w->mouseButtons[button]:0; }
 const char *glfwGetKeyName(int key,int scan) { (void)scan;static _Thread_local char name[2];if(key>=32&&key<=126){name[0]=(char)key;name[1]=0;return name;}return NULL; }
-void glfwSetCursorPos(GLFWwindow *w,double x,double y) { if(valid(w)&&isfinite(x)&&isfinite(y))faot_glfw_enqueue(w,FAOT_EVENT_CURSOR,x,y,0,0); }
+void glfwSetCursorPos(GLFWwindow *w,double x,double y) { if(valid(w)&&isfinite(x)&&isfinite(y)){double scale=gl41_scale_value();faot_glfw_enqueue(w,FAOT_EVENT_CURSOR,x/scale,y/scale,0,0);} }
 void glfwGetCursorPos(GLFWwindow *w,double *x,double *y) { if(valid(w)){if(x)*x=w->cursorX;if(y)*y=w->cursorY;} }
 GLFWcursor *glfwCreateStandardCursor(int shape) { if(!ready())return NULL;GLFWcursor *c=malloc(sizeof *c);if(c)c->shape=shape;return c; }
 void glfwDestroyCursor(GLFWcursor *c) { free(c); }

@@ -213,3 +213,25 @@ unsigned IPA passed ZIP and Mach-O audits and contains both the fixed-timeline a
 120 Hz refresh markers. Size: 466,614,499 bytes. SHA-256:
 `50589b86bc8a042061197e286616800a4d4de4e283840c0cd916381e8f705c19`.
 **v11 device performance: NOT RUN.**
+
+## GL41 v12: resolution-scaled, steady 60 FPS
+
+`归档(12)` (v11 on device) showed the render and present no longer drop frames
+(`drops=0`), but the OSMesa `glFinish` time swings between 10.3 ms and 16.4 ms. In game
+this produced 41 FPS dips alternating with 62 FPS peaks: the fixed-timeline limiter had
+nothing to pace because a 2622x1206 render + full-frame GPU->CPU readback exceeds the
+8.33 ms budget of 120 FPS, so the game ran as fast as it could and the readback spikes
+became visible stutter.
+
+v12 reduces the internal render and readback size to 80% and, unlike the earlier v6
+attempt, scales the reported window size, framebuffer size and absolute cursor
+coordinates together. Minecraft lays out the GUI at the scaled size and the existing
+Metal linear-sampler pipeline upscales it to the native 2622x1206 drawable, so the
+interface keeps its proportions and hit-testing instead of being cropped.
+`FAOT_GL41_SCALE=1.0` restores native resolution.
+
+The fixed-deadline limiter now also caps the steady-state rate at 60 FPS. This is the
+rate the GL41 renderer can hold without dropped frames; lower in-game choices are still
+honoured. Together the 80% scale gives each frame enough headroom that the remaining
+readback spikes stay under the 16.7 ms budget, and the cap stops the game from surging
+into a 120 FPS target it cannot meet.
