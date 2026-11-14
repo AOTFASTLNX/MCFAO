@@ -13,7 +13,7 @@
 | B1 AOT 语义一致性 | B0 经同一 iOS AOT 运行时执行行为测试 | 与 JVM 基线断言一致；无运行时代码定义 | 每个不支持机制标明具体条件 |
 | C0 游戏无图形入口 | Minecraft 真实客户端引导、资源索引、类初始化、JNI 清单 | 到达可复现的菜单前启动阶段 | 禁止以空壳 SwiftUI 画面代替 |
 | C0a 图形后端首帧 | 真实 Minecraft 原生 OpenGL 经 LWJGL JNI/OSMesa/Zink/MoltenVK 首帧 | 真机出现由 Metal 渲染的首帧，`RenderSystem` 初始化完成，日志有后端名与设备信息 | 后端未起来就写上层渲染，禁止用渲染 demo 顶替 |
-| C0b 真实菜单/输入 | 真实 GL41 客户端主菜单与 UIKit/GLFW 触摸回调 | Minecraft 自己渲染的主菜单可见（真实资源），触摸可点击响应 | 不得手改 MSL 掩盖语义不符；不符的 shader 记 UNSUPPORTED 并报错 |
+| C0b 真实菜单/输入 | 真实 GL41 客户端主菜单与 UIKit/GLFW 触摸回调 | Minecraft 自己渲染的主菜单可见（真实资源），触摸可点击响应 | 缺失 GL/JNI 调用与 shader 不兼容应具体报错，不得以模拟画面掩盖 |
 | C0c 单人可玩 | 新建世界、加载区块、移动、破坏放置、退出/重入 | 真机可持续游玩，世界数据和行为复核 | 失败仍是 experimental |
 | C1 画面/输入 | 真实 Blaze3D/LWJGL 使用的调用映射到 iOS，显示真正游戏菜单 | 菜单真实图文、点击可响应 | 不得用 3D demo 代替 |
 | C2 单人可玩 | 新建世界、加载区块、移动、破坏放置、退出/重入 | 真机可持续游玩，世界数据和行为复核 | 失败仍是 experimental |
