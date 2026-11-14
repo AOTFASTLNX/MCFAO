@@ -37,6 +37,37 @@ Evidence under the main checkout's artifacts directory:
   bounded-resource workload.
 - metal-p0-completion-python-tests-01.log: 317 tests, 314 passed, 3 skipped.
 
-Fresh matching AOT/link/sign/export is required before delivery. Host proof
-does not establish iPhone world entry or long-run acceptance. Gate C/E remains
-incomplete pending new device evidence.
+## Matching signed export
+
+Source: 2a6a7b11556b8079dbe92d3d0347ff1df5ae9c9c. Fresh Minecraft 26.1.2 /
+Fabric iOS ARM64 AOT completed in 712.6 seconds. Object SHA256:
+4e636d351af686db053df873c317dd88f34ba8e1121171abcbf6db630cf567cf.
+Full link has no unresolved symbols. The existing unsupported
+OperatingSystemImpl.initialize0 entrypoint remains; Mod compatibility is not
+established by this build.
+
+Local licensed IPA:
+artifacts/mcfao/metal-p0-completion-full-game-signed-01/export/FabricAOT World.ipa
+(714522739 bytes). SHA256:
+08c1f99b916b7254d888454ca20dc4ad830046cf586260b55c908e5855217e0c.
+Export status DEVELOPMENT_IPA_VERIFIED; profile covers the requested iPhone,
+expires 2026-11-17 13:48:54 UTC, and has no dynamic-code entitlements.
+
+Packaged AOT/Metal/GLFW/LWJGL UUIDs and shader hashes match staged inputs;
+the Metal UUID matches the newly rebuilt backend. All tracked source inputs
+match: Metal 24, GLFW 5, LWJGL 14. All 35 Java classes and 33 JNI exports are
+unchanged from the preceding backend. The separate lifetime fixture also
+passes ASan/UBSan, including completion races; fixture device bytes stay at
+1540096 from frame 200 to 1200. This is host fixture data, not an iPhone curve.
+
+Evidence: artifacts/metal-p0-completion-delivery.json,
+metal-p0-completion-source-check.json, metal-p0-completion-abi-inputs.json,
+metal-p0-completion-lifetime-sanitized-01, build/export logs and manifests.
+No binary is published. No installation or uninstall was performed. The
+installed app uses another re-signing identity: preserve its original signing
+settings when updating to retain its container and saves.
+
+Host proof and signed packaging do not establish iPhone world entry, memory
+stability, sync percentiles or the 10/10/15-minute device scenarios. No new
+device measurements exist. Gate C/E acceptance remains incomplete pending
+new device evidence; P0 is not declared complete.
