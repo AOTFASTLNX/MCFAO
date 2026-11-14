@@ -1,0 +1,20 @@
+[package]
+name = "fabricaot-desktop"
+version = "0.1.0"
+description = "Local FabricAOT modpack and build workspace"
+edition = "2021"
+rust-version = "1.77.2"
+publish = false
+
+[lib]
+name = "fabricaot_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

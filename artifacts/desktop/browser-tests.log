@@ -1,0 +1,19 @@
+
+> fabricaot-desktop@0.1.0 test:e2e
+> playwright test
+
+
+Running 10 tests using 5 workers
+
+  ✓   2 tests/workspace.spec.ts:73:1 › invalid JSON keeps existing instances and shows an error (1.5s)
+  ✓   1 tests/workspace.spec.ts:20:1 › empty workspace, native affordances, dialog keyboard handling (1.7s)
+  ✓   3 tests/workspace.spec.ts:83:1 › blocked reports cannot generate a preparation command (1.9s)
+  ✓   4 tests/workspace.spec.ts:107:1 › generates an honest prepare-only command from saved settings (2.1s)
+  ✓   6 tests/workspace.spec.ts:127:1 › corrupt local data is preserved until an explicit reset (775ms)
+  ✓   7 tests/workspace.spec.ts:142:3 › layout stays within viewport at 375 (744ms)
+  ✓   5 tests/workspace.spec.ts:42:1 › real preflight report imports, filters, persists, exports and removes (2.5s)
+  ✓   8 tests/workspace.spec.ts:142:3 › layout stays within viewport at 768 (657ms)
+  ✓   9 tests/workspace.spec.ts:142:3 › layout stays within viewport at 1280 (553ms)
+  ✓  10 tests/workspace.spec.ts:142:3 › layout stays within viewport at 1440 (416ms)
+
+  10 passed (4.7s)
