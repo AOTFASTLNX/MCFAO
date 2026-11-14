@@ -19,6 +19,7 @@ from bootstrap_toolchain import sha256
 from build_c0_harness import binary_platform, validate_dylib, validate_shader_bundle
 from capture import ROOT, capture
 from graphics_common import bridge_overlays
+from build_glfw_lite import exported_symbols, validate_input_exports
 from prepare_fabric_aot import TOOL as FABRIC_TOOL, mod_files
 from stage_game_assets import verified_assets
 
@@ -177,6 +178,13 @@ def inputs(config: dict) -> tuple[dict, Path, list[Path]]:
                 files.update({f"bundle/{p}": h for p, h in tree_files(directory / "bundle").items()})
         fingerprints.update({str(directory / p): h for p, h in files.items()})
     bridge_overlays(config["lwjgl"])
+    # A valid historical report can still predate a required Mod input API.
+    # Inspect the actual binary and bind the Java overlays to that GLFW input.
+    glfw_binary = config["glfw"] / "libglfw.dylib"
+    validate_input_exports(exported_symbols(subprocess.check_output(
+        ["xcrun", "nm", "-gUj", str(glfw_binary)], text=True)))
+    if read_json(config["lwjgl"] / "result.json").get("glfwLibrarySHA256") != sha256(glfw_binary):
+        raise ValueError("LWJGL overlays were generated against another GLFW library; rebuild LWJGL")
     validate_shader_bundle(config["shaders"] / "bundle", simulator=False)
     for key, filename, status in (
         ("glfw", "libglfw.dylib", "NATIVE_SUBSET_BUILT"),
