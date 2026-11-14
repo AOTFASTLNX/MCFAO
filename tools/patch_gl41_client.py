@@ -51,6 +51,9 @@ def main(argv=None):
         if names_after != [*names_before, *helpers]:
             raise ValueError("Unexpected added or removed GL41 client entries")
         changed = [name for name in names_before if before.read(name) != after.read(name)]
+        # Per-entry signatures no longer describe transformed classes. Keep main attributes only;
+        # a multi-megabyte signed manifest otherwise makes Native Image rescan it per resource.
+        changed_classes = [name for name in changed if name != "META-INF/MANIFEST.MF"]
         expected = ["com/mojang/blaze3d/opengl/GlDevice.class",
                     "net/minecraft/client/multiplayer/LevelLoadTracker$WaitingForPlayerChunk.class",
                     "net/minecraft/client/Minecraft.class",
@@ -59,7 +62,7 @@ def main(argv=None):
                     "net/minecraft/client/multiplayer/ClientChunkCache.class",
                     "net/minecraft/client/renderer/DynamicUniforms.class",
                     "net/minecraft/network/Connection.class"]
-        if sorted(changed) != sorted(expected):
+        if sorted(changed_classes) != sorted(expected):
             raise ValueError("Unexpected patched entries: " + repr(changed))
     result = {"status": "GL41_CLIENT_PATCHED", "client": str(client), "clientSHA256": sha256(client),
               "outputJar": str(target), "outputJarSHA256": sha256(target),

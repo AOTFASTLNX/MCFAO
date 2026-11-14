@@ -13,6 +13,9 @@ import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
 
 import java.io.IOException;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.util.jar.Manifest;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -25,6 +28,14 @@ import java.util.zip.ZipOutputStream;
 
 /** Build-time only: disable the 4.5 direct-state path absent from the 4.1 OSMesa export surface. */
 public final class PatchDevice {
+    static byte[] cleanManifest(byte[] bytes) throws IOException {
+        Manifest original = new Manifest(new ByteArrayInputStream(bytes));
+        Manifest clean = new Manifest();
+        clean.getMainAttributes().putAll(original.getMainAttributes());
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        clean.write(out);
+        return out.toByteArray();
+    }
     private static final String TARGET = "com/mojang/blaze3d/opengl/GlDevice.class";
     private static final String FLAG = "USE_GL_ARB_direct_state_access";
     private static final String TRACKER = "net/minecraft/client/multiplayer/LevelLoadTracker.class";
@@ -131,6 +142,7 @@ public final class PatchDevice {
             while ((entry = source.getNextEntry()) != null) {
                 byte[] data = source.readAllBytes();
                 byte[] patched = switch (entry.getName()) {
+                    case "META-INF/MANIFEST.MF" -> cleanManifest(data);
                     case TARGET -> transform(data);
                     case MINECRAFT -> instrumentClientTick(data);
                     case LISTENER -> InjectBackend.avoidUnneededChatKeyWait(data);
@@ -160,6 +172,7 @@ public final class PatchDevice {
         List<String> expected = new ArrayList<>(List.of(TARGET, MINECRAFT, LISTENER, TRACKER,
                 PLAYER_CHUNK, CHUNK_CACHE, CONNECTION, DYNAMIC_UNIFORMS));
         List<String> actual = new ArrayList<>(changed);
+        actual.remove("META-INF/MANIFEST.MF");
         Collections.sort(expected);
         Collections.sort(actual);
         if (!actual.equals(expected)) {
