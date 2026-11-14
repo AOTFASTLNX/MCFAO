@@ -30,6 +30,11 @@ class FabricCIGateTests(unittest.TestCase):
             mods,out,r=self.fixture(Path(d));report=out/"result.json";report.write_text(json.dumps(r))
             (out/"client.jar").write_bytes(b"tampered")
             with self.assertRaises(ValueError):check(report,mods)
+    def test_sodium_is_blocked_on_metal(self):
+        with tempfile.TemporaryDirectory() as d:
+            mods,out,r=self.fixture(Path(d));r['mods']=[{'id':'sodium'}]
+            report=out/'result.json';report.write_text(json.dumps(r))
+            with self.assertRaisesRegex(ValueError, 'desktop OpenGL'):check(report,mods)
     def test_fetch_only_uses_trusted_https_hosts(self):
         self.assertTrue(check_url("https://cdn.modrinth.com/data/test.jar"))
         for url in ("http://cdn.modrinth.com/a", "https://cdn.modrinth.com.evil.invalid/a", "https://user@cdn.modrinth.com/a", "https://127.0.0.1/a"):

@@ -15,6 +15,9 @@ def check(report, directory):
             "excludedMods": data.get("excludedMods", {}),
             "retiredJars": data.get("retiredJars", []),
         }, ensure_ascii=True, sort_keys=True))
+    mod_ids={row.get("id") for row in data.get("mods", []) if isinstance(row, dict)}
+    if "sodium" in mod_ids:
+        raise ValueError("Sodium requires desktop OpenGL, which the current Metal backend does not provide; see docs/FABRIC_AOT.md")
     mods=sorted(Path(directory).glob("*.jar"))
     if not mods: raise ValueError("Fabric input contains no root mod JARs")
     expected=data.get("modSHA256",{})
