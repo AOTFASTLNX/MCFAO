@@ -272,3 +272,16 @@ with a 46 ms p95 interval, while nearby finish averages were around 9–10 ms.
 Measure per-frame finish and remaining game-loop time before choosing between
 improving readback and reducing chunk-related CPU stalls. The current five-second
 averages cannot isolate GPU execution from synchronous readback or explain both dips.
+
+The follow-up iPhone 16 Pro run (`run-1794660074151.log`) produced 19 display
+samples from world-ready to the first pause: 40.2–74.2 presented FPS, median 62.2,
+with zero reported submission drops. After the game resumed, the worst sample
+was 28.6 FPS (51 ms p95, 44 intervals over 34 ms). Chunk streaming was active
+and nearby `glFinish` averages reached 17–19 ms. These signals can overlap.
+
+The native GL41 diagnostic now reports `finishP95` and `outsideSwapP95` alongside
+the existing five-second averages. The latter measures from the previous frame's
+presentation handoff to entry into the current swap; it includes client work,
+GL command submission and any pacing wait. Both percentiles use per-frame timing,
+rounded up to milliseconds and capped at 100 ms. The diagnostic adds no new GPU
+wait or per-frame log line and does not change rendering or pacing.

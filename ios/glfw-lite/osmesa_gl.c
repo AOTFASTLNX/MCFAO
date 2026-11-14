@@ -53,6 +53,35 @@ static void *present_surface;
 static int current_width, current_height, logged, made_current, bgra_format = 1;
 static int qos_set, perf_frames;
 static double perf_last, perf_finish_ms, perf_present_ms;
+/* One-millisecond buckets, with 100 representing 100 ms or longer. */
+enum { PERF_LAST_BUCKET = 100 };
+static unsigned perf_finish_hist[PERF_LAST_BUCKET + 1];
+static unsigned perf_outside_hist[PERF_LAST_BUCKET + 1];
+static unsigned perf_outside_frames;
+static double perf_previous_present;
+
+static void perf_observe(unsigned *hist, double ms) {
+    unsigned bucket = ms >= PERF_LAST_BUCKET ? PERF_LAST_BUCKET : (unsigned)ms;
+    if (bucket < PERF_LAST_BUCKET && (double)bucket < ms) bucket++;
+    hist[bucket]++;
+}
+
+static unsigned perf_p95(const unsigned *hist, unsigned samples) {
+    unsigned rank = samples - samples / 20;
+    for (unsigned i = 0; i <= PERF_LAST_BUCKET; i++) {
+        if (hist[i] >= rank) return i;
+        rank -= hist[i];
+    }
+    return PERF_LAST_BUCKET;
+}
+
+static void perf_reset_window(void) {
+    perf_frames = 0;
+    perf_finish_ms = perf_present_ms = 0;
+    perf_outside_frames = 0;
+    memset(perf_finish_hist, 0, sizeof perf_finish_hist);
+    memset(perf_outside_hist, 0, sizeof perf_outside_hist);
+}
 
 extern void faot_surface_present_bgra(void *surface, const void *pixels, int width, int height);
 
@@ -211,12 +240,21 @@ void faot_gl41_swap(void *surface) {
     perf_finish_ms += finished - start;
     perf_present_ms += presented - finished;
     perf_frames++;
+    perf_observe(perf_finish_hist, finished - start);
+    if (perf_previous_present != 0) {
+        perf_observe(perf_outside_hist, start - perf_previous_present);
+        perf_outside_frames++;
+    }
+    perf_previous_present = presented;
     if (perf_last == 0) perf_last = start;
     if (presented - perf_last >= 5000.0) {
         double seconds = (presented - perf_last) / 1000.0;
-        fprintf(stderr, "[GL41] perf fps=%.1f finish=%.2fms present=%.2fms\n",
-                perf_frames / seconds, perf_finish_ms / perf_frames, perf_present_ms / perf_frames);
-        perf_last = presented; perf_frames = 0; perf_finish_ms = perf_present_ms = 0;
+        fprintf(stderr, "[GL41] perf fps=%.1f finish=%.2fms present=%.2fms finishP95=%ums outsideSwapP95=%ums\n",
+                perf_frames / seconds, perf_finish_ms / perf_frames, perf_present_ms / perf_frames,
+                perf_p95(perf_finish_hist, (unsigned)perf_frames),
+                perf_p95(perf_outside_hist, perf_outside_frames));
+        perf_last = presented;
+        perf_reset_window();
     }
 }
 
@@ -229,5 +267,6 @@ void faot_gl41_release(void) {
     frame_width = frame_height = 0;
     made_current = logged = 0;
     bgra_format = 1;
-    perf_last = 0; perf_frames = 0; perf_finish_ms = perf_present_ms = 0;
+    perf_last = perf_previous_present = 0;
+    perf_reset_window();
 }
