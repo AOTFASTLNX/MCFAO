@@ -30,3 +30,35 @@ sync_count is 0, snapshot fallbacks are 0. These are short startup observations,
 not world-entry or sustained-memory acceptance. No resource policy expansion
 is included. A matching fresh AOT and signed IPA remain required, followed by
 user device retesting. Gate C/E acceptance remains incomplete.
+
+## Matching signed export
+
+Source: 1f46004f2a59d87a28dfe08bd3f351bdbe8b6483. Fresh full-game iOS ARM64
+AOT completed in 736.8 seconds; object SHA256:
+01d15560220c2ac32a55acbf145770e934a65acfc252b602888828ad1fd5baf4.
+Full linking has zero unresolved symbols. The pre-existing unsupported
+OperatingSystemImpl.initialize0 entrypoint remains; this is not full Mod
+compatibility evidence.
+
+Local licensed IPA:
+artifacts/mcfao/metal-p0-input-full-game-signed-01/export/FabricAOT World.ipa
+(714578918 bytes). SHA256:
+4853877eca1d47fcdbd99ec8c2d396ac2ae3b38aefd288fdb02d3e08743b4f10.
+Export status: DEVELOPMENT_IPA_VERIFIED. Signing covers the requested iPhone;
+profile expiration remains 2026-11-17 13:48:54 UTC. No dynamic-code entitlements.
+
+The packaged GLFW exports mouse/button/key/cursor polling. GLFW and LWJGL
+UUIDs match their newly built inputs, and the overlay generation GLFW hash
+matches the selected binary. AOT/Metal UUIDs and all shader hashes match the
+staged build. All tracked source inputs match this commit: Metal 24, GLFW 5,
+LWJGL 14. Evidence: artifacts/metal-p0-input-delivery.json,
+artifacts/metal-p0-input-source-check.json, build/export logs and manifests.
+Focused Python input checks: 27 passed after physical-toolchain-path fix.
+
+A static top-level Mod scan also finds IAS references to desktop focus and
+attention APIs absent from GLFW; those conditional paths are not validated
+by this startup fix. See artifacts/metal-p0-input-mod-glfw-scan.json. No Mods
+were disabled. No installation or launch was performed. The installed app
+uses another re-signing identity: retain its signing settings when updating
+to preserve its data. World entry, save/reload, and long-run device scenarios
+remain unverified. No new device memory curve or sync latency is claimed.
