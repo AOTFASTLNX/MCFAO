@@ -150,3 +150,31 @@ Size: 466,636,647 bytes. SHA-256:
 If it still stalls, let the watchdog run for at least 35 seconds before exporting
 the log. Check `client_tick_stall`, `level_load_tracker`, `level_load_ready`
 and the accompanying thread frames.
+
+## GL41 v10 presentation experiment
+
+Device log `run-1794644303093.log` confirms v9 entered the world and later saved it.
+Across 17 five-second samples after the world became ready and before pausing, the
+game loop reported 38.5–59.0 FPS (median 48.9). The OSMesa finish step took 8.45–12.06 ms
+on average per sample (median 11.18 ms); the synchronous presentation stage took
+1.92–4.77 ms (median 2.34 ms). These are sample averages, not individual frame times.
+
+The v10 GLFW bridge keeps the native framebuffer and moves drawable acquisition and
+command submission to a dedicated serial queue. The game thread copies pixels into
+one of three shared textures; each texture stays reserved until its GPU read completes.
+If all three are busy, the game continues without submitting a stale frame. The Mesa
+finish and readback still happen on the game thread, so their cost remains.
+
+New `[GL41] display` samples use Metal drawable presentation timestamps. They report
+screen FPS, the 95th percentile interval rounded up to a millisecond (100 means
+100 ms or more), the number of intervals above 34 ms, and detected drops.
+For a fair device comparison, retain the same save, route, resolution and settings.
+The existing `[GL41] perf` line continues to measure the game loop; its `present`
+column now measures handing off the frame, rather than waiting for a drawable.
+
+CircleCI job 114 built source `bacc996216e48e3589964feb1ed560cb9fa57935`.
+iOS arm64 compilation and the GLFW host state fixture passed. The downloaded unsigned
+IPA passed ZIP integrity and signature checks and includes the new native presentation
+queue and display statistics. Size: 466,758,674 bytes. SHA-256:
+`191e8107e4c28e1a3bda7ea4082c8b5fc3602e2d355d95ab2ba6c8e5f9e505c8`.
+**v10 device performance: NOT RUN.**
