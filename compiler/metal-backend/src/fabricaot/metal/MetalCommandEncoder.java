@@ -49,8 +49,8 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
                 buffer.handle=replacement;
                 device.bufferHazards.renamed(buffer.hazard);
                 MetalNative.release(previous);
-            }else device.waitForGpu();
-        }else device.waitForGpu();
+            }else device.waitForCpuWrite(true);
+        }else device.waitForCpuWrite(false);
     }
     public void writeToBuffer(GpuBufferSlice slice,ByteBuffer data){
         device.outsidePass();MetalDevice.MetalBuffer buffer=device.buffer(slice.buffer());

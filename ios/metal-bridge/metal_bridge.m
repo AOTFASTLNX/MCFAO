@@ -12,6 +12,9 @@
 #include "glfw_lite.h"
 #include "texture_transfer.h"
 #include "perf_window.h"
+#include "metal_resources.h"
+
+enum { FAOT_PRESENTATION_DEPTH = 3 };
 
 @interface FAOTPerfCollector : NSObject {
     FAOTPerfWindow _window;
@@ -66,15 +69,20 @@
 @property(nonatomic) NSUInteger fenceReuseCount;
 @property(nonatomic) double slotWaitSeconds;
 @property(nonatomic) double drawableWaitSeconds;
+@property(nonatomic) NSUInteger earlyRenderSubmissions;
 @property(nonatomic) double uploadWaitSeconds;
 @property(nonatomic,strong) FAOTPerfCollector *perf;
 @property(nonatomic,strong) CAMetalLayer *layer;
 
 @property(nonatomic,strong) id<MTLCommandBuffer> pending;
+@property(nonatomic) NSUInteger pendingUploadBytes;
+@property(nonatomic) NSUInteger pendingUploadCount;
+@property(nonatomic) NSUInteger uploadBatchCount;
+@property(nonatomic) double uploadBatchLogged;
 @property(nonatomic,strong) id<MTLCommandBuffer> lastCommitted;
 // Last fence is reusable only until another command buffer is committed.
 @property(nonatomic,strong) FAOTMetalFence *lastFence;
-// Keep a bounded two-frame pipeline. This removes the per-frame GPU completion stall while
+// Keep a bounded three-frame pipeline. This removes the per-frame GPU completion stall while
 // preventing unbounded command-buffer growth and drawable starvation on slower devices.
 @property(nonatomic) dispatch_semaphore_t presentationSlots;
 @property(nonatomic) NSUInteger snapshotBytesThisFrame;
@@ -90,6 +98,7 @@
 @property(nonatomic,strong) id<MTLLibrary> utilityLibrary;
 @property(nonatomic,strong) NSMutableDictionary<NSNumber *,id<MTLRenderPipelineState>> *rectanglePipelines;
 @property(nonatomic,strong) id<MTLDepthStencilState> rectangleDepth;
+@property(nonatomic,strong) FAOTResourceTracker *resources;
 @end
 @implementation FAOTMetalContext
 @end
@@ -105,15 +114,84 @@ static FAOTMetalContext *context(jlong handle){return (__bridge FAOTMetalContext
 static void failure(JNIEnv *env,const char *message){jclass c=(*env)->FindClass(env,"java/lang/IllegalStateException");if(c)(*env)->ThrowNew(env,c,message);}
 static id<MTLTexture> texture(jlong handle){return (__bridge id<MTLTexture>)(void *)(uintptr_t)handle;}
 static id<MTLBuffer> buffer(jlong handle){return (__bridge id<MTLBuffer>)(void *)(uintptr_t)handle;}
+/* A handle->byte-count map stores no Metal objects, so diagnostics never add a
+ * strong reference. It exists only to classify a release; ownership lives in
+ * the __bridge_retained handle itself. */
+static NSMapTable<NSNumber *,NSNumber *> *handleBytes(void){
+    static NSMapTable *table;static dispatch_once_t once;
+    dispatch_once(&once,^{table=[NSMapTable mapTableWithKeyOptions:NSMapTableStrongMemory valueOptions:NSMapTableStrongMemory];});
+    return table;
+}
+static NSMapTable<NSNumber *,NSNumber *> *handleCategories(void){
+    static NSMapTable *table;static dispatch_once_t once;
+    dispatch_once(&once,^{table=[NSMapTable mapTableWithKeyOptions:NSMapTableStrongMemory valueOptions:NSMapTableStrongMemory];});
+    return table;
+}
+static NSObject *handleLock(void){static NSObject *lock;static dispatch_once_t once;dispatch_once(&once,^{lock=[NSObject new];});return lock;}
+/* MetalDevice exposes exactly one context per process. release() receives only
+ * the handle, so the tracker is also reachable globally; it stores no Metal
+ * objects beyond the bounded transient pool. */
+static FAOTResourceTracker *gActiveTracker;
+/* Weak: the context owns the pending command buffer and every committed buffer
+ * is retained by its own completion handlers until it finishes. A strong global
+ * would keep the last frame alive for the whole process. */
+__weak static id<MTLCommandBuffer> gPendingCommands;
+static jlong keepTracked(FAOTResourceCategory category,id<MTLResource> object){
+    if(!object)return 0;
+    jlong handle=keep(object);
+    /* A texture view created by newTextureView... shares its parent's storage
+     * but reports the parent's allocatedSize. Count it as zero bytes so the
+     * live-byte total stays a measure of distinct allocations. */
+    NSUInteger bytes=object.allocatedSize;
+    if(category==FAOTResourceTexture && [(id)object respondsToSelector:@selector(parentTexture)] && [(id<MTLTexture>)object parentTexture]!=nil)bytes=0;
+    @synchronized(handleLock()){
+        [handleBytes() setObject:@(bytes) forKey:@(handle)];
+        [handleCategories() setObject:@(category) forKey:@(handle)];
+    }
+    [gActiveTracker track:category bytes:bytes];
+    return handle;
+}
 static id<MTLCommandBuffer> commands(FAOTMetalContext *ctx){
     if(!ctx.pending){
+        ctx.pendingUploadBytes=0;ctx.pendingUploadCount=0;
         ctx.pending=[ctx.queue commandBuffer];
+        [ctx.resources prepareCommandBuffer:ctx.pending];
         FAOTPerfCollector *perf=ctx.perf;
+        /* Break the retain cycle: the command buffer retains its completion
+         * handler, and the context retains the command buffer. A weak context
+         * lets the whole graph free once the frame is done. */
+        __weak FAOTMetalContext *weakCtx=ctx;
         [ctx.pending addCompletedHandler:^(id<MTLCommandBuffer> finished){
             [perf recordGPUStart:finished.GPUStartTime end:finished.GPUEndTime];
+            [weakCtx.resources noteCommandBufferCompleted];
         }];
     }
+    gPendingCommands=ctx.pending;
     return ctx.pending;
+}
+/* Every commit goes through here so in-flight accounting and the 5 s summary
+ * stay consistent for fence, present, readback and upload command buffers. */
+static void commit(FAOTMetalContext *ctx,id<MTLCommandBuffer> cb){
+    gPendingCommands=cb;
+    [ctx.resources noteCommandBufferCommitted];
+    [ctx.resources maybeLogSummary];
+    [cb commit];
+}
+/* Uploads can fill an atlas before the first presentation/fence. Submit bounded
+ * batches on the SAME queue so completion can recycle staging while later
+ * uploads are encoded. No CPU wait, queue switch, or render-pass split. */
+static void submitUploadBatch(FAOTMetalContext *ctx){
+    if(!ctx.pending||ctx.renderEncoder)return;
+    id<MTLCommandBuffer> cb=ctx.pending;
+    ctx.lastFence=nil;ctx.lastCommitted=cb;ctx.pending=nil;
+    ctx.uploadBatchCount++;
+    double now=CACurrentMediaTime();
+    if(ctx.uploadBatchCount==1||now-ctx.uploadBatchLogged>=5.0){
+        fprintf(stderr,"[MetalUploadBatch] batches=%lu bytes=%lu uploads=%lu reason=bounded_upload_batch\n",
+            (unsigned long)ctx.uploadBatchCount,(unsigned long)ctx.pendingUploadBytes,(unsigned long)ctx.pendingUploadCount);
+        ctx.uploadBatchLogged=now;
+    }
+    commit(ctx,cb);
 }
 static id<MTLLibrary> utilityLibrary(JNIEnv *env, FAOTMetalContext *ctx) {
     if(!ctx.utilityLibrary){
@@ -128,7 +206,7 @@ static BOOL outsidePass(JNIEnv *env,FAOTMetalContext *ctx){if(ctx.renderEncoder)
 
 static BOOL submitAndWait(JNIEnv *env,FAOTMetalContext *ctx){
     if(!outsidePass(env,ctx))return NO;
-    if(ctx.pending){ctx.lastFence=nil;ctx.lastCommitted=ctx.pending;ctx.pending=nil;[ctx.lastCommitted commit];}
+    if(ctx.pending){ctx.lastFence=nil;ctx.lastCommitted=ctx.pending;ctx.pending=nil;commit(ctx,ctx.lastCommitted);}
     if(ctx.lastCommitted){double start=CACurrentMediaTime();[ctx.lastCommitted waitUntilCompleted];ctx.syncWaitSeconds+=CACurrentMediaTime()-start;if(ctx.lastCommitted.status==MTLCommandBufferStatusError){failure(env,ctx.lastCommitted.error.localizedDescription.UTF8String);return NO;}}
     return YES;
 }
@@ -149,14 +227,16 @@ JNIEXPORT jlong JNICALL Java_fabricaot_metal_MetalNative_create(JNIEnv *env,jcla
     (void)cls;
     @autoreleasepool {
         CAMetalLayer *layer=(__bridge CAMetalLayer *)faot_glfw_metal_layer((GLFWwindow *)(uintptr_t)window);
-        // Match the two in-flight command buffers. A third drawable lets CPU work queue ahead
-        // of the display and produces the long/short frame intervals visible on 120 Hz devices.
-        layer.maximumDrawableCount=2;
+        layer.maximumDrawableCount=FAOT_PRESENTATION_DEPTH;
         layer.framebufferOnly=YES;
         if(!layer||!layer.device){failure(env,"Window has no CAMetalLayer/MTLDevice");return 0;}
         FAOTMetalContext *ctx=[FAOTMetalContext new];ctx.perf=[FAOTPerfCollector new];ctx.sampleStarted=CACurrentMediaTime();ctx.layer=layer;ctx.device=layer.device;ctx.queue=[ctx.device newCommandQueue];
         if(!ctx.queue){failure(env,"MTLCommandQueue allocation failed");return 0;}
-        ctx.presentationSlots=dispatch_semaphore_create(2);
+        ctx.resources=[[FAOTResourceTracker alloc] initWithDevice:ctx.device maxTransientBytes:64*1024*1024];
+        gActiveTracker=ctx.resources;
+        ctx.presentationSlots=dispatch_semaphore_create(FAOT_PRESENTATION_DEPTH);
+        fprintf(stderr,"[MetalPresentation] drawable_count=%lu in_flight_frames=%d\n",
+            (unsigned long)layer.maximumDrawableCount,FAOT_PRESENTATION_DEPTH);
         return keep(ctx);
     }
 }
@@ -169,9 +249,10 @@ JNIEXPORT jlong JNICALL Java_fabricaot_metal_MetalNative_createBuffer(JNIEnv *en
         // validates the full struct size (48 bytes for Fog). Keep the Java size and slice
         // bounds intact, and round the backing allocation up for the shader's tail padding.
         NSUInteger length = ((NSUInteger)bytes + 15) & ~(NSUInteger)15;
-        id<MTLBuffer> buffer=[context(handle).device newBufferWithLength:length options:MTLResourceStorageModeShared];
-        if(!buffer){failure(env,"MTLBuffer allocation failed");return 0;}
-        return keep(buffer);
+        FAOTMetalContext *ctx=context(handle);
+        id<MTLBuffer> buffer=[ctx.device newBufferWithLength:length options:MTLResourceStorageModeShared];
+        if(!buffer){[ctx.resources recordFailure:FAOTResourceBuffer bytes:length];failure(env,"MTLBuffer allocation failed");return 0;}
+        return keepTracked(FAOTResourceBuffer,buffer);
     }
 }
 JNIEXPORT jlong JNICALL Java_fabricaot_metal_MetalNative_bufferAddress(JNIEnv *env,jclass cls,jlong handle){(void)env;(void)cls;id<MTLBuffer> buffer=(__bridge id<MTLBuffer>)(void *)(uintptr_t)handle;return (jlong)(uintptr_t)buffer.contents;}
@@ -182,13 +263,17 @@ JNIEXPORT jlong JNICALL Java_fabricaot_metal_MetalNative_cloneBuffer(JNIEnv *env
         if(!source||bytes<=0||bytes>64*1024||(uint64_t)bytes>source.length){failure(env,"Invalid buffer snapshot");return 0;}
         NSUInteger length=((NSUInteger)bytes+15)&~(NSUInteger)15;
         if(ctx.snapshotBytesThisFrame+length>16*1024*1024){ctx.snapshotFallbacks++;return 0;}
-        id<MTLBuffer> snapshot=[ctx.device newBufferWithLength:length options:MTLResourceStorageModeShared];
+        id<MTLBuffer> snapshot=[ctx.resources acquireTransientBufferOfLength:length];
         if(!snapshot){failure(env,"Metal buffer snapshot allocation failed");return 0;}
         memcpy(snapshot.contents,source.contents,(NSUInteger)bytes);
         if(length>(NSUInteger)bytes)memset((uint8_t *)snapshot.contents+bytes,0,length-(NSUInteger)bytes);
         ctx.snapshotBytesThisFrame+=length;
         ctx.snapshotCopies++;
-        return keep(snapshot);
+        /* The replacement is a Java-owned handle. Transfer it out of transient
+         * accounting; MetalNative.release() will recycle it after the GPU has
+         * finished reading this storage. */
+        [ctx.resources releaseTracked:FAOTResourceTexelBuffer bytes:snapshot.allocatedSize];
+        return keepTracked(FAOTResourceSnapshot,snapshot);
     }
 }
 JNIEXPORT jlong JNICALL Java_fabricaot_metal_MetalNative_createSampler(JNIEnv *env,jclass cls,jlong handle,jboolean u,jboolean v,jboolean min,jboolean mag,jint anisotropy,jdouble lod){
@@ -223,12 +308,39 @@ JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_clearDiagnosticFrame(JNI
         id<MTLCommandBuffer> commands=[ctx.queue commandBuffer];
         id<MTLRenderCommandEncoder> encoder=[commands renderCommandEncoderWithDescriptor:pass];
         if(!encoder){failure(env,"Metal clear render command encoder failed");return;}
-        [encoder endEncoding];[commands presentDrawable:drawable];[commands commit];[commands waitUntilCompleted];
+        [encoder endEncoding];[commands presentDrawable:drawable];[gActiveTracker noteCommandBufferCommitted];[commands commit];[commands waitUntilCompleted];[gActiveTracker noteCommandBufferCompleted];
         if(commands.status==MTLCommandBufferStatusError){failure(env,commands.error.localizedDescription.UTF8String);return;}
         fprintf(stderr,"[Metal] DIAGNOSTIC_FRAME_PRESENTED %lux%lu rgba=%.3f,%.3f,%.3f,%.3f\n",(unsigned long)width,(unsigned long)height,r,g,b,a);
     }
 }
-JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_release(JNIEnv *env,jclass cls,jlong handle){(void)env;(void)cls;if(handle){id value=(__bridge_transfer id)(void *)(uintptr_t)handle;(void)value;}}
+JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_release(JNIEnv *env,jclass cls,jlong handle){
+    (void)env;(void)cls;
+    if(!handle)return;
+    NSNumber *recorded,*recordedCategory;
+    @synchronized(handleLock()){
+        recorded=[handleBytes() objectForKey:@(handle)];
+        recordedCategory=[handleCategories() objectForKey:@(handle)];
+        if(recorded){[handleBytes() removeObjectForKey:@(handle)];[handleCategories() removeObjectForKey:@(handle)];}
+    }
+    id object=(__bridge id)(void *)(uintptr_t)handle;
+    if([object isKindOfClass:[FAOTMetalContext class]]){FAOTMetalContext *ctx=object;[ctx.resources close];}
+    else if(recorded){
+        FAOTResourceCategory category=(FAOTResourceCategory)recordedCategory.unsignedIntegerValue;
+        NSUInteger bytes=recorded.unsignedIntegerValue;
+        [gActiveTracker releaseTracked:category bytes:bytes];
+        /* Java drops a replaced snapshot handle as soon as it installs the new
+         * storage. The object must still survive until the command buffer that
+         * read it completes. Counters were released above; this transfer only
+         * moves the +1 retain into the completion handler. */
+        if(category==FAOTResourceSnapshot){
+            id<MTLCommandBuffer> pending=gPendingCommands;
+            id held=(__bridge_transfer id)(void *)(uintptr_t)handle;
+            [gActiveTracker recycleOwnedBuffer:held commandBuffer:pending];
+            return;
+        }
+    }
+    id owned=(__bridge_transfer id)(void *)(uintptr_t)handle;(void)owned;
+}
 
 JNIEXPORT jlong JNICALL Java_fabricaot_metal_MetalNative_createTexture(JNIEnv *env,jclass cls,jlong handle,jint format,jint usage,jint width,jint height,jint layers,jint mips){
     (void)cls;@autoreleasepool {
@@ -240,7 +352,9 @@ JNIEXPORT jlong JNICALL Java_fabricaot_metal_MetalNative_createTexture(JNIEnv *e
         desc.usage=MTLTextureUsagePixelFormatView;
         if(usage&4)desc.usage|=MTLTextureUsageShaderRead;
         if(usage&8)desc.usage|=MTLTextureUsageRenderTarget;
-        id<MTLTexture> value=[context(handle).device newTextureWithDescriptor:desc];if(!value){failure(env,"MTLTexture allocation failed");return 0;}return keep(value);
+        FAOTMetalContext *ctx=context(handle);
+        id<MTLTexture> value=[ctx.device newTextureWithDescriptor:desc];if(!value){[ctx.resources recordFailure:FAOTResourceTexture bytes:0];failure(env,"MTLTexture allocation failed");return 0;}
+        return keepTracked(FAOTResourceTexture,value);
     }
 }
 JNIEXPORT jlong JNICALL Java_fabricaot_metal_MetalNative_createTextureView(JNIEnv *env,jclass cls,jlong handle,jint base,jint count){
@@ -248,7 +362,8 @@ JNIEXPORT jlong JNICALL Java_fabricaot_metal_MetalNative_createTextureView(JNIEn
         id<MTLTexture> source=texture(handle);NSUInteger slices=source.arrayLength;
         if(source.textureType==MTLTextureTypeCube||source.textureType==MTLTextureTypeCubeArray)slices*=6;
         id<MTLTexture> view=[source newTextureViewWithPixelFormat:source.pixelFormat textureType:source.textureType levels:NSMakeRange(base,count) slices:NSMakeRange(0,slices)];
-        if(!view){failure(env,"Metal texture view creation failed");return 0;}return keep(view);
+        if(!view){failure(env,"Metal texture view creation failed");return 0;}
+        return keepTracked(FAOTResourceTexture,view);
     }
 }
 JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_clearTextures(JNIEnv *env,jclass cls,jlong handle,jlong color,jint argb,jlong depth,jdouble value){
@@ -325,14 +440,22 @@ JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_writeTexture(JNIEnv *env
         if(!data||components<1||components>4||destination.pixelFormat==MTLPixelFormatDepth32Float||((bytes==1)&&components!=1)||sourceStride<(int64_t)width*components){failure(env,"Unsupported texture upload layout");return;}
         NSUInteger row=((NSUInteger)width*bytes+255)&~(NSUInteger)255,total=row*(NSUInteger)height;
         if(total>64*1024*1024){failure(env,"Texture transfer exceeds 64 MiB staging budget");return;}
-        id<MTLBuffer> staging=[ctx.device newBufferWithLength:total options:MTLResourceStorageModeShared];if(!staging){failure(env,"Texture upload staging allocation failed");return;}
+        /* Never wait for a completion handler attached to our own uncommitted
+         * command buffer: it cannot run until that buffer is submitted. */
+        NSUInteger allocated=ctx.resources.transientAllocatedBytes,cap=ctx.resources.maxTransientBytes;
+        if(total>cap-MIN(allocated,cap))submitUploadBatch(ctx);
+        id<MTLBuffer> staging=[ctx.resources acquireTransientBufferOfLength:total];if(!staging){failure(env,"Texture upload staging allocation failed");return;}
         for(int line=0;line<height;line++){
             const uint8_t *src=(const uint8_t *)(uintptr_t)data+(NSUInteger)line*sourceStride;uint8_t *dst=(uint8_t *)staging.contents+(NSUInteger)line*row;
             if(bytes==1||components==4)memcpy(dst,src,(NSUInteger)width*bytes);
             else if(!faot_expand_rgba(dst,src,(NSUInteger)width,components)){failure(env,"Invalid upload component layout");return;}
         }
-        id<MTLBlitCommandEncoder> encoder=[commands(ctx) blitCommandEncoder];
+        id<MTLCommandBuffer> frameCommands=commands(ctx);
+        id<MTLBlitCommandEncoder> encoder=[frameCommands blitCommandEncoder];
         [encoder copyFromBuffer:staging sourceOffset:0 sourceBytesPerRow:row sourceBytesPerImage:total sourceSize:MTLSizeMake(width,height,1) toTexture:destination destinationSlice:layer destinationLevel:mip destinationOrigin:MTLOriginMake(x,y,0)];[encoder endEncoding];
+        [ctx.resources recycleTransientBuffer:staging commandBuffer:frameCommands];
+        ctx.pendingUploadBytes+=total;ctx.pendingUploadCount++;
+        if(ctx.pendingUploadBytes>=8*1024*1024||ctx.pendingUploadCount>=256)submitUploadBatch(ctx);
     }
 }
 JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_readTexture(JNIEnv *env,jclass cls,jlong handle,jlong source,jint mip,jint x,jint y,jint width,jint height,jlong destination,jlong offset){
@@ -340,9 +463,11 @@ JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_readTexture(JNIEnv *env,
         if(!bytes){failure(env,"Unsupported texture readback format");return;}
         NSUInteger row=((NSUInteger)width*bytes+255)&~(NSUInteger)255,total=row*(NSUInteger)height;
         if(total>64*1024*1024){failure(env,"Texture readback exceeds 64 MiB staging budget");return;}
-        id<MTLBuffer> staging=[ctx.device newBufferWithLength:total options:MTLResourceStorageModeShared];if(!staging){failure(env,"Texture readback staging allocation failed");return;}
-        id<MTLBlitCommandEncoder> encoder=[commands(ctx) blitCommandEncoder];
+        id<MTLBuffer> staging=[ctx.resources acquireTransientBufferOfLength:total];if(!staging){failure(env,"Texture readback staging allocation failed");return;}
+        id<MTLCommandBuffer> frameCommands=commands(ctx);
+        id<MTLBlitCommandEncoder> encoder=[frameCommands blitCommandEncoder];
         [encoder copyFromTexture:input sourceSlice:0 sourceLevel:mip sourceOrigin:MTLOriginMake(x,y,0) sourceSize:MTLSizeMake(width,height,1) toBuffer:staging destinationOffset:0 destinationBytesPerRow:row destinationBytesPerImage:total];[encoder endEncoding];
+        [ctx.resources recycleTransientBuffer:staging commandBuffer:frameCommands];
         double syncBefore=ctx.syncWaitSeconds;ctx.readbackWaitCount++;
         BOOL completed=submitAndWait(env,ctx);ctx.readbackWaitSeconds+=ctx.syncWaitSeconds-syncBefore;
         if(!completed)return;
@@ -363,7 +488,7 @@ JNIEXPORT jlong JNICALL Java_fabricaot_metal_MetalNative_createFence(JNIEnv *env
         if(!ctx.pending && ctx.lastFence){ctx.fenceReuseCount++;return keep(ctx.lastFence);}
         FAOTMetalFence *fence=[FAOTMetalFence new];fence.perf=ctx.perf;fence.completion=dispatch_group_create();dispatch_group_enter(fence.completion);
         id<MTLCommandBuffer> pending=commands(ctx);[pending addCompletedHandler:^(id<MTLCommandBuffer> completed){if(completed.status==MTLCommandBufferStatusError)fence.error=completed.error.localizedDescription;dispatch_group_leave(fence.completion);}];
-        ctx.lastCommitted=pending;ctx.pending=nil;ctx.lastFence=fence;[pending commit];return keep(fence);
+        ctx.lastCommitted=pending;ctx.pending=nil;ctx.lastFence=fence;commit(ctx,pending);return keep(fence);
     }
 }
 JNIEXPORT jboolean JNICALL Java_fabricaot_metal_MetalNative_awaitFence(JNIEnv *env,jclass cls,jlong handle,jlong timeout){
@@ -393,6 +518,18 @@ JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_presentFrame(JNIEnv *env
         double slotStart=CACurrentMediaTime();
         dispatch_semaphore_wait(ctx.presentationSlots, DISPATCH_TIME_FOREVER);
         ctx.slotWaitSeconds+=CACurrentMediaTime()-slotStart;
+        // Offscreen work can execute while Core Animation holds the drawables.
+        // Commit on the same serial queue; the later presentation reads the
+        // finished render target without a CPU completion wait.
+        if(ctx.pending){
+            id<MTLCommandBuffer> render=ctx.pending;
+            ctx.pending=nil;ctx.lastFence=nil;ctx.lastCommitted=render;
+            [render addCompletedHandler:^(id<MTLCommandBuffer> completed){
+                if(completed.status==MTLCommandBufferStatusError)
+                    fprintf(stderr,"[Metal] early render failed: %s\n",completed.error.localizedDescription.UTF8String ?: "unknown error");
+            }];
+            commit(ctx,render);ctx.earlyRenderSubmissions++;
+        }
         double drawableStart=CACurrentMediaTime();
         id<CAMetalDrawable> drawable=[ctx.layer nextDrawable];
         ctx.drawableWaitSeconds+=CACurrentMediaTime()-drawableStart;
@@ -416,13 +553,16 @@ JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_presentFrame(JNIEnv *env
             dispatch_semaphore_signal(ctx.presentationSlots);
         }];
         ctx.pending=nil;
-        [pending commit];
+        commit(ctx,pending);
         ctx.snapshotBytesThisFrame=0;
         ctx.sampleFrames++;
         if(ctx.sampleFrames>=300){
             double now=CACurrentMediaTime(), factor=1000.0/ctx.sampleFrames;
             double gpuSeconds,fenceSeconds;NSUInteger gpuCompleted,gpuUnavailable,fenceCount;
             [ctx.perf takeGPUSeconds:&gpuSeconds completed:&gpuCompleted unavailable:&gpuUnavailable fenceSeconds:&fenceSeconds fenceCount:&fenceCount];
+            fprintf(stderr,"[MetalPresentation] drawable_count=%lu in_flight_frames=%d early_render_submits=%lu\n",
+                (unsigned long)ctx.layer.maximumDrawableCount,FAOT_PRESENTATION_DEPTH,(unsigned long)ctx.earlyRenderSubmissions);
+            ctx.earlyRenderSubmissions=0;
             fprintf(stderr,"[MetalPerf] submitted=%lu submit_interval_ms=%.3f cpu_sync_wait_ms=%.3f slot_wait_ms=%.3f drawable_wait_ms=%.3f fence_wait_ms_per_submit=%.3f fence_wait_count=%lu gpu_command_sum_ms_per_submit=%.3f gpu_completed=%lu gpu_unavailable=%lu texel_shared=%.2f texel_private=%.2f texel_upload_wait_ms=%.3f buffer_snapshots=%.2f snapshot_fallbacks=%.2f sync_count=%lu readback_count=%lu readback_wait_ms=%.3f fence_reused=%lu\n",
                 (unsigned long)ctx.sampleFrames,(now-ctx.sampleStarted)*factor,ctx.syncWaitSeconds*factor,
                 ctx.slotWaitSeconds*factor,ctx.drawableWaitSeconds*factor,fenceSeconds*factor,(unsigned long)fenceCount,gpuSeconds*factor,(unsigned long)gpuCompleted,(unsigned long)gpuUnavailable,
@@ -542,37 +682,52 @@ JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_bindTexelBuffer(JNIEnv *
         NSUInteger alignment=[ctx.device minimumTextureBufferAlignmentForPixelFormat:pixelFormat];
         if(!alignment||alignment>65536){failure(env,"Invalid Metal texel buffer alignment");return;}
         NSUInteger stride=(((NSUInteger)length+alignment-1)/alignment)*alignment;
-        // The simulator rejects linear texture views of shared buffers. Use a separate queue
-        // to finish the CPU snapshot upload while the graphics queue has an open render pass.
-        id<MTLBuffer> staging=[ctx.device newBufferWithLength:stride options:MTLResourceStorageModeShared];
+        /* Each binding needs an immutable CPU snapshot because Java may rewrite
+         * the source buffer before the GPU reads it. Use the bounded transient
+         * pool instead of a fresh allocation per frame: the pool recycles the
+         * backing storage at GPU completion, so a long run cannot accumulate
+         * one shared MTLBuffer per cloud/ImmediatelyFast draw. */
+        id<MTLCommandBuffer> frameCommands=commands(ctx);
+        id<MTLBuffer> staging=[ctx.resources acquireTransientBufferOfLength:stride];
         if(!staging){failure(env,"Metal texel buffer allocation failed");return;}
         memcpy(staging.contents,(uint8_t *)source.contents+offset,(NSUInteger)length);
         memset((uint8_t *)staging.contents+length,0,stride-(NSUInteger)length);
         MTLTextureDescriptor *desc=[MTLTextureDescriptor new];desc.textureType=MTLTextureTypeTextureBuffer;desc.pixelFormat=pixelFormat;desc.width=length/bytes;desc.height=1;desc.usage=MTLTextureUsageShaderRead;
         id<MTLTexture> view=nil;
 #if !TARGET_OS_SIMULATOR
-        // A distinct immutable CPU snapshot per binding: later Java writes must not
-        // modify data already referenced by encoded draws. The normal command buffer
-        // retains its texture (and backing buffer) until the GPU is finished.
         desc.storageMode=MTLStorageModeShared;
         view=[staging newTextureWithDescriptor:desc offset:0 bytesPerRow:stride];
 #endif
-        if(view)ctx.sharedTexelBindings++;
+        if(view){
+            ctx.sharedTexelBindings++;
+            [ctx.resources track:FAOTResourceTexelTexture bytes:view.allocatedSize];
+            /* The view shares the staging buffer. Both are held by this completion
+             * handler until the GPU is done, then released exactly once. */
+            [ctx.resources deferUntilCompleted:frameCommands object:view category:FAOTResourceTexelTexture bytes:view.allocatedSize];
+            [ctx.resources recycleTransientBuffer:staging commandBuffer:frameCommands];
+        }
         if(!view){
             ctx.privateTexelBindings++;
             // Simulator and devices without shared texture-buffer views retain the
             // proven private upload path. Never wait on UIKit's main queue here.
             id<MTLBuffer> snapshot=[ctx.device newBufferWithLength:stride options:MTLResourceStorageModePrivate];
-            if(!snapshot){failure(env,"Metal texel snapshot allocation failed");return;}
+            if(!snapshot){[ctx.resources recordFailure:FAOTResourceTexelBuffer bytes:stride];failure(env,"Metal texel snapshot allocation failed");return;}
+            [ctx.resources track:FAOTResourceTexelBuffer bytes:snapshot.allocatedSize];
             desc.storageMode=MTLStorageModePrivate;
             view=[snapshot newTextureWithDescriptor:desc offset:0 bytesPerRow:stride];
             if(!view){failure(env,"Metal texel buffer view allocation failed");return;}
+            [ctx.resources track:FAOTResourceTexelTexture bytes:view.allocatedSize];
             if(!ctx.texelUploadQueue)ctx.texelUploadQueue=[ctx.device newCommandQueue];
             id<MTLCommandBuffer> upload=[ctx.texelUploadQueue commandBuffer];id<MTLBlitCommandEncoder> transfer=[upload blitCommandEncoder];
             if(!transfer){failure(env,"Metal texel buffer upload encoder allocation failed");return;}
             [transfer copyFromBuffer:staging sourceOffset:0 toBuffer:snapshot destinationOffset:0 size:stride];
-            [transfer endEncoding];[upload commit];double uploadStart=CACurrentMediaTime();[upload waitUntilCompleted];ctx.uploadWaitSeconds+=CACurrentMediaTime()-uploadStart;
+            [transfer endEncoding];commit(ctx,upload);double uploadStart=CACurrentMediaTime();[upload waitUntilCompleted];[ctx.resources noteCommandBufferCompleted];ctx.uploadWaitSeconds+=CACurrentMediaTime()-uploadStart;
             if(upload.status!=MTLCommandBufferStatusCompleted){failure(env,"Metal texel buffer upload failed");return;}
+            /* The upload is synchronous, so its staging can be recycled now; the
+             * private buffer + view stay alive until the graphics command completes. */
+            [ctx.resources recycleTransientBuffer:staging commandBuffer:frameCommands];
+            [ctx.resources deferUntilCompleted:frameCommands object:snapshot category:FAOTResourceTexelBuffer bytes:snapshot.allocatedSize];
+            [ctx.resources deferUntilCompleted:frameCommands object:view category:FAOTResourceTexelTexture bytes:view.allocatedSize];
         }
         if(stage==0)[ctx.renderEncoder setVertexTexture:view atIndex:index];else[ctx.renderEncoder setFragmentTexture:view atIndex:index];
     }
@@ -587,13 +742,14 @@ JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_scissor(JNIEnv *env,jcla
 static MTLPrimitiveType primitive(FAOTMetalPipeline *p){const jint *state=p.configuration.bytes;static const MTLPrimitiveType modes[]={MTLPrimitiveTypePoint,MTLPrimitiveTypeLine,MTLPrimitiveTypeLineStrip,MTLPrimitiveTypeTriangle,MTLPrimitiveTypeTriangleStrip};return modes[state[10]];}
 static void fan(JNIEnv *env,FAOTMetalContext *ctx,id<MTLBuffer> indices,int indexType,int first,int count,int baseVertex,int instances){
     if(count<3||instances==0)return;uint64_t words=(uint64_t)(count-2)*3;if(words>64*1024*1024/4){failure(env,"Triangle fan staging budget exceeded");return;}
-    id<MTLBuffer> expanded=[ctx.device newBufferWithLength:words*4 options:MTLResourceStorageModeShared];if(!expanded){failure(env,"Triangle fan allocation failed");return;}uint32_t *out=expanded.contents;
+    id<MTLBuffer> expanded=[ctx.resources acquireTransientBufferOfLength:(NSUInteger)(words*4)];if(!expanded){failure(env,"Triangle fan allocation failed");return;}uint32_t *out=expanded.contents;
     for(int i=0;i<count-2;i++)for(int j=0;j<3;j++){
         NSUInteger n=first+(j==0?0:i+j);uint32_t value;
         if(!indices)value=(uint32_t)n;else if(indexType==0){uint16_t v;memcpy(&v,(uint8_t *)indices.contents+n*2,2);value=v;}else memcpy(&value,(uint8_t *)indices.contents+n*4,4);
         out[i*3+j]=value;
     }
     [ctx.renderEncoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle indexCount:words indexType:MTLIndexTypeUInt32 indexBuffer:expanded indexBufferOffset:0 instanceCount:instances baseVertex:baseVertex baseInstance:0];
+    [ctx.resources recycleTransientBuffer:expanded commandBuffer:commands(ctx)];
 }
 JNIEXPORT void JNICALL Java_fabricaot_metal_MetalNative_draw(JNIEnv *env,jclass cls,jlong handle,jlong value,jint first,jint count){
     (void)cls;@autoreleasepool {FAOTMetalContext *ctx=context(handle);if(!requirePass(env,ctx)||ctx.emptyScissor)return;FAOTMetalPipeline *p=pipeline(value);const jint *state=p.configuration.bytes;

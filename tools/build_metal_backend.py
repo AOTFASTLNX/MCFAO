@@ -24,7 +24,7 @@ def main(argv=None):
     overlays=bridge_overlays(args.graphics_bridge)
     glfw=args.glfw_library.resolve(strict=True);validate_dylib(glfw,args.sdk=="iphonesimulator")
     out=args.output.resolve();out.mkdir(parents=True,exist_ok=False)
-    home=ROOT/".cache/toolchains/graalvm-25.0.2/graalvm-community-openjdk-25.0.2+10.1/Contents/Home"
+    home=(ROOT/".cache/toolchains/graalvm-25.0.2/graalvm-community-openjdk-25.0.2+10.1/Contents/Home").resolve(strict=True)
     manifest=json.loads((ROOT/"artifacts/b0/prepared-04/result.json").read_text())
     cp=[*overlays]
     for entry in manifest["referenceLibraries"]:
@@ -41,7 +41,7 @@ def main(argv=None):
     target="arm64-apple-ios17.0"+("-simulator" if args.sdk=="iphonesimulator" else "")
     result={"status":"BLOCKED","gateC0a":"BLOCKED","target":target,
             "scope":"Metal resources and precompiled vanilla pipelines with draw/bind/scissor paths; full game integration remains experimental",
-            "sourcesSHA256":{str(f.relative_to(ROOT)):sha256(f) for f in [*sources,ROOT/"ios/metal-bridge/metal_bridge.m",ROOT/"ios/metal-bridge/present.metal",ROOT/"ios/metal-bridge/texture_transfer.h",ROOT/"interop/graphics/TextureSpecProbe.java",ROOT/"interop/graphics/texture_transfer_test.c"]},
+            "sourcesSHA256":{str(f.relative_to(ROOT)):sha256(f) for f in [*sources,ROOT/"ios/metal-bridge/metal_bridge.m",ROOT/"ios/metal-bridge/metal_resources.h",ROOT/"ios/metal-bridge/metal_resources.m",ROOT/"ios/metal-bridge/present.metal",ROOT/"ios/metal-bridge/texture_transfer.h",ROOT/"interop/graphics/TextureSpecProbe.java",ROOT/"interop/graphics/texture_transfer_test.c"]},
             "classpathSHA256":{str(f):sha256(f) for f in cp},"glfwSHA256":sha256(glfw)}
     compiled=capture([str(home/"bin/javac"),"-proc:none","-cp",os.pathsep.join(map(str,cp)),"-d",str(classes),*map(str,sources)],out/"javac",180)
     result["javac"]=compiled
@@ -52,7 +52,7 @@ def main(argv=None):
         binary=out/"libfaot_metal.dylib"
         native=capture(["xcrun","--sdk",args.sdk,"clang","-target",target,"-std=c11","-fobjc-arc","-O2","-Wall","-Wextra","-Werror",
             "-I",str(home/"include"),"-I",str(home/"include/darwin"),"-I",str(ROOT/"ios/glfw-lite"),"-dynamiclib",
-            str(ROOT/"ios/metal-bridge/metal_bridge.m"),str(glfw),"-framework","Metal","-framework","QuartzCore","-framework","Foundation",
+            str(ROOT/"ios/metal-bridge/metal_bridge.m"),str(ROOT/"ios/metal-bridge/metal_resources.m"),str(glfw),"-framework","Metal","-framework","QuartzCore","-framework","Foundation",
             "-install_name","@rpath/libfaot_metal.dylib","-o",str(binary)],out/"native-compile",180)
         result["native"]=native
         if not native["exitCode"]:
@@ -72,7 +72,7 @@ def main(argv=None):
         compiled_test=capture([str(home/"bin/javac"),"-proc:none","-cp",str(classes)+os.pathsep+os.pathsep.join(map(str,cp)),"-d",str(tests),str(ROOT/"interop/graphics/TextureSpecProbe.java")],out/"contract-compile",120)
         policy=out/"contract.sb";policy.write_text(sandbox_policy(out,home,cp))
         if not compiled_test["exitCode"]:
-            tested=capture(["/usr/bin/sandbox-exec","-f",str(policy),str(home/"bin/java"),"-Xmx128m","-cp",str(tests)+os.pathsep+str(classes)+os.pathsep+os.pathsep.join(map(str,cp)),"fabricaot.metal.TextureSpecProbe"],out/"contract-run",30)
+            tested=capture(["/usr/bin/sandbox-exec","-f",str(policy),str(home/"bin/java"),"-Xmx128m","-cp",str(tests)+os.pathsep+str(classes)+os.pathsep+os.pathsep.join(map(str,cp)),"fabricaot.metal.TextureSpecProbe"],out/"contract-run",30,cwd=out)
             result["hostContracts"]="PASS" if not tested["exitCode"] and "METAL_TEXTURE_CONTRACT_PASS" in (out/"contract-run/stdout.log").read_text() else "FAIL"
         else:result["hostContracts"]="FAIL"
         if result["hostContracts"]!="PASS":result["status"]="BLOCKED"
@@ -83,6 +83,25 @@ def main(argv=None):
             result["hostPixelLayout"]="PASS" if not pixel["exitCode"] and "METAL_PIXEL_LAYOUT_PASS" in (out/"pixel-layout-run/stdout.log").read_text() else "FAIL"
         else:result["hostPixelLayout"]="FAIL"
         if result["hostPixelLayout"]!="PASS":result["status"]="BLOCKED"
+        lifetime=out/"metal-resource-lifetime-test"
+        lifetime_compile=capture(["xcrun","clang","-fobjc-arc","-Wall","-Wextra","-Werror","-I",str(home/"include"),"-I",str(home/"include/darwin"),
+            "-I",str(ROOT/"ios/metal-bridge"),str(ROOT/"tests/metal_resource_lifetime_test.m"),str(ROOT/"ios/metal-bridge/metal_resources.m"),
+            "-framework","Metal","-framework","Foundation","-framework","QuartzCore","-o",str(lifetime)],out/"resource-lifetime-compile",120)
+        if not lifetime_compile["exitCode"]:
+            lifetime_run=capture([str(lifetime)],out/"resource-lifetime-run",120)
+            result["hostResourceLifetime"]="PASS" if not lifetime_run["exitCode"] and "METAL_RESOURCE_LIFETIME_PASS" in (out/"resource-lifetime-run/stdout.log").read_text() else "FAIL"
+        else:result["hostResourceLifetime"]="FAIL"
+        if result["hostResourceLifetime"]!="PASS":result["status"]="BLOCKED"
+        upload=out/"metal-upload-burst-test"
+        upload_compile=capture(["xcrun","clang","-fobjc-arc","-Wall","-Wextra","-Werror","-fsanitize=address,undefined",
+            "-I",str(home/"include"),"-I",str(home/"include/darwin"),"-I",str(ROOT/"ios/glfw-lite"),
+            str(ROOT/"tests/metal_upload_burst_test.m"),str(ROOT/"ios/metal-bridge/metal_resources.m"),
+            "-framework","Metal","-framework","Foundation","-framework","QuartzCore","-o",str(upload)],out/"upload-burst-compile",120)
+        if not upload_compile["exitCode"]:
+            upload_run=capture([str(upload)],out/"upload-burst-run",120)
+            result["hostUploadBurst"]="PASS" if not upload_run["exitCode"] and "METAL_UPLOAD_BURST_PASS" in (out/"upload-burst-run/stdout.log").read_text() else "FAIL"
+        else:result["hostUploadBurst"]="FAIL"
+        if result["hostUploadBurst"]!="PASS":result["status"]="BLOCKED"
     (out/"result.json").write_text(json.dumps(result,indent=2)+"\n")
     try:register_tree(out,[sys.executable,"-B",str(Path(__file__).resolve()),*(sys.argv[1:] if argv is None else argv)])
     except (OSError,RuntimeError) as exc:print(str(exc),file=sys.stderr);return 1

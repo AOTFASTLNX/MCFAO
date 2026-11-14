@@ -23,7 +23,15 @@ final class MetalDevice implements GpuDeviceBackend {
     MetalRenderPass activePass;
     final BufferHazardTracker bufferHazards=new BufferHazardTracker();
     private long unprotectedWrites, protectedWrites, largeBufferWaits;
+    private long largeWaitNanos, cloneFallbackWaits, cloneFallbackWaitNanos;
     void waitForGpu(){MetalNative.synchronize(context);bufferHazards.completed();}
+    void waitForCpuWrite(boolean cloneFallback){
+        long start=System.nanoTime();
+        waitForGpu();
+        long elapsed=System.nanoTime()-start;
+        if(cloneFallback){cloneFallbackWaits++;cloneFallbackWaitNanos+=elapsed;}
+        else largeWaitNanos+=elapsed;
+    }
     void recordBufferWrite(boolean protectedWrite,boolean largeWait){
         if(protectedWrite)protectedWrites++;else unprotectedWrites++;
         if(largeWait)largeBufferWaits++;
@@ -114,8 +122,10 @@ final class MetalDevice implements GpuDeviceBackend {
     private boolean vsync=true;
     public void presentFrame(){outsidePass();MetalNative.presentFrame(context);
         if(++hazardSampleFrames==300){
-            System.err.println("[MetalBufferHazards] frames=300 direct_writes="+unprotectedWrites+" protected_writes="+protectedWrites+" large_waits="+largeBufferWaits);
+            System.err.println("[MetalBufferHazards] frames=300 direct_writes="+unprotectedWrites+" protected_writes="+protectedWrites+" large_waits="+largeBufferWaits
+                +" large_wait_total_ms="+largeWaitNanos/1_000_000.0+" clone_fallback_waits="+cloneFallbackWaits+" clone_fallback_wait_total_ms="+cloneFallbackWaitNanos/1_000_000.0);
             hazardSampleFrames=0;unprotectedWrites=0;protectedWrites=0;largeBufferWaits=0;
+            largeWaitNanos=0;cloneFallbackWaits=0;cloneFallbackWaitNanos=0;
         }
     }
     public boolean isZZeroToOne(){return true;}

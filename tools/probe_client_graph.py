@@ -167,6 +167,10 @@ def main(argv=None):
         if split_input:client_jar_override['splitRuntimeValidation']=split_input
     output = args.output.absolute()
     output.mkdir(parents=True, exist_ok=False)
+    # The output may live under an artifacts symlink in a worktree. Sandbox rules and child cwd
+    # must use the same physical path; otherwise macOS denies getcwd() despite the lexical work
+    # path being allowed, and HotSpot fails during VM property initialization.
+    output = output.resolve(strict=True)
     sources=output/"source"
     for name in ["probe_client_graph.py","client_graph_diagnostics.py","run_b0_reference.py",
                  "config_reflection.py"]:

@@ -21,7 +21,7 @@ class BufferSyncContractTests(unittest.TestCase):
         )[0]
         self.assertIn("if(!ctx.pending && ctx.lastFence)", fence)
         self.assertIn("return keep(ctx.lastFence)", fence)
-        self.assertIn("ctx.lastFence=fence;[pending commit]", fence)
+        self.assertIn("ctx.lastFence=fence;commit(ctx,pending)", fence)
         sync = source.split("static BOOL submitAndWait", 1)[1].split("static NSUInteger pixelBytes", 1)[0]
         self.assertIn("if(ctx.pending){ctx.lastFence=nil;", sync)
         present = source.split("Java_fabricaot_metal_MetalNative_presentFrame", 1)[1]
@@ -36,7 +36,8 @@ class BufferSyncContractTests(unittest.TestCase):
         encoder = (root / "MetalCommandEncoder.java").read_text(encoding="utf-8")
         self.assertLess(encoder.index("needsProtection(buffer.hazard)"), encoder.index("cloneBuffer("))
         self.assertIn("bufferHazards.renamed(buffer.hazard)", encoder)
-        self.assertIn("device.waitForGpu()", encoder)
+        self.assertIn("device.waitForCpuWrite(true)", encoder)
+        self.assertIn("device.waitForCpuWrite(false)", encoder)
         self.assertIn("device.bufferHazards.completed()", encoder)
         device = (root / "MetalDevice.java").read_text(encoding="utf-8")
         self.assertIn("MetalNative.synchronize(context);bufferHazards.completed()", device)
