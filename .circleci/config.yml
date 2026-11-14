@@ -144,7 +144,7 @@ jobs:
             df -h .
             python3 -m py_compile ci/patch_src.py ci/fetch_minecraft.py
             bash -n ci/build_mac.sh
-            test "$CIRCLE_BRANCH" = "integration/aot-and-performance-20261113"
+            test "$CIRCLE_BRANCH" = "main"
             test -n "$CIRCLE_SHA1"
       - run:
           name: Build full-resource unsigned Minecraft 26.1.2 IPA (pinned integration source)
@@ -195,17 +195,10 @@ jobs:
           destination: diagnostics/ipa-zip-test.txt
 
 workflows:
-  build-ipados-pointer:
-    jobs:
-      - ipados-pointer:
-          filters:
-            branches:
-              only: fix/ipados-mouse-trackpad-look
-
-  build-integration-game-ipa:
+  build-game-ipa:
     jobs:
       - integration-game-ipa:
           filters:
             branches:
               only:
-                - integration/aot-and-performance-20261113
+                - main
