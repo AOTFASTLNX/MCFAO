@@ -1,5 +1,8 @@
 # 先证伪、再迭代：FabricAOT 可执行 Gate 计划
 
+> 2026-11-15 集成决策：ADR-009 supersedes ADR-008。C0a 改为真实 Minecraft 26.1.2 经 GL41/Zink/MoltenVK 在真机渲染首帧；C0b 为真实主菜单显示并响应输入。原生 MetalBackend 单独回归。新集成 SHA / IPA 的 C0a、C0b、C0c、D1、E 在取得对应证据前均为 BLOCKED；历史 v14 或模拟器结果不可自动提升。
+
+
 以下每项都必须生成命令、版本、日志、二进制 SHA-256、代码提交、真实运行结果和负例。无法运行时写 `BLOCKED/NOT RUN`，不编造产物。
 
 | Gate | 最小实验 | 通过标准 | 失败时处理 |
@@ -9,8 +12,8 @@
 | B0 Fabric 静态化实验 | 26.1.2 样例 Fabric Mod 含 Mixin + Class Tweaker + Entrypoint + nested JAR | 变换后类在桌面 JVM 行为正确、可比较字节码与调用结果 | 不可仅调用 Mixin API 后就视作完成 |
 | B1 AOT 语义一致性 | B0 经同一 iOS AOT 运行时执行行为测试 | 与 JVM 基线断言一致；无运行时代码定义 | 每个不支持机制标明具体条件 |
 | C0 游戏无图形入口 | Minecraft 真实客户端引导、资源索引、类初始化、JNI 清单 | 到达可复现的菜单前启动阶段 | 禁止以空壳 SwiftUI 画面代替 |
-| C0a 图形后端首帧 | Metal 后端清屏（G1 GLFW 替身 + G2 LWJGL core 替身 + G3 最小后端） | 真机出现由 Metal 渲染的首帧，`RenderSystem` 初始化完成，日志有后端名与设备信息 | 后端未起来就写上层渲染，禁止用渲染 demo 顶替 |
-| C0b 真实菜单/输入 | 88 个 GLSL 330 经构建期翻译为 MSL，触摸映射为 GLFW 回调 | Minecraft 自己渲染的主菜单可见（真实资源），触摸可点击响应 | 不得手改 MSL 掩盖语义不符；不符的 shader 记 UNSUPPORTED 并报错 |
+| C0a 图形后端首帧 | 真实 Minecraft 原生 OpenGL 经 LWJGL JNI/OSMesa/Zink/MoltenVK 首帧 | 真机出现由 Metal 渲染的首帧，`RenderSystem` 初始化完成，日志有后端名与设备信息 | 后端未起来就写上层渲染，禁止用渲染 demo 顶替 |
+| C0b 真实菜单/输入 | 真实 GL41 客户端主菜单与 UIKit/GLFW 触摸回调 | Minecraft 自己渲染的主菜单可见（真实资源），触摸可点击响应 | 缺失 GL/JNI 调用与 shader 不兼容应具体报错，不得以模拟画面掩盖 |
 | C0c 单人可玩 | 新建世界、加载区块、移动、破坏放置、退出/重入 | 真机可持续游玩，世界数据和行为复核 | 失败仍是 experimental |
 | C1 画面/输入 | 真实 Blaze3D/LWJGL 使用的调用映射到 iOS，显示真正游戏菜单 | 菜单真实图文、点击可响应 | 不得用 3D demo 代替 |
 | C2 单人可玩 | 新建世界、加载区块、移动、破坏放置、退出/重入 | 真机可持续游玩，世界数据和行为复核 | 失败仍是 experimental |
@@ -26,7 +29,7 @@
 - ADR-001：iOS Java25 AOT fork、源码/许可证、依赖版本、是否真的支持需要的 Java 核心库/JNI。
 - ADR-002：Fabric Loader 26.1.2 初始化顺序、Mixin、Class Tweaker、嵌套 JAR 和闭包化证明。
 - ADR-003：真实 Minecraft 26.1.2 图形 API 的差异清单（OpenGL 版本、GLFW、LWJGL、OpenAL、资源/着色器）、Metal 路线（直接移植或兼容层），含逐调用测试。
-- ADR-008：iOS 图形与窗口栈替代方案（**已接受**）。GLFW 替身 + blaze3d Metal 后端 + 构建期 GLSL→MSL；否证 `os.name` 伪装、宿主库重标、GL→Metal 转译层（Zink/MoltenVK/ANGLE/MoltenGL）、GLFW null platform。执行计划见 [GRAPHICS_STACK_PLAN](GRAPHICS_STACK_PLAN.md)。
+- ADR-008：iOS 图形与窗口栈替代方案（**Superseded by ADR-009**）。GLFW 替身 + blaze3d Metal 后端 + 构建期 GLSL→MSL；否证 `os.name` 伪装、宿主库重标、GL→Metal 转译层（Zink/MoltenVK/ANGLE/MoltenGL）、GLFW null platform。执行计划见 [GRAPHICS_STACK_PLAN](GRAPHICS_STACK_PLAN.md)。
 - ADR-004：合法 Minecraft 客户端下载/本地编译/授权流程，及分发边界。
 - ADR-005：无付费 Developer Program 签名与安装，BundleID/世界保留测试。
 - ADR-006：不信任 Mod 的构建期隔离与供应链控制。

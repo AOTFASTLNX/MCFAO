@@ -9,6 +9,58 @@ use std::{
 };
 use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
+mod build_job;
+#[tauri::command]
+async fn stage_instance(
+    workspace: String,
+    source: String,
+    python: String,
+) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if workspace
+            .chars()
+            .chain(source.chars())
+            .any(|c| c.is_control())
+        {
+            return Err("路径包含控制字符".into());
+        }
+        let root = PathBuf::from(workspace)
+            .canonicalize()
+            .map_err(|e| e.to_string())?;
+        let source = PathBuf::from(source)
+            .canonicalize()
+            .map_err(|e| e.to_string())?;
+        let script = root.join("tools/import_instance.py");
+        if !root.join(".git").exists() || !script.is_file() {
+            return Err("请选择包含导入工具的 MCFAO 工作区".into());
+        }
+        let id = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| e.to_string())?
+            .as_nanos();
+        let output = root.join("artifacts/desktop-imports").join(id.to_string());
+        let args = vec![
+            "-u".to_string(),
+            "-B".into(),
+            script.to_string_lossy().into_owned(),
+            "--source".into(),
+            source.to_string_lossy().into_owned(),
+            "--output".into(),
+            output.to_string_lossy().into_owned(),
+        ];
+        let result = capture(
+            python_program(&python),
+            &args.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+            Duration::from_secs(900),
+        )?;
+        if result.code != Some(0) {
+            return Err(format!("实例文件导入失败：{}", result.stderr));
+        }
+        serde_json::from_str(&result.stdout).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
 
 const MAX_OUTPUT: usize = 8 * 1024 * 1024;
 #[derive(Debug)]
@@ -76,6 +128,11 @@ fn capture(program: &str, args: &[&str], deadline: Duration) -> Result<Captured,
 }
 fn python_program(custom: &str) -> &str {
     if custom.trim().is_empty() {
+        if std::path::Path::new("/Library/Frameworks/Python.framework/Versions/3.11/bin/python3")
+            .is_file()
+        {
+            return "/Library/Frameworks/Python.framework/Versions/3.11/bin/python3";
+        }
         if cfg!(target_os = "windows") {
             "python"
         } else {
@@ -256,15 +313,28 @@ async fn save_document(
 }
 pub fn run() {
     tauri::Builder::default()
+        .manage(build_job::Jobs::default())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             default_workspace,
             inspect_pack,
             check_environment,
-            save_document
+            save_document,
+            build_job::start_build,
+            build_job::build_status,
+            build_job::cancel_build,
+            build_job::open_build_output,
+            build_job::export_build_log,
+            stage_instance,
+            build_job::build_adaptation_report
         ])
-        .run(tauri::generate_context!())
-        .expect("无法启动 FabricAOT 桌面工作台");
+        .build(tauri::generate_context!())
+        .expect("无法启动 FabricAOT 桌面工作台")
+        .run(|app, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                app.state::<build_job::Jobs>().shutdown();
+            }
+        });
 }
 
 #[cfg(test)]

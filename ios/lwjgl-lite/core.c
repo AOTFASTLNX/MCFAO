@@ -9,7 +9,7 @@
 static void *aligned(size_t alignment,size_t size){void *p=NULL;if(alignment<sizeof(void *)||(alignment&(alignment-1)))return NULL;return posix_memalign(&p,alignment,size)?NULL:p;}
 JNIEXPORT jlong JNICALL Java_org_lwjgl_system_IOSNative_open(JNIEnv *e,jclass c,jstring path){(void)c;const char *s=(*e)->GetStringUTFChars(e,path,NULL);if(!s)return 0;void *h=dlopen(s,RTLD_NOW|RTLD_LOCAL);(*e)->ReleaseStringUTFChars(e,path,s);return JLONG(h);}
 JNIEXPORT jstring JNICALL Java_org_lwjgl_system_IOSNative_error(JNIEnv *e,jclass c){(void)c;const char *s=dlerror();return (*e)->NewStringUTF(e,s?s:"unknown loader error");}
-JNIEXPORT jlong JNICALL Java_org_lwjgl_system_IOSNative_symbol(JNIEnv *e,jclass c,jlong h,jlong name){(void)e;(void)c;return h&&name?JLONG(dlsym(PTR(h),PTR(name))):0;}
+JNIEXPORT jlong JNICALL Java_org_lwjgl_system_IOSNative_symbol(JNIEnv *e,jclass c,jlong h,jlong name){(void)e;(void)c;return name?JLONG(dlsym(h?PTR(h):RTLD_DEFAULT,PTR(name))):0;}
 JNIEXPORT void JNICALL Java_org_lwjgl_system_IOSNative_close(JNIEnv *e,jclass c,jlong h){(void)e;(void)c;if(h)dlclose(PTR(h));}
 JNIEXPORT jint JNICALL Java_org_lwjgl_system_MemoryAccessJNI_getPointerSize(JNIEnv *e,jclass c){(void)e;(void)c;return sizeof(void *);}
 #define ADDRESS(Name,Function) JNIEXPORT jlong JNICALL Java_org_lwjgl_system_MemoryAccessJNI_##Name(JNIEnv *e,jclass c){(void)e;(void)c;return JLONG(Function);}

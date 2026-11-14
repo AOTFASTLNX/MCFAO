@@ -1,5 +1,10 @@
 # FabricAOT
 
+> 2026-11-15 集成决策：主要研发路线采用 [ADR-009](docs/evidence/ADR-009.md)：Minecraft 26.1.2 原生 OpenGL → OSMesa/Zink → MoltenVK → Metal/CAMetalLayer；保留原生 Metal 模式。Apple Silicon macOS 的 desktop/ GUI 与真实 IPA 按 [集成审计](docs/integration/GL41_BRANCH_AUDIT.md) 推进，真机验收前维持 experimental。
+
+本轮已构建 ARM64 macOS 应用，并通过 Tauri 命令接口完成真实 AOT → iOS 链接 → IPA 校验。开发签名测试应用安装成功；锁屏阻断原生 GUI 交互和真机游戏启动。产物、哈希、测试和未完成门槛见 [交付记录](docs/integration/GL41_DELIVERY.md)，使用方式见 [GUI 构建指南](docs/integration/GL41_GUI_BUILDING.md)。
+
+
 **在未越狱 iPhone 上本地运行 Minecraft Java Edition 26.1.2 + Fabric 的实验性工程。**
 
 FabricAOT（仓库代号 MCFAO）的目标是让用户在 Mac 上导入 `.mrpack` 或 Prism Launcher 实例，经过依赖解析、构建期 Fabric 转换、Java AOT 编译和 iOS 签名后，得到一份可以在普通 iPhone 上本地游玩的 IPA。游戏逻辑、渲染和存档都在手机上执行，不需要 Java JIT、越狱或电脑串流。

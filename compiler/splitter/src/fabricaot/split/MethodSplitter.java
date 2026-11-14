@@ -298,6 +298,21 @@ public final class MethodSplitter {
             if (cost < triggerCost) {
                 continue;
             }
+            // Interface fields must always be public static final (JVMS 4.5).
+            // Moving interface initialization into helper methods would also make
+            // writes to final fields illegal. Preserve the original interface method.
+            // This applies to all interface candidates because generated spill fields
+            // may themselves violate interface field rules.
+            if ((node.access & Opcodes.ACC_INTERFACE) != 0) {
+                Map<String, Object> skipped = new LinkedHashMap<>();
+                skipped.put("method", method.name + method.desc);
+                skipped.put("sites", sites);
+                skipped.put("instructions", instructions);
+                skipped.put("costProxy", cost);
+                skipped.put("status", "INTERFACE_PRESERVED");
+                report.methods.add(skipped);
+                continue;
+            }
             MethodSplit split = splitMethod(node, method, className, loader, targetSites, maxParts, fields);
             Map<String, Object> record = new LinkedHashMap<>();
             record.put("method", method.name + method.desc);

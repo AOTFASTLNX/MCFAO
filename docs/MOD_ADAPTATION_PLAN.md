@@ -1,6 +1,6 @@
 # Fabric 玩法模组：通用适配路线
 
-Last reviewed: 2026-11-12
+Last reviewed: 2026-11-14
 
 ## 本次故障的教训
 
@@ -53,3 +53,13 @@ TechReborn 6.0.5 首次直接 AOT 构建通过，但用户真机日志 `run-1794
 TechReborn 的 catalog-expansion-transform-03 已通过隔离转换、未排除模组，并对 5 条残留方法报 REQUIRES_REVIEW；最终描述/图标资源闭包复验为 catalog-expansion-transform-04。新接口还未重做完整 AOT/运行验收。前一版真机修复 IPA 不包含本轮新增接口。
 
 新增 [内容样本包](CONTENT_SAMPLE_PACK.md)：五个内容模组和全部当前解析出的必需依赖，目标版本预检通过，整包转换/运行未做。它提供后续扩展覆盖的固定输入，不能提升原有功能兼容矩阵。
+
+## 2026-11-14 MDAF 首批自动化
+
+AdaptationRuleEngine 为结构规则提供 ID、机制、目标、匹配、前置条件、变换和字节码后置验证；同一目标多规则冲突会报告并跳过，最多两轮并验证幂等性。当前首条规则 fabric.resource.merged-namespace-index.v1 按 VanillaPackResourcesBuilder#build 的目标方法及 Set.copyOf(this.namespaces) 调用形态匹配，将其改为 ModNamespaces.withVanilla，不依赖 Mod ID。规则前置条件/目标冲突以 Report-Only 跳过；变换失败或后置条件不成立会明确失败。
+
+tools/mdaf.py 将人工反射配置、静态推断和 GraalVM tracing-agent 输出稳定合并，并保留其他受支持的 agent 元数据类别；反射类型与命名成员采用出货 classfile 静态检查，JDK 类型单独列出。标量配置冲突保留较早的人工值并记录冲突。tools/mcfao.py build --trace-agent --audited-mods 可在现有隔离的桌面 Knot 演练中收集轨迹；该选项必须与 --audited-mods 一起使用，之后轨迹目录会自动传给 AOT 配置准备。单独使用 probe_client_graph.py --tracing-config <目录> 可重复合并轨迹目录。轨迹只覆盖实际执行场景，不能证明动态访问闭包完整。
+
+第一方夹具实跑证据：artifacts/mcfao/mdaf-fixture-audited-trace-01/result.json 显示 FABRIC_AOT_INPUT_PREPARED，文件/网络拒绝控制通过；该规则首轮改写 1 处，第二轮验证已应用且没有重复编辑。导出 classfile 与规则后置条件通过，但 jvmBehavioralRehearsal 为 NOT RUN。GraalVM 25 agent 收集到 635 条统一格式反射观察和 860 条资源观察，输出位于 artifacts/mcfao/mdaf-fixture-audited-trace-01/tracing-agent-attempt-1/reachability-metadata.json。合并报告 artifacts/mcfao/mdaf-fixture-aot-config-02/mdaf-report.json 检查 697 项：362 项在选定归档中解析，49 个类型未解析，1 项格式无效，285 个 JDK 类型未在归档中检查；合并冲突为 0。该报告中的完整 classpath 成员检查仍为 NOT RUN，对应 helper 目前只以独立小型 classpath 测试覆盖。
+
+该转换演练没有运行游戏目标方法。样本同时记录 mixinAccessorsRefused 一项，诊断内容为 mcfao_fixture!mcfao/fixture/mixin/WorldMixin.class (null)；不能据此声称 Mixin 或资源行为兼容。未知 Fabric API 未做穷尽扫描，stub/no-op、Mixin、动态反射与平台差异继续 Report-Only。Native Image 完整 AOT、IPA、模拟器和真机验证均为 NOT RUN。相关回归：test_mdaf 7、test_mcfao 36、test_runtime_lowering 11、test_verify_aot_classpath 4、test_config_reflection 29 项均通过；这些结果只证明各自自动化检查通过，不提升可玩 Gate。

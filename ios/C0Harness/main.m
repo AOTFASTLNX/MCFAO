@@ -371,6 +371,23 @@ static void FAOTProbeReservations(FILE *logFile) {
         NSString *assets = [FAOTDocuments() stringByAppendingPathComponent:@"assets"];
 #endif
         [NSFileManager.defaultManager createDirectoryAtPath:game withIntermediateDirectories:YES attributes:nil error:nil];
+        // Seed only imported configuration/resources. Existing device files and saves win.
+        NSString *seed = [NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"instance-seed"];
+        NSDirectoryEnumerator *seedFiles = [NSFileManager.defaultManager enumeratorAtPath:seed];
+        for (NSString *relative in seedFiles) {
+            NSString *origin = [seed stringByAppendingPathComponent:relative];
+            NSString *destination = [game stringByAppendingPathComponent:relative];
+            BOOL directory = NO;
+            [NSFileManager.defaultManager fileExistsAtPath:origin isDirectory:&directory];
+            if (directory) {
+                [NSFileManager.defaultManager createDirectoryAtPath:destination withIntermediateDirectories:YES attributes:nil error:nil];
+            } else if (![NSFileManager.defaultManager fileExistsAtPath:destination]) {
+                NSError *seedError = nil;
+                if (![NSFileManager.defaultManager copyItemAtPath:origin toPath:destination error:&seedError]) {
+                    NSLog(@"Instance seed failed for %@: %@", relative, seedError);
+                }
+            }
+        }
         NSString *language = FAOTSelectedLanguageCode();
         FAOTApplyLanguageToOptions([game stringByAppendingPathComponent:@"options.txt"], language);
 #if TARGET_OS_SIMULATOR || defined(FAOT_DEVICE_WORLD)
@@ -391,6 +408,8 @@ static void FAOTProbeReservations(FILE *logFile) {
                fixed maximum, so without this the picker had no effect at all. */
             [NSString stringWithFormat:@"-Xmx%ldm", (long)(FAOTSelectedHeapGiB() * 1024)],
             [NSString stringWithFormat:@"-Dorg.lwjgl.librarypath=%@", frameworks],
+            /* LWJGL's platform defaults throw on iOS; point GL.create() at the generated shim. */
+            @"-Dorg.lwjgl.opengl.libname=liblwjgl_opengl.dylib",
             @"-Dorg.lwjgl.system.allocator=system",
             [NSString stringWithFormat:@"-Duser.language=%@", [language substringToIndex:2]],
             [NSString stringWithFormat:@"-Duser.country=%@", [language substringFromIndex:3].uppercaseString],
