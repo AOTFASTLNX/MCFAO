@@ -1,5 +1,8 @@
 # Gate / 验收清单
 
+> 2026-11-15 集成决策：C0a：真实 Minecraft 26.1.2 经 GL41 渲染首帧；C0b：真实主菜单及输入，均要求物理 iPhone/iPad、源码 SHA、IPA SHA-256、日志和截图/视频。C2 另须移动/视角、破坏/放置、背包、保存退出、重启重进；E 须至少 30 分钟及实测性能/内存/热状态，缺失记 NOT MEASURED。GUI 须 Apple Silicon .app 启动、真实完整 AOT、渲染器选择、日志/取消/失败重试/产物管理及自动化验证。Fabric Loader、Fabric API 和轻量 Mod 的 FUNCTION_PASS 必须有实际游戏证据。
+
+
 原则：**所有证据必须来自真实执行，未执行的测试只能写 NOT RUN。** 不以模拟器结果替代真机结果。
 
 | Gate | 验收最低标准 | 必须保存的证据 |

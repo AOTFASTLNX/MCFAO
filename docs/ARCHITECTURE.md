@@ -1,5 +1,8 @@
 # 技术架构与关键事实
 
+> 2026-11-15 集成决策：主要研发渲染器采用 ADR-009：原生 Blaze3D OpenGL → LWJGL OpenGL JNI → OSMesa/Mesa Zink → MoltenVK → Apple Metal → UIKit CAMetalLayer。原生 Java MetalBackend 为可选独立路径；GL41 的 Metal 呈现层与该后端不同。desktop/ 继续使用 Tauri 2/React/TypeScript/Rust，完整构建须调用与 CLI 相同的本地 AOT 后端。
+
+
 ## 已确认的基本事实
 
 - Minecraft Java 26.1.2 最低 Java 25；26.1 起游戏发布时不再混淆字节码。
