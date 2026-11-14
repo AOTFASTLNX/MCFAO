@@ -30,7 +30,15 @@ def register_tree(path: Path, command: list[str], *, regenerable: bool = True, k
             "--argv-json",json.dumps(command),"--json"]
     if recursive:argv.append("--include-files")
     if regenerable: argv.append("--regenerable")
-    result = subprocess.run(argv,capture_output=True,text=True,timeout=120)
+    try:
+        result = subprocess.run(argv,capture_output=True,text=True,timeout=120)
+    except FileNotFoundError:
+        # Artifact discovery is separate from compilation and package validation.
+        # Retain the exact registration request for replay when AAR is restored.
+        pending = {"status": "REGISTRATION_PENDING", "reason": "AAR executable unavailable",
+                   "argv": argv}
+        (path / "registration-pending.json").write_text(json.dumps(pending, indent=2) + "\n")
+        return pending
     if result.returncode:
         raise RuntimeError(f"Central AAR registration failed ({result.returncode}): {result.stderr or result.stdout}")
     return json.loads(result.stdout)
