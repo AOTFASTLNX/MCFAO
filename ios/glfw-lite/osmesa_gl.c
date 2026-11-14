@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 #include <pthread/qos.h>
 #include <time.h>
 
@@ -112,10 +113,18 @@ static int load_api(void) {
     const char *home = getenv("HOME");
     if (home) {
         char cache[900];
-        snprintf(cache, sizeof cache, "%s/Documents/.mesa_shader_cache", home);
+        /* HOME is already the app's Documents directory. The previous path added a second
+         * Documents level, so the single-level mkdir failed and every launch recompiled
+         * its GLSL and pipeline caches from scratch. */
+        snprintf(cache, sizeof cache, "%s/.mesa_shader_cache", home);
         (void)mkdir(cache, 0700);
-        set_default("MESA_SHADER_CACHE_DIR", cache);
-        set_default("MESA_GLSL_CACHE_DIR", cache);
+        if (access(cache, R_OK | W_OK) == 0) {
+            set_default("MESA_SHADER_CACHE_DIR", cache);
+            set_default("MESA_GLSL_CACHE_DIR", cache);
+            fprintf(stderr, "[GL41] shader cache ready: %s\n", cache);
+        } else {
+            fprintf(stderr, "[GL41] shader cache unavailable: %s\n", cache);
+        }
     }
     /* MoltenVK is preloaded under its @rpath name so Mesa's zink driver finds the already
      * loaded Vulkan implementation in the signed app Frameworks directory. */
