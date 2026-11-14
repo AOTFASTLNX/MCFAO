@@ -72,7 +72,7 @@ static int load_api(void) {
     if (home) {
         char cache[900];
         snprintf(cache, sizeof cache, "%s/Documents/.mesa_shader_cache", home);
-        mkdir(cache, 0700);
+        (void)mkdir(cache, 0700);
         set_default("MESA_SHADER_CACHE_DIR", cache);
         set_default("MESA_GLSL_CACHE_DIR", cache);
     }
@@ -135,6 +135,16 @@ int faot_gl41_make_current(void *surface, int width, int height) {
         if (!context) {
             attribs[1] = OSMESA_RGBA_FORMAT;
             context = api.create(attribs, NULL);
+            bgra_format = 0;
+        }
+        if (!context) {
+            /* Last resort: let Mesa choose the highest profile/version it can create. The
+             * game still validates the reported version before using it. */
+            unsetenv("MESA_GL_VERSION_OVERRIDE");
+            unsetenv("MESA_GLSL_VERSION_OVERRIDE");
+            const int minimal[] = {OSMESA_FORMAT, OSMESA_RGBA_FORMAT,
+                                   OSMESA_DEPTH_BITS, 24, OSMESA_STENCIL_BITS, 8, 0};
+            context = api.create(minimal, NULL);
             bgra_format = 0;
         }
         if (!context) {
