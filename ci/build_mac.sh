@@ -153,8 +153,35 @@ import json
 prepared = json.load(open("artifacts/b0/prepared-04/result.json", encoding="utf-8"))
 print(":".join(row["path"] for row in prepared["referenceLibraries"]))
 PY
+# Fabric mode must transform the supplied mods BEFORE method splitting and Metal injection.
+# Caller provides a local, previously audited mod directory on this isolated Mac. Mod
+# JARs and configs must not be committed to the source repository.
+CLIENT_INPUT="artifacts/ci/mc/meta/versions/26.1.2/26.1.2.jar"
+if [ "${FAOT_BUILD_LOADER:-vanilla}" = "fabric" ]; then
+  if [ "${FAOT_FETCH_RECOLLECTION3:-0}" = "1" ]; then
+    log "fetch 53 hash-locked public Recollection3 mod jars"
+    FAOT_FABRIC_MODS_DIR="$PWD/artifacts/ci/recollection3-mods"
+    python3 -B "$WORK/repo/ci/fetch_locked_mods.py" "$WORK/repo/ci/recollection3-mods.json" "$FAOT_FABRIC_MODS_DIR"
+  fi
+  [ -n "${FAOT_FABRIC_MODS_DIR:-}" ] || die "Fabric mode requires FAOT_FABRIC_MODS_DIR"
+  [ -d "$FAOT_FABRIC_MODS_DIR" ] || die "Fabric mod directory not found"
+  log "stage 4a-0: Fabric Loader metadata and dependency inspection"
+  time python3 -B tools/prepare_fabric_aot.py --prepared artifacts/b0/prepared-04 \
+    --client "$CLIENT_INPUT" --mods "$FAOT_FABRIC_MODS_DIR" \
+    --inspect --output artifacts/ci/fabric-inspect
+  log "stage 4a-1: sandboxed Fabric/Mixin transformation"
+  time python3 -B tools/prepare_fabric_aot.py --prepared artifacts/b0/prepared-04 \
+    --client "$CLIENT_INPUT" --mods "$FAOT_FABRIC_MODS_DIR" \
+    --audited-mods --output artifacts/ci/fabric-transform
+  python3 -B "$WORK/repo/ci/check_fabric_result.py" \
+    artifacts/ci/fabric-transform/result.json "$FAOT_FABRIC_MODS_DIR"
+  CLIENT_INPUT="artifacts/ci/fabric-transform/client.jar"
+elif [ "${FAOT_BUILD_LOADER:-vanilla}" != "vanilla" ]; then
+  die "Unknown FAOT_BUILD_LOADER"
+fi
+
 time python3 -B tools/split_methods.py \
-  --jar artifacts/ci/mc/meta/versions/26.1.2/26.1.2.jar \
+  --jar "$CLIENT_INPUT" \
   --output-jar artifacts/ci/client-split.jar \
   --report artifacts/ci/split-report.json \
   --tool artifacts/compiler/method-splitter-01 \
@@ -163,7 +190,7 @@ time python3 -B tools/split_methods.py \
 
 log "verify: interface class files remain unchanged after splitting"
 python3 -B "$WORK/repo/ci/verify_interface_classes.py" \
-  artifacts/ci/mc/meta/versions/26.1.2/26.1.2.jar artifacts/ci/client-split.jar
+  "$CLIENT_INPUT" artifacts/ci/client-split.jar
 
 DUMP="$WORK/repo/ci/classdump.py"
 if [ -f "$DUMP" ]; then

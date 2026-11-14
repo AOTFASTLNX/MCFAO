@@ -1,7 +1,7 @@
 name: Launcher and Metal checks
 on:
   push:
-    branches: [feature/performance-launcher-size-2026-11-13, integration/aot-and-performance-20261113, fix/v21-baseline-input-layout]
+    branches: [feature/performance-launcher-size-2026-11-13, integration/aot-and-performance-20261113, fix/v21-baseline-input-layout, fix/recollection3-fabric-pipeline]
   workflow_dispatch:
 concurrency:
   group: launcher-metal-${{ github.ref }}
@@ -51,6 +51,7 @@ jobs:
       - name: Graphics and input regression tests
         run: |
           python3 -m unittest discover -s tests -p test_preflight.py -v
+          python3 -m unittest discover -s tests -p test_fabric_ci.py -v
           python3 -m unittest discover -s tests -p test_graphics_bridge.py -v
           python3 -m unittest discover -s tests -p test_pointer_input_source.py -v
           python3 -m unittest discover -s tests -p test_c0_harness.py -v
