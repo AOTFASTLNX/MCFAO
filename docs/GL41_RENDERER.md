@@ -285,3 +285,14 @@ presentation handoff to entry into the current swap; it includes client work,
 GL command submission and any pacing wait. Both percentiles use per-frame timing,
 rounded up to milliseconds and capped at 100 ms. The diagnostic adds no new GPU
 wait or per-frame log line and does not change rendering or pacing.
+
+CircleCI job 119 built the diagnostic from `bb65fee`. The unsigned IPA passed
+hash, ZIP, arm64 and diagnostic marker checks. The same app ID was used for the
+USB update, and the phone entered the existing world at the 120 FPS setting.
+In device run `run-1794662674971.log`, a sample at 83.9 presented FPS showed
+11 ms `finishP95` and 9 ms `outsideSwapP95`. During active chunk streaming,
+a 38.4 FPS sample showed 18 and 27 ms respectively, with zero reported drops.
+Both stages grew more expensive, with the larger increase outside swap.
+These are separate percentiles and cannot be added to reconstruct a frame.
+The next measurement should split time outside swap into client/chunk work,
+GL command submission, and pacing so the source of the increase can be isolated.
