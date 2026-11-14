@@ -7,6 +7,7 @@ import {
   type DragEvent,
   type ReactNode,
 } from "react";
+import { BuildPanel } from "./BuildPanel";
 import {
   ArrowDownToLine,
   ArrowRight,
@@ -1254,16 +1255,15 @@ export default function App() {
 
           {page === "builds" && (
             <>
+              <BuildPanel settings={settings} setSettings={setSettings} modsPath={modsPath} setModsPath={setModsPath} source={selected?.report.source} />
               <div className="notice info">
                 <CircleAlert size={18} />
                 <div>
                   <strong>
-                    首版已接入静态预检；完整编译、签名和 IPA
-                    导出按构建文档操作。
+                    上方执行完整本地 AOT 编译、链接与 IPA 校验。
                   </strong>
                   <p>
-                    下方可以生成构建准备命令。实际 iOS 构建由 macOS Apple
-                    Silicon 完成。
+                    下方保留高级构建准备命令。准备成功与真机可玩验收分别记录。
                   </p>
                 </div>
               </div>
