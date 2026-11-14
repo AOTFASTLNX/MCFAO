@@ -391,6 +391,8 @@ static void FAOTProbeReservations(FILE *logFile) {
                fixed maximum, so without this the picker had no effect at all. */
             [NSString stringWithFormat:@"-Xmx%ldm", (long)(FAOTSelectedHeapGiB() * 1024)],
             [NSString stringWithFormat:@"-Dorg.lwjgl.librarypath=%@", frameworks],
+            /* LWJGL's platform defaults throw on iOS; point GL.create() at the generated shim. */
+            @"-Dorg.lwjgl.opengl.libname=liblwjgl_opengl.dylib",
             @"-Dorg.lwjgl.system.allocator=system",
             [NSString stringWithFormat:@"-Duser.language=%@", [language substringToIndex:2]],
             [NSString stringWithFormat:@"-Duser.country=%@", [language substringFromIndex:3].uppercaseString],

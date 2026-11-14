@@ -233,8 +233,11 @@ if [ -f "$VERIFY" ]; then
     log "WARNING: class verification reported problems (see above)"
 fi
 if [ "$RENDERER" = "gl41" ]; then
-  log "stage 4b: retain the game's native OpenGL backend"
-  CLIENT_INJECTED=artifacts/ci/client-split.jar
+  log "stage 4b: retain the game's native OpenGL backend and disable its 4.5 DSA path"
+  time python3 -B tools/patch_gl41_client.py --client artifacts/ci/client-split.jar \
+    --output artifacts/ci/gl41-client --graalvm-home "$GRAALVM_HOME" \
+    --asm-jars .cache/libs/asm-9.9/asm-9.9.jar .cache/libs/asm-9.9/asm-tree-9.9.jar
+  CLIENT_INJECTED=artifacts/ci/gl41-client/client.jar
 else
   log "stage 4b: inject Metal backend"
   time python3 -B tools/inject_metal_backend.py --client artifacts/ci/client-split.jar \
