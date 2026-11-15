@@ -1,4 +1,4 @@
-﻿version: 2.1
+version: 2.1
 
 jobs:
   build-aot:
@@ -8,7 +8,7 @@ jobs:
     environment:
       HOMEBREW_NO_AUTO_UPDATE: 1
       PYTHONDONTWRITEBYTECODE: "1"
-      UPSTREAM: https://github.com/AOTFASTLNX/MCFAO
+      UPSTREAM: https://github.com/AOTFASTLNX/NativeCraftLauncher
       SOURCE_REF: fix/recollection3-fabric-pipeline
       MCFAO_OPT_LEVEL: -O3
     steps:
@@ -23,7 +23,7 @@ jobs:
           command: |
             set -euo pipefail
             mkdir -p ~/build && cd ~/build
-            curl -fsSL -o build_mac.sh https://raw.githubusercontent.com/AOTFASTLNX/MCFAO/bb65fee877fdcc339f588100c28299022e56c0c2/ci/build_mac.sh
+            curl -fsSL -o build_mac.sh https://raw.githubusercontent.com/AOTFASTLNX/NativeCraftLauncher/bb65fee877fdcc339f588100c28299022e56c0c2/ci/build_mac.sh
             MCFAO_TOKEN="$MCFAO_TOKEN" FAOT_RENDERER=gl41 FAOT_BUILD_LOADER=vanilla HEAP_GIB=9 JOBS=6 AOT_PAR=4 SLIM_ASSETS=0 \
               UPSTREAM="$UPSTREAM" SOURCE_REF="$SOURCE_REF" SOURCE_SHA=bb65fee877fdcc339f588100c28299022e56c0c2 bash build_mac.sh
       - store_artifacts:

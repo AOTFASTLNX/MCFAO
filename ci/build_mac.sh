@@ -8,8 +8,8 @@
 set -euo pipefail
 
 WORK="${WORK:-$HOME/mcfao-build}"
-CI_REPO="${CI_REPO:-https://github.com/AOTFASTLNX/MCFAO}"
-UPSTREAM="${UPSTREAM:-https://github.com/AOTFASTLNX/MCFAO}"
+CI_REPO="${CI_REPO:-https://github.com/AOTFASTLNX/NativeCraftLauncher}"
+UPSTREAM="${UPSTREAM:-https://github.com/AOTFASTLNX/NativeCraftLauncher}"
 SOURCE_REF="${SOURCE_REF:-integration/aot-and-performance-20261113}"
 SOURCE_SHA="${SOURCE_SHA:-}" # CircleCI sets this to the triggering commit
 HEAP_GIB="${HEAP_GIB:-8}"

@@ -44,7 +44,7 @@ labels pre-instrumentation waits as combined and old zero GPU timings as unavail
 ## Completed validation and delivery
 
 - Native code at b28d508 passes device/simulator compilation, the Metal GPU snapshot lifetime regression, and existing graphics/input/C0 tests. Launcher/editor simulator screenshots were captured and inspected; the landscape layout now keeps the launch action and settings visible together.
-- Checks: https://github.com/AOTFASTLNX/MCFAO/actions/runs/43265692059
+- Checks: https://github.com/AOTFASTLNX/NativeCraftLauncher/actions/runs/43265692059
 - Full AOT game build succeeded in CircleCI job 71 from source 66a1f09. Native libraries were byte-for-byte preserved while the UIKit launcher was refreshed from 805dd53 in the private signing pipeline. The refresh guard rejects changes outside launcher/CI/docs before reusing an AOT image.
 - Private refresh/sign run: https://github.com/zhangrongxue/mc-aot-sign/actions/runs/43266944897
 - v8 installed successfully over the same app on the USB-connected iPhone. All 37 backed-up world files retain their SHA-256 hashes after installation. The existing Documents asset index remains available.

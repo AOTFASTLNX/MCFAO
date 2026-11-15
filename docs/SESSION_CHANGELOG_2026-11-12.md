@@ -189,7 +189,7 @@ MCFAO_REAL_JADE_PASS returns=2 bytes=30136
   而不是从 pack-87 的状态读起。
 - `.gitignore` 增加 `/config/`：那是模拟器跑 Mod 时写出来的 ETF 配置，不是源码（已在 docs 里作为"空配置"
   证据被引用，但文件本身不该入库）。
-- **PII 处理**：仓库是 public 的（`AOTFASTLNX/MCFAO`）。`artifacts/evidence/` 里 4 个 `stdout.log`
+- **PII 处理**：仓库是 public 的（`AOTFASTLNX/NativeCraftLauncher`）。`artifacts/evidence/` 里 4 个 `stdout.log`
   早在 `e337d0b` 就含个人邮箱与证书名——这个已经发生，只能改历史清。我这轮新增的文档原本又复制了两处，
   已替换成 `<redacted-email>` / `<redacted-cert-id>`，不再增加暴露面。
 

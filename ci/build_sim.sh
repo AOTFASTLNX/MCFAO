@@ -6,7 +6,7 @@ set -euo pipefail
 
 WORK="${WORK:-$HOME/mcfao-sim}"
 CI_REPO="${CI_REPO:-https://github.com/zhangrongxue/mc-aot-ios}"
-UPSTREAM="${UPSTREAM:-https://github.com/AOTFASTLNX/MCFAO}"
+UPSTREAM="${UPSTREAM:-https://github.com/AOTFASTLNX/NativeCraftLauncher}"
 SOURCE_REF="${SOURCE_REF:-}"
 HEAP_GIB="${HEAP_GIB:-8}"
 JOBS="${JOBS:-6}"

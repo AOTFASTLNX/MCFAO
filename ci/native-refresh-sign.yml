@@ -22,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: AOTFASTLNX/MCFAO
+          repository: AOTFASTLNX/NativeCraftLauncher
           ref: ${{ inputs.source_ref }}
       - name: Rebuild the real launcher using verified runtime libraries
         id: native

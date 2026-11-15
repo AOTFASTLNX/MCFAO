@@ -73,7 +73,7 @@ B0 先做 1，失败立刻转 2；3 只在 1、2 都证明不可行时用。
 
 ## 5. 仓库与命名
 
-- 主仓：`AOTFASTLNX/NativeCraftLauncher`（原 `AOTFASTLNX/MCFAO`，已改名，旧地址 301）
+- 主仓：`AOTFASTLNX/NativeCraftLauncher`（原 `AOTFASTLNX/NativeCraftLauncher`，已改名，旧地址 301）
 - CI 仓：`zhangrongxue/mc-aot-ios`，B1 分支 `build/b1-n0`
 - 文档：本文件与 `docs/B1_N0_RESULT_2026-11-15.md`
 - 本轮需同步的旧名引用：`.circleci/config.yml`、`ci/build_mac.sh`、`ci/build_sim.sh`、

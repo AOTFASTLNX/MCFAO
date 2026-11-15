@@ -11,7 +11,7 @@
     ]
   },
   "source": {
-    "repo": "https://github.com/AOTFASTLNX/MCFAO",
+    "repo": "https://github.com/AOTFASTLNX/NativeCraftLauncher",
     "commits": ["bb65fee", "509212c", "e0cb34f"],
     "tag": "a1-v14"
   },

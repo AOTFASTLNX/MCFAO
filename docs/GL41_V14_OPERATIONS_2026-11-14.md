@@ -30,7 +30,7 @@ Minecraft (Java) → LWJGL-lite GlBackend
 ## 2. 版本演进一览（GL41 线，2026-11-14）
 
 全部构建在 CircleCI `zhangrongxue/mc-aot-ios` 项目、macOS `m4pro.medium` 执行器（Xcode 27.1.0）上完成，
-每次构建固定 `UPSTREAM=https://github.com/AOTFASTLNX/MCFAO` 的 `SOURCE_SHA`，产物为未签名 IPA，
+每次构建固定 `UPSTREAM=https://github.com/AOTFASTLNX/NativeCraftLauncher` 的 `SOURCE_SHA`，产物为未签名 IPA，
 下载后本地用 zsign + 个人证书签名再 USB 安装。
 
 | 作业 | CI 提交 | 时间(北京) | MCFAO 源码 | 变更 | 结果 |
@@ -133,7 +133,7 @@ CI 仓库：`https://github.com/zhangrongxue/mc-aot-ios`，分支 `build/gl41-re
 
 ```yaml
 environment:
-  UPSTREAM: https://github.com/AOTFASTLNX/MCFAO
+  UPSTREAM: https://github.com/AOTFASTLNX/NativeCraftLauncher
   SOURCE_REF: fix/recollection3-fabric-pipeline
   MCFAO_OPT_LEVEL: -O3
 steps:
@@ -141,7 +141,7 @@ steps:
       command: |
         set -euo pipefail
         mkdir -p ~/build && cd ~/build
-        curl -fsSL -o build_mac.sh https://raw.githubusercontent.com/AOTFASTLNX/MCFAO/bb65fee877fdcc339f588100c28299022e56c0c2/ci/build_mac.sh
+        curl -fsSL -o build_mac.sh https://raw.githubusercontent.com/AOTFASTLNX/NativeCraftLauncher/bb65fee877fdcc339f588100c28299022e56c0c2/ci/build_mac.sh
         MCFAO_TOKEN="$MCFAO_TOKEN" FAOT_RENDERER=gl41 FAOT_BUILD_LOADER=vanilla HEAP_GIB=9 JOBS=6 AOT_PAR=4 SLIM_ASSETS=0 \
           UPSTREAM="$UPSTREAM" SOURCE_REF="$SOURCE_REF" SOURCE_SHA=bb65fee877fdcc339f588100c28299022e56c0c2 bash build_mac.sh
 ```
