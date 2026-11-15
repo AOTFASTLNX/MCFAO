@@ -43,7 +43,7 @@
 
 ## 实现
 
-- src/App.tsx：四步构建、环境、签名、任务和设置界面。
+- src/App.tsx：Fabric 五步 / 原版四步的构建、环境、签名、任务和设置界面。
 - src/system-neutral.css：System Neutral 语义令牌、控件、页面与响应式规则。
 - src/theme.ts：外观与系统强调色偏好、可读性映射和原生窗口同步。
 - src/LogView.tsx、src/log.ts：构建日志的等宽呈现与 INFO / WARN / ERROR 语义分级。
