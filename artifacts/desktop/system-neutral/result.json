@@ -19,7 +19,8 @@
     "rust": "7 passed",
     "clippy": "PASS",
     "python": "35 passed",
-    "package": "PASS, arm64, ad-hoc signed, 31.36 MiB"
+    "package": "PASS, arm64, ad-hoc signed, 31.36 MiB",
+    "postMerge": "56 unit / 22 browser / 7 rust / clippy / 35 python; rebuilt and signed"
   },
   "native": {
     "path": "desktop/src-tauri/target/debug/bundle/macos/FabricAOT.app",
