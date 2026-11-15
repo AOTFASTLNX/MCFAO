@@ -494,7 +494,7 @@ test("theme toggle switches every surface and survives a reload", async ({
     };
   });
   expect(surfaces.colorScheme).toBe("light");
-  expect(surfaces.shell).toBe("rgb(236, 237, 239)");
+  expect(surfaces.shell).toBe("rgb(231, 232, 233)");
   expect(surfaces.panel).toBe("rgb(255, 255, 255)");
   await page.getByRole("button", { name: "构建记录", exact: true }).click();
   await expect(page.locator(".job-list-panel")).toHaveCSS(
@@ -558,4 +558,140 @@ test("system accent setting reaches interactive tokens only", async ({
   await page.reload();
   await page.getByRole("button", { name: "设置", exact: true }).click();
   await expect(page.getByLabel("交互强调色")).toHaveValue("#8B83CB");
+});
+
+const layerSurfaces = {
+  sidebar: ".sidebar",
+  window: "body",
+  raised: ".stepper",
+  card: ".builder-panel",
+} as const;
+
+async function measureLayers(page: import("@playwright/test").Page, theme: string) {
+  await page.addInitScript(
+    (value) => localStorage.setItem("fabricaot.theme.v1", value),
+    theme,
+  );
+  await page.goto("/");
+  await page.getByRole("button", { name: "构建 IPA", exact: true }).click();
+  await page.locator(".builder-panel").waitFor();
+  return page.evaluate((selectors) => {
+    const lightness = (selector: string) => {
+      const element = document.querySelector(selector);
+      if (!element) throw new Error("missing surface " + selector);
+      const color = getComputedStyle(element).backgroundColor;
+      const match = color.match(/rgba?\(([^)]+)\)/);
+      if (!match) throw new Error("unresolved background " + color);
+      const [r, g, b] = match[1]
+        .split(",")
+        .slice(0, 3)
+        .map((value) => Number(value.trim()) / 255);
+      return Math.round(((Math.max(r, g, b) + Math.min(r, g, b)) / 2) * 100);
+    };
+    return Object.fromEntries(
+      Object.entries(selectors).map(([key, selector]) => [key, lightness(selector)]),
+    );
+  }, layerSurfaces);
+}
+
+test("neutral layers step by three percent without decorative borders", async ({
+  page,
+}) => {
+  const light = await measureLayers(page, "light");
+  expect(light.sidebar).toBe(91);
+  expect(light.window - light.sidebar).toBe(3);
+  expect(light.raised - light.window).toBe(3);
+  expect(light.card - light.raised).toBe(3);
+
+  const dark = await measureLayers(page, "dark");
+  expect(dark.window - dark.sidebar).toBe(3);
+  expect(dark.raised - dark.window).toBe(3);
+  expect(dark.card - dark.raised).toBe(3);
+  expect(dark.card).toBeLessThan(50);
+
+  const borders = await page.evaluate(() => {
+    const width = (selector: string) => {
+      const element = document.querySelector(selector);
+      if (!element) throw new Error("missing surface " + selector);
+      const style = getComputedStyle(element);
+      return [
+        style.borderTopWidth,
+        style.borderRightWidth,
+        style.borderBottomWidth,
+        style.borderLeftWidth,
+      ];
+    };
+    return {
+      sidebar: width(".sidebar"),
+      topbar: width(".topbar"),
+      panel: width(".builder-panel"),
+      stepper: width(".stepper"),
+    };
+  });
+  for (const edges of Object.values(borders)) {
+    expect(edges).toEqual(["0px", "0px", "0px", "0px"]);
+  }
+});
+
+test("text keeps WCAG AA contrast on every neutral layer", async ({ page }) => {
+  for (const theme of ["light", "dark"]) {
+    await page.addInitScript(
+      (value) => localStorage.setItem("fabricaot.theme.v1", value),
+      theme,
+    );
+    await page.goto("/");
+    await page.getByRole("button", { name: "构建 IPA", exact: true }).click();
+    await page.locator(".builder-panel").waitFor();
+    const ratios = await page.evaluate(() => {
+      const channel = (value: number) => {
+        const c = value / 255;
+        return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+      };
+      const luminance = (color: string) => {
+        const match = color.match(/rgba?\(([^)]+)\)/);
+        if (!match) throw new Error("unresolved color " + color);
+        const [r, g, b] = match[1]
+          .split(",")
+          .slice(0, 3)
+          .map((value) => Number(value.trim()));
+        return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+      };
+      const contrast = (a: string, b: string) => {
+        const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+        return (hi + 0.05) / (lo + 0.05);
+      };
+      const style = getComputedStyle(document.documentElement);
+      const text = style.getPropertyValue("--text").trim();
+      const muted = style.getPropertyValue("--muted").trim();
+      const dim = style.getPropertyValue("--dim").trim();
+      const surfaces = [
+        ".sidebar",
+        "body",
+        ".stepper",
+        ".builder-panel",
+      ].map(
+        (selector) =>
+          getComputedStyle(document.querySelector(selector)!).backgroundColor,
+      );
+      const probe = document.createElement("div");
+      document.body.append(probe);
+      const resolve = (token: string) => {
+        probe.style.color = token;
+        return getComputedStyle(probe).color;
+      };
+      const result = surfaces.map((surface) => ({
+        surface,
+        text: contrast(resolve(text), surface),
+        muted: contrast(resolve(muted), surface),
+        dim: contrast(resolve(dim), surface),
+      }));
+      probe.remove();
+      return result;
+    });
+    for (const row of ratios) {
+      expect(row.text).toBeGreaterThanOrEqual(4.5);
+      expect(row.muted).toBeGreaterThanOrEqual(4.5);
+      expect(row.dim).toBeGreaterThanOrEqual(4.5);
+    }
+  }
 });
