@@ -31,11 +31,11 @@ public final class FramePacing {
     /** Sustainable rates, descending. The limiter never exceeds the requested rate. */
     private static final int[] LADDER = {120, 90, 72, 60, 48, 30};
     /** How long the very first target is held before the ladder is allowed to move. */
-    private static final long STARTUP_GRACE_NS = 2 * NS_PER_SECOND;
+    private static final long STARTUP_GRACE_NS = 8 * NS_PER_SECOND;
     /** Reporting and adaptation period. */
     private static final long REPORT_PERIOD_NS = 2 * NS_PER_SECOND;
     /** Consecutive reports needed before moving one rung. */
-    private static final int STEPS_TO_MOVE = 2;
+    private static final int STEPS_TO_MOVE = 3;
     /** Late threshold: smoothed interval above target * LATE_RATIO means step down. */
     private static final double LATE_RATIO = 1.15;
     /** Early threshold: smoothed interval below target * EARLY_RATIO means there is headroom. */
@@ -43,7 +43,16 @@ public final class FramePacing {
     /** Ring of recent frame intervals used for the reported percentile. */
     private static final int SAMPLE_COUNT = 256;
 
-    private static final boolean ADAPTIVE = !"fixed".equalsIgnoreCase(System.getenv("FAOT_PACING"));
+    /**
+     * The ladder is opt-in: {@code FAOT_PACING=adaptive}. The default is a fixed 60 Hz cap,
+     * because v16's first on-device run showed the ladder reacting to world-loading spikes
+     * and dropping the whole session to 30 FPS.
+     */
+    private static final boolean ADAPTIVE = "adaptive".equalsIgnoreCase(System.getenv("FAOT_PACING"));
+    /** Fixed mode never targets more than this, whatever the game asks for. */
+    private static final int FIXED_CAP = 60;
+    /** A window whose longest frame exceeds this is treated as a loading spike, not a trend. */
+    private static final double SPIKE_MS = 80.0;
 
     private static long nextDeadlineNs = NO_DEADLINE;
     private static long lastFrameNs = 0;
@@ -115,11 +124,14 @@ public final class FramePacing {
     private static void adoptRequest(int fps, long now) {
         requestedFps = fps;
         if (!ADAPTIVE) {
-            effectiveFps = fps;
+            /* Fixed mode: hold a rate the device can actually sustain. A 120 Hz request
+               (8.3 ms) cannot be met when a frame costs ~14 ms, which is why v14 floated
+               between 46 and 86 FPS. */
+            effectiveFps = Math.min(fps, FIXED_CAP);
         } else if (effectiveFps <= 0 || effectiveFps > fps) {
             /* Start from the sustainable rung closest to the request instead of the highest
                one: beginning at 120 would spend the first seconds late on every frame. */
-            effectiveFps = Math.min(fps, 60);
+            effectiveFps = Math.min(fps, FIXED_CAP);
         }
         nextDeadlineNs = now + NS_PER_SECOND / effectiveFps;
         lastFrameNs = 0;
@@ -144,18 +156,27 @@ public final class FramePacing {
 
     private static void reportAndAdapt(long now) {
         double targetMs = 1000.0 / effectiveFps;
+        double median = percentile(0.50);
         double p95 = percentile(0.95);
         double max = maximum();
         System.err.println("[GL41] pacing fps=" + effectiveFps + " requested=" + requestedFps
-                + " ema=" + fmt(emaMs) + "ms p95=" + fmt(p95) + "ms max=" + fmt(max)
-                + "ms steps=" + stepsDown + "down/" + stepsUp + "up");
+                + " med=" + fmt(median) + "ms ema=" + fmt(emaMs) + "ms p95=" + fmt(p95)
+                + "ms max=" + fmt(max) + "ms steps=" + stepsDown + "down/" + stepsUp + "up");
 
-        if (!ADAPTIVE || now - startedNs < STARTUP_GRACE_NS) return;
+        if (!ADAPTIVE) return;
+        if (now - startedNs < STARTUP_GRACE_NS) return;
+        /* Loading a world produces 100-250 ms frames; they say nothing about the steady
+           state and must not drag the target down. */
+        if (max > SPIKE_MS) {
+            stepsDown = 0;
+            stepsUp = 0;
+            return;
+        }
 
-        if (emaMs > targetMs * LATE_RATIO) {
+        if (median > targetMs * LATE_RATIO) {
             stepsDown++;
             stepsUp = 0;
-        } else if (emaMs < targetMs * EARLY_RATIO && p95 <= targetMs) {
+        } else if (median < targetMs * EARLY_RATIO && p95 <= targetMs) {
             stepsUp++;
             stepsDown = 0;
         } else {
@@ -170,7 +191,7 @@ public final class FramePacing {
                 return;
             }
             System.err.println("[GL41] pacing step down " + effectiveFps + " -> " + lower
-                    + " (ema " + fmt(emaMs) + "ms > " + fmt(targetMs * LATE_RATIO) + "ms)");
+                    + " (med " + fmt(median) + "ms > " + fmt(targetMs * LATE_RATIO) + "ms)");
             applyRung(lower, now);
         } else if (stepsUp >= STEPS_TO_MOVE) {
             int higher = higherRung();
@@ -179,7 +200,7 @@ public final class FramePacing {
                 return;
             }
             System.err.println("[GL41] pacing step up " + effectiveFps + " -> " + higher
-                    + " (ema " + fmt(emaMs) + "ms, p95 " + fmt(p95) + "ms)");
+                    + " (med " + fmt(median) + "ms, p95 " + fmt(p95) + "ms)");
             applyRung(higher, now);
         }
     }
@@ -193,18 +214,24 @@ public final class FramePacing {
         emaMs = 0;
     }
 
+    /** The next rung below the current target. LADDER is descending, so scan forwards and
+     *  keep the last one that is still below: v16 returned the lowest rung instead, which
+     *  turned a single late window into 60 -> 30. */
     private static int lowerRung() {
-        for (int i = LADDER.length - 1; i >= 0; i--) {
-            if (LADDER[i] < effectiveFps && LADDER[i] <= requestedFps) return LADDER[i];
+        int best = -1;
+        for (int i = 0; i < LADDER.length; i++) {
+            if (LADDER[i] < effectiveFps && LADDER[i] <= requestedFps) best = LADDER[i];
         }
-        return -1;
+        return best;
     }
 
+    /** The next rung above the current target. */
     private static int higherRung() {
-        for (int i = 0; i < LADDER.length; i++) {
-            if (LADDER[i] > effectiveFps && LADDER[i] <= requestedFps) return LADDER[i];
+        int best = -1;
+        for (int i = LADDER.length - 1; i >= 0; i--) {
+            if (LADDER[i] > effectiveFps && LADDER[i] <= requestedFps) best = LADDER[i];
         }
-        return -1;
+        return best;
     }
 
     private static double percentile(double fraction) {
@@ -231,3 +258,4 @@ public final class FramePacing {
         return String.format(java.util.Locale.ROOT, "%.1f", value);
     }
 }
+
