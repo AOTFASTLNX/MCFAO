@@ -123,6 +123,17 @@ body {
   color: var(--text);
 }
 
+/* Wide layouts scroll inside the pane, so a stray absolutely positioned child
+   must not turn the window itself into a second scroll container. */
+@media (min-width: 701px) {
+  html,
+  body,
+  #root {
+    height: 100%;
+    overflow: hidden;
+  }
+}
+
 button,
 input,
 select,
@@ -248,7 +259,8 @@ code {
 /* Native overlay title bar: the sidebar reserves the traffic-light area. */
 .app-shell {
   display: flex;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
   background: var(--bg);
 }
 
@@ -449,14 +461,15 @@ code {
   flex: 1;
   flex-direction: column;
   min-width: 0;
-  min-height: 100vh;
+  min-height: 0;
+  height: 100vh;
+  overflow: hidden;
   margin-left: var(--sidebar-width);
   width: calc(100% - var(--sidebar-width));
 }
 
 .topbar {
-  position: sticky;
-  top: 0;
+  position: relative;
   z-index: 9;
   display: flex;
   flex-shrink: 0;
@@ -516,10 +529,18 @@ code {
 
 .main-content {
   flex: 1;
+  min-height: 0;
   width: 100%;
-  max-width: 1460px;
-  margin: 0 auto;
-  padding: var(--space-6) var(--space-6) var(--space-5);
+  /* The content column stays capped and centred, while this pane still spans
+     the window so its scroll bar sits under the title bar and hugs the edge
+     instead of running the full window height. */
+  padding-block: var(--space-6) var(--space-5);
+  padding-inline: max(
+    var(--space-6),
+    calc((100% - 1460px) / 2 + var(--space-6))
+  );
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .eyebrow {
@@ -793,6 +814,9 @@ button:disabled {
 
 .text-button {
   display: inline-flex;
+  /* Anchors the clipped file input, so its overflow stays inside the scroll
+     pane instead of stretching the document. */
+  position: relative;
   align-items: center;
   justify-content: flex-start;
   gap: 5px;
@@ -858,10 +882,14 @@ button:disabled {
   position: absolute;
   width: 1px;
   height: 1px;
+  /* Anchored to the nearest positioned ancestor and clipped out of flow, so a
+     hidden file input cannot stretch the document past the window. */
+  inset: 0 auto auto 0;
   padding: 0;
-  margin: -1px;
+  margin: 0;
   overflow: hidden;
   clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
   white-space: nowrap;
   border: 0;
 }
@@ -3248,7 +3276,8 @@ button:disabled {
   }
 
   .main-content {
-    padding: var(--space-5) var(--space-4) 0;
+    padding-block: var(--space-5) 0;
+    padding-inline: var(--space-4);
   }
 
   .topbar {
@@ -3292,6 +3321,21 @@ button:disabled {
 
   .app-shell {
     display: block;
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+
+  /* Narrow windows stack the sidebar above the page, so the document itself
+     scrolls again and the inner pane must not trap the scroll bar. */
+  .app-shell > main {
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .main-content {
+    overflow: visible;
   }
 
   .sidebar {

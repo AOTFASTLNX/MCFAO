@@ -1,5 +1,7 @@
 import { test, expect } from "@playwright/test";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import path from "node:path";
 
 const windowConfig = JSON.parse(
   readFileSync(
@@ -48,9 +50,9 @@ for (const theme of ["light", "dark"] as const) {
             () => document.documentElement.scrollWidth <= innerWidth,
           ),
         ).toBe(true);
-        await page.evaluate(() =>
-          window.scrollTo(0, document.body.scrollHeight),
-        );
+        await page
+          .locator(".main-content")
+          .evaluate((pane) => pane.scrollTo(0, pane.scrollHeight));
         await expect(page.locator(".topbar")).toBeInViewport();
         expect((await page.locator(".topbar").boundingBox())!.y).toBe(0);
       }
@@ -107,4 +109,106 @@ test("sidebar selection uses its row background without a side marker", async ({
     content: "none",
     rowBackground: "color(srgb 0.184314 0.435294 0.745098 / 0.14)",
   });
+});
+
+test("the page scroll bar belongs to the pane below the title bar", async ({
+  page,
+}) => {
+  // Wider than the 1460px content cap so the centred column is narrower than
+  // the scroll pane and the bar's position is unambiguous.
+  await page.setViewportSize({ width: 1900, height: 760 });
+  await page.goto("/");
+  await page.locator(".app-shell").evaluate((shell) => {
+    shell.setAttribute("data-window-chrome", "overlay");
+  });
+  const scroll = await page.evaluate(() => {
+    const pane = document.querySelector<HTMLElement>(".main-content")!;
+    const topbar = document.querySelector<HTMLElement>(".topbar")!;
+    pane.scrollTop = pane.scrollHeight;
+    return {
+      // The window frame itself must not scroll; only the pane does.
+      documentScroll: document.documentElement.scrollHeight > innerHeight,
+      paneScrollable: pane.scrollHeight > pane.clientHeight,
+      paneScrolled: pane.scrollTop > 0,
+      paneTop: pane.getBoundingClientRect().top,
+      topbarBottom: topbar.getBoundingClientRect().bottom,
+      // The scroll bar hugs the window edge, not the centred content column.
+      paneRight: pane.getBoundingClientRect().right,
+      viewport: innerWidth,
+      contentRight: document
+        .querySelector(".builder-panel")!
+        .getBoundingClientRect().right,
+      overflowY: getComputedStyle(pane).overflowY,
+    };
+  });
+  expect(scroll.documentScroll).toBe(false);
+  expect(scroll.overflowY).toBe("auto");
+  expect(scroll.paneScrollable).toBe(true);
+  expect(scroll.paneScrolled).toBe(true);
+  expect(scroll.paneTop).toBeGreaterThanOrEqual(scroll.topbarBottom);
+  expect(scroll.paneRight).toBe(scroll.viewport);
+  expect(scroll.paneRight).toBeGreaterThan(scroll.contentRight);
+});
+
+test("a loaded report keeps the document inside the window", async ({
+  page,
+}) => {
+  const report = JSON.parse(
+    execFileSync("python3", [path.resolve("tests/make_fixture.py")], {
+      encoding: "utf8",
+    }),
+  );
+  await page.setViewportSize({ width: 1100, height: 760 });
+  await page.goto("/");
+  await page.locator(".app-shell").evaluate((shell) => {
+    shell.setAttribute("data-window-chrome", "overlay");
+  });
+  // The report pane is the tallest state of the builder; its hidden file input
+  // used to overflow the scroll pane and add a second window-level scroll bar.
+  await page.locator("input[type=file]").setInputFiles({
+    name: "preflight.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(report)),
+  });
+  await expect(page.getByText("导入检查报告", { exact: true })).toBeVisible();
+  expect(
+    await page.evaluate(() => ({
+      documentFits: document.documentElement.scrollHeight <= innerHeight,
+      paneScrolls:
+        document.querySelector<HTMLElement>(".main-content")!.scrollHeight >
+        document.querySelector<HTMLElement>(".main-content")!.clientHeight,
+    })),
+  ).toEqual({ documentFits: true, paneScrolls: true });
+});
+
+test("every page scrolls in the pane without a second window scroll bar", async ({
+  page,
+}) => {
+  const report = JSON.parse(
+    execFileSync("python3", [path.resolve("tests/make_fixture.py")], {
+      encoding: "utf8",
+    }),
+  );
+  await page.setViewportSize({ width: 1100, height: 760 });
+  await page.goto("/");
+  await page.locator(".app-shell").evaluate((shell) => {
+    shell.setAttribute("data-window-chrome", "overlay");
+  });
+  await page.locator("input[type=file]").setInputFiles({
+    name: "preflight.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(report)),
+  });
+  for (const name of ["构建 IPA", "构建记录", "环境与资源", "设置"]) {
+    await page.getByRole("button", { name, exact: true }).first().click();
+    expect(
+      await page.evaluate(
+        (label) => ({
+          page: label,
+          documentFits: document.documentElement.scrollHeight <= innerHeight,
+        }),
+        name,
+      ),
+    ).toEqual({ page: name, documentFits: true });
+  }
 });
