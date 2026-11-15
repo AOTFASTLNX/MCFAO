@@ -212,3 +212,112 @@ test("every page scrolls in the pane without a second window scroll bar", async 
     ).toEqual({ page: name, documentFits: true });
   }
 });
+
+test("page actions float over the content instead of scrolling away", async ({
+  page,
+}) => {
+  const report = JSON.parse(
+    execFileSync("python3", [path.resolve("tests/make_fixture.py")], {
+      encoding: "utf8",
+    }),
+  );
+  await page.setViewportSize({ width: 1100, height: 760 });
+  await page.goto("/");
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await page.getByRole("button", { name: "构建 IPA", exact: true }).click();
+  const builder = await page.evaluate(() => {
+    const probe = (selector: string) => {
+      const element = document.querySelector<HTMLElement>(selector)!;
+      const style = getComputedStyle(element);
+      return {
+        position: style.position,
+        radius: style.borderTopLeftRadius,
+      };
+    };
+    return {
+      stepper: probe(".stepper"),
+      wizard: probe(".wizard-footer"),
+    };
+  });
+  await page.getByRole("button", { name: "构建记录", exact: true }).click();
+  const toolbar = await page.locator(".page-toolbar").evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      position: style.position,
+      radius: style.borderTopLeftRadius,
+    };
+  });
+  for (const capsule of [...Object.values(builder), toolbar]) {
+    expect(capsule.position).toBe("sticky");
+    expect(Number.parseFloat(capsule.radius)).toBeGreaterThanOrEqual(999);
+  }
+
+  await page.getByRole("button", { name: "构建 IPA", exact: true }).click();
+  // A long step makes the pane scroll, which is when the capsules pin.
+  await page
+    .locator("input[type=file]")
+    .setInputFiles({
+      name: "preflight.json",
+      mimeType: "application/json",
+      buffer: Buffer.from(JSON.stringify(report)),
+    });
+  await expect(page.getByText("导入检查报告", { exact: true })).toBeVisible();
+  const pane = await page.locator(".main-content").evaluate((element) => {
+    element.scrollTo(0, 300);
+    const stepper = document.querySelector(".stepper")!.getBoundingClientRect();
+    const footer = document
+      .querySelector(".wizard-footer")!
+      .getBoundingClientRect();
+    const box = element.getBoundingClientRect();
+    return {
+      scrolled: element.scrollTop,
+      stepperPinned: Math.round(stepper.top - box.top),
+      footerPinned: Math.round(box.bottom - footer.bottom),
+    };
+  });
+  expect(pane.scrolled).toBeGreaterThan(0);
+  // Both capsules stop an 8 px inset from the pane edges, clear of the top
+  // bar and the window bottom.
+  expect(pane.stepperPinned).toBe(8);
+  expect(pane.footerPinned).toBe(8);
+});
+
+test("environment and history drop the outer card for dividers", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1100, height: 760 });
+  await page.goto("/");
+  const look = async (region: string) =>
+    page.evaluate((selector) => {
+      const first = document.querySelectorAll<HTMLElement>(selector)[0];
+      const second = document.querySelectorAll<HTMLElement>(selector)[1];
+      const style = getComputedStyle(second);
+      return {
+        first: getComputedStyle(first).backgroundColor,
+        second: getComputedStyle(second).backgroundColor,
+        divider: style.borderTopWidth,
+        dividerColor: style.borderTopColor,
+      };
+    }, region);
+  for (const page_ of ["环境与资源", "构建记录"]) {
+    await page.getByRole("button", { name: page_, exact: true }).click();
+    const region = page_ === "环境与资源" ? ".panel.flat" : ".flat";
+    const look_ = await look(region);
+    expect(look_.first).toBe("rgba(0, 0, 0, 0)");
+    expect(look_.second).toBe("rgba(0, 0, 0, 0)");
+    // Environment stacks its regions, history separates them by column.
+    const edge = await page.evaluate(
+      (selector) => {
+        const style = getComputedStyle(
+          document.querySelectorAll<HTMLElement>(selector)[1],
+        );
+        return {
+          top: style.borderTopWidth,
+          left: style.borderLeftWidth,
+        };
+      },
+      region,
+    );
+    expect(edge.top === "1px" || edge.left === "1px").toBe(true);
+  }
+});
