@@ -534,13 +534,19 @@ code {
   /* The content column stays capped and centred, while this pane still spans
      the window so its scroll bar sits under the title bar and hugs the edge
      instead of running the full window height. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* Padding lives on an inner column: a sticky child cannot escape its parent's
+   padding box, so the capsules would stop short of the pane edges. */
+.page-column {
+  width: 100%;
   padding-block: var(--space-6) var(--space-5);
   padding-inline: max(
     var(--space-6),
     calc((100% - 1460px) / 2 + var(--space-6))
   );
-  overflow-y: auto;
-  overscroll-behavior: contain;
 }
 
 .eyebrow {
@@ -561,7 +567,8 @@ code {
 /* The builder sits on the window surface: steps read as one continuous page
    instead of a card inside the window. Other panels keep their card. */
 .builder-panel {
-  overflow: hidden;
+  /* Keeps the sticky capsules free of a scroll container of their own. */
+  overflow: visible;
 }
 
 .panel,
@@ -573,13 +580,22 @@ code {
 }
 
 .stepper {
+  /* Floats over the page: sticky inside the scroll pane, so it stays put while
+     the step content scrolls underneath it. */
+  position: sticky;
+  top: var(--space-2);
+  z-index: 5;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-1);
-  padding: var(--space-3) var(--space-5);
-  background: var(--layer-2);
-  border-radius: var(--radius) var(--radius) 0 0;
+  margin-bottom: var(--space-4);
+  padding: 7px var(--space-5);
+  border-radius: 999px;
+  background: var(--raised);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 8%),
+    0 10px 26px rgb(0 0 0 / 8%);
 }
 
 .step {
@@ -1456,12 +1472,22 @@ button:disabled {
 }
 
 .wizard-footer {
+  /* Second floating capsule, pinned to the bottom of the scroll pane so the
+     navigation stays reachable while the step content scrolls. */
+  position: sticky;
+  bottom: var(--space-2);
+  z-index: 5;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  padding: var(--space-3) var(--space-5);
-  background: var(--layer-2);
+  margin-top: var(--space-4);
+  padding: 7px 8px 7px var(--space-5);
+  border-radius: 999px;
+  background: var(--raised);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 8%),
+    0 10px 26px rgb(0 0 0 / 10%);
 }
 
 .wizard-footer > span {
@@ -2671,11 +2697,25 @@ button:disabled {
 }
 
 .page-toolbar {
+  /* Floats over the page: the actions stay reachable while the list below
+     scrolls underneath them. */
+  position: sticky;
+  /* Sticks a little below the top bar so its shadow never slides under it. */
+  top: var(--space-2);
+  z-index: 6;
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: var(--space-2);
-  margin: 0 0 var(--space-4);
+  /* Hugs the actions so the capsule is as wide as its buttons. */
+  width: fit-content;
+  margin: 0 0 0 auto;
+  padding: 6px 8px 6px var(--space-3);
+  border-radius: 999px;
+  background: var(--raised);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 8%),
+    0 10px 26px rgb(0 0 0 / 8%);
 }
 
 .page-toolbar-actions {
@@ -2700,6 +2740,55 @@ button:disabled {
 .panel {
   padding: var(--space-5);
 }
+
+/* Environment and history group their content into regions instead of
+   wrapping everything in an outer card: no surface, no outline, and a single
+   divider between adjacent regions. */
+.flat {
+  border-radius: 0;
+  background: transparent;
+}
+
+.flat + .flat {
+  border-top: 1px solid var(--control-bg);
+}
+
+/* The flat regions stack on the window surface, so the outer card edge is
+   replaced by a divider between the two areas. The divider starts below the
+   floating action capsule, which is why the second region is offset. */
+.settings-layout:has(> .flat) {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+}
+
+.settings-layout > .flat {
+  padding-inline: 0;
+}
+
+.settings-layout > .flat + .flat {
+  margin-top: var(--space-5);
+  padding-top: var(--space-5);
+}
+
+/* History is two columns; the divider runs between them for the full height
+   of the detail region instead of cutting across the page. */
+.history-layout:has(> .flat) {
+  /* Both columns share the taller row, so the divider runs the full height of
+     the detail region instead of stopping at the shorter list. */
+  align-items: stretch;
+  gap: 0;
+}
+
+.history-layout > .flat {
+  padding-inline: 0;
+}
+
+.history-layout > .flat + .flat {
+  border-top: 0;
+  border-left: 1px solid var(--control-bg);
+  padding-left: var(--space-5);
+}
+
 
 .panel > h2 {
   font-size: 14px;
@@ -2887,18 +2976,6 @@ button:disabled {
 
 .red {
   color: var(--danger-text) !important;
-}
-
-.page-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  margin-top: var(--space-8);
-  padding: var(--space-3) 0 var(--space-4);
-  color: var(--dim);
-  font-size: 9.5px;
-  line-height: 1.5;
 }
 
 .busy-toast {
@@ -3509,14 +3586,6 @@ button:disabled {
   .signing-facts strong,
   .signing-facts code {
     text-align: left;
-  }
-
-  .page-footer {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 2px;
-    margin-top: var(--space-5);
-    font-size: 8.5px;
   }
 
   .busy-toast {

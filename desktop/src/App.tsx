@@ -809,6 +809,7 @@ export default function App() {
           </div>
         </header>
         <div className="main-content">
+          <div className="page-column">
           {storageIssue && <Note error>{storageIssue}</Note>}
           {error && (
             <div className="error-banner" role="alert">
@@ -1483,7 +1484,7 @@ export default function App() {
                 </div>
               </div>
               <div className="history-layout">
-                <section className="job-list-panel">
+                <section className="job-list-panel flat">
                   <div className="list-heading">
                     <h2>
                       构建任务 <span>{jobs.length}</span>
@@ -1552,7 +1553,7 @@ export default function App() {
                       ))
                   )}
                 </section>
-                <section className="job-detail">
+                <section className="job-detail flat">
                   {!job ? (
                     <div className="history-empty">
                       <div className="empty-art">
@@ -1845,7 +1846,7 @@ export default function App() {
                 </button>
               </div>
               <div className="settings-layout">
-                <section className="panel">
+                <section className="panel flat">
                   <h2>构建资源</h2>
                   <p className="section-description">
                     自动识别已经准备好的本地配置。
@@ -1862,7 +1863,7 @@ export default function App() {
                     编辑高级资源配置
                   </button>
                 </section>
-                <section className="panel">
+                <section className="panel flat">
                   <h2>环境检查</h2>
                   <p className="section-description">
                     检查主机、SDK、AOT 输入和签名准备情况。
@@ -2036,10 +2037,7 @@ export default function App() {
               </div>
             </section>
           )}
-          <footer className="page-footer">
-            <span>FabricAOT · 本地构建，内容由你掌控。</span>
-            <span>Minecraft 26.1.2 / Java 25 / Fabric Only</span>
-          </footer>
+          </div>
         </div>
       </main>
       {busy && (

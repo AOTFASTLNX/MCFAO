@@ -1,0 +1,25 @@
+{
+  "date": "2026-11-15",
+  "change": "Page actions became floating capsules; environment and history dropped their outer cards for dividers.",
+  "source": [
+    "desktop/src/App.tsx",
+    "desktop/src/system-neutral.css",
+    "desktop/tests/titlebar.spec.ts",
+    "desktop/tests/workspace.spec.ts"
+  ],
+  "browser": {
+    "playwright": "36 passed",
+    "newTests": [
+      "page actions float over the content instead of scrolling away",
+      "environment and history drop the outer card for dividers",
+      "no page repeats a marketing footer under the content"
+    ],
+    "unit": "56 passed"
+  },
+  "native": {
+    "window": "1100 x 760 pt (2x captures)",
+    "captures": ["builder.png", "environment.png", "history.png"],
+    "pinnedInset": "8 pt from the pane top and bottom edges"
+  },
+  "limits": "The packaged .app lives on the exFAT external disk where codesign cannot write, so builds were verified from a locally signed copy."
+}
