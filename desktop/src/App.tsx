@@ -91,8 +91,6 @@ import {
   syncWindowTheme,
   systemPrefersDark,
   THEME_KEY,
-  themeLabels,
-  toggleTheme,
   type ResolvedTheme,
   type ThemePreference,
 } from "./theme";
@@ -791,28 +789,22 @@ export default function App() {
             </strong>
           </div>
           <div className="topbar-right">
+            {active && (
+              <button
+                className="running-callout"
+                onClick={() => {
+                  setSelected(active.id);
+                  nav("history");
+                }}
+              >
+                <LoaderCircle size={14} className="spin" aria-hidden="true" />
+                {stageName(active.stage)}
+              </button>
+            )}
             <span className="local-label">
               <span className="dot live" />
               所有构建在本机完成
             </span>
-            <button
-              className="theme-toggle"
-              aria-label={
-                "切换为" +
-                themeLabels[resolvedTheme === "dark" ? "light" : "dark"] +
-                "模式"
-              }
-              aria-pressed={resolvedTheme === "light"}
-              title={"当前：" + themeLabels[theme]}
-              onClick={() => chooseTheme(toggleTheme(theme, systemDark))}
-            >
-              {resolvedTheme === "dark" ? (
-                <Sun size={17} aria-hidden="true" />
-              ) : (
-                <Moon size={17} aria-hidden="true" />
-              )}
-              <span>{themeLabels[theme]}</span>
-            </button>
             <span className="version">v0.2 · 实验版</span>
           </div>
         </header>
@@ -843,18 +835,6 @@ export default function App() {
           )}
           {page === "builder" && (
             <>
-              <div className="page-toolbar">
-                <div className="target-card">
-                  <div className="target-icon">
-                    <Package size={26} />
-                  </div>
-                  <div>
-                    <span>构建目标</span>
-                    <strong>iOS · ARM64</strong>
-                    <small>本地原生执行 · 无 Java JIT</small>
-                  </div>
-                </div>
-              </div>
               <div className="workflow-layout">
                 <section className="builder-panel">
                   <div className="stepper" aria-label="构建步骤">
@@ -1458,61 +1438,6 @@ export default function App() {
                     )}
                   </footer>
                 </section>
-                <aside className="build-aside">
-                  <div className="world-card">
-                    <img src="/landscape.svg" alt="" />
-                    <div>
-                      <span className="eyebrow">
-                        BUILT LOCALLY. PLAYED LOCALLY.
-                      </span>
-                      <h3>
-                        从本地出发。
-                        <br />
-                        在掌心继续。
-                      </h3>
-                      <p>
-                        你的游戏内容，在 Mac 上编译，
-                        <br />在 iPhone 上原生运行。
-                      </p>
-                    </div>
-                  </div>
-                  <div className="aside-checklist">
-                    <h3>这次构建会完成</h3>
-                    {[
-                      ["验证输入", "版本、资源和依赖指纹"],
-                      ["原生编译", "Fabric 静态转换与 Java 25 AOT"],
-                      ["签名打包", "Xcode 归档和开发签名"],
-                      ["校验导出", "IPA 签名、平台和 SHA-256"],
-                    ].map(([title, detail], i) => (
-                      <div key={title}>
-                        <span>{i + 1}</span>
-                        <p>
-                          <strong>{title}</strong>
-                          <small>{detail}</small>
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                  {active && (
-                    <button
-                      className="active-callout"
-                      onClick={() => {
-                        setSelected(active.id);
-                        nav("history");
-                      }}
-                    >
-                      <LoaderCircle size={18} className="spin" />
-                      <span>
-                        有构建正在进行<small>{stageName(active.stage)}</small>
-                      </span>
-                      <ArrowRight size={16} />
-                    </button>
-                  )}
-                  <p className="aside-footnote">
-                    独立、非官方的本地构建工具。仅使用你合法拥有的游戏内容；Mod
-                    兼容性与真机游玩按项目验收标准分别验证。
-                  </p>
-                </aside>
               </div>
             </>
           )}

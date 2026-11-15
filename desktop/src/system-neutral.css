@@ -530,53 +530,19 @@ code {
   text-transform: uppercase;
 }
 
-.target-card {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: var(--space-2);
-  padding: 7px 0 7px var(--space-4);
-}
-
-.target-icon {
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-sm);
-  background: var(--raised);
-  color: var(--muted);
-}
-
-.target-card span {
-  display: block;
-  color: var(--dim);
-  font-size: 9px;
-}
-
-.target-card strong {
-  display: block;
-  margin-top: 1px;
-  color: var(--text);
-  font-size: 11px;
-  font-weight: 500;
-}
-
-.target-card small {
-  display: block;
-  margin-top: 1px;
-  color: var(--dim);
-  font-size: 9px;
-}
-
 .workflow-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 272px;
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
   gap: var(--space-4);
 }
 
-.builder-panel,
+/* The builder sits on the window surface: steps read as one continuous page
+   instead of a card inside the window. Other panels keep their card. */
+.builder-panel {
+  overflow: hidden;
+}
+
 .panel,
 .job-list-panel,
 .job-detail {
@@ -591,7 +557,8 @@ code {
   justify-content: space-between;
   gap: var(--space-1);
   padding: var(--space-3) var(--space-5);
-  background: var(--raised);
+  background: var(--layer-2);
+  border-radius: var(--radius) var(--radius) 0 0;
 }
 
 .step {
@@ -1479,151 +1446,20 @@ button:disabled {
   min-width: 96px;
 }
 
-.build-aside {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-  min-width: 0;
-}
-
-.world-card {
-  position: relative;
-  height: 210px;
-  overflow: hidden;
-  border: 0;
-  border-radius: var(--radius);
-  background: var(--surface);
-}
-
-.world-card > img {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: 66% center;
-  opacity: 0.5;
-}
-
-:root[data-theme="dark"] .world-card > img {
-  opacity: 0.3;
-}
-
-.world-card > div {
-  position: relative;
-  padding: var(--space-4);
-  background: linear-gradient(
-    180deg,
-    var(--surface) 0%,
-    color-mix(in srgb, var(--surface) 86%, transparent) 62%,
-    transparent 100%
-  );
-}
-
-.world-card .eyebrow {
-  font-size: 8px;
-}
-
-.world-card h3 {
-  margin: var(--space-2) 0 5px;
-  font-size: 20px;
-  font-weight: 600;
-  line-height: 1.35;
-  letter-spacing: -0.3px;
-}
-
-.world-card p {
-  color: var(--muted);
-  font-size: 10px;
-  line-height: 1.55;
-}
-
-.aside-checklist {
-  padding: 0 4px;
-}
-
-.aside-checklist > h3 {
-  margin: 0 0 var(--space-3);
-  color: var(--text);
-  font-size: 11px;
-  font-weight: 500;
-}
-
-.aside-checklist > div {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-2);
-  margin-bottom: var(--space-3);
-}
-
-.aside-checklist > div > span {
-  display: grid;
-  flex-shrink: 0;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  border: 0;
-  border-radius: 50%;
-  color: var(--muted);
-  font-size: 9px;
-  font-variant-numeric: tabular-nums;
-}
-
-.aside-checklist p {
-  line-height: 1.45;
-}
-
-.aside-checklist strong {
-  display: block;
-  color: var(--text);
-  font-size: 10.5px;
-  font-weight: 500;
-}
-
-.aside-checklist small {
-  display: block;
-  margin-top: 1px;
-  color: var(--dim);
-  font-size: 9.5px;
-  line-height: 1.45;
-}
-
-.aside-footnote {
-  padding: 0 4px;
-  color: var(--dim);
-  font-size: 9px;
-  line-height: 1.6;
-}
-
-.active-callout {
-  display: flex;
+.running-callout {
+  display: inline-flex;
   align-items: center;
-  justify-content: flex-start;
-  gap: var(--space-2);
-  width: 100%;
-  padding: 9px 10px;
-  border: 0;
+  gap: 5px;
+  min-height: 24px;
+  padding: 2px 8px;
   border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
-  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
   font-size: 10px;
-  text-align: left;
-  white-space: normal;
 }
 
-.active-callout:hover {
-  background: color-mix(in srgb, var(--accent) 13%, var(--surface));
-}
-
-.active-callout > span {
-  flex: 1;
-}
-
-.active-callout small {
-  display: block;
-  margin-top: 1px;
-  color: var(--muted);
-  font-size: 9px;
+.running-callout:hover {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
 .field {
@@ -3166,28 +3002,6 @@ button:disabled {
   background: var(--raised);
 }
 
-.theme-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-height: 26px;
-  padding: 3px 8px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: var(--control-bg);
-  color: var(--muted);
-  font-size: 10px;
-}
-
-.theme-toggle:hover {
-  background: var(--control-bg-hover);
-  color: var(--text);
-}
-
-.theme-toggle svg {
-  color: var(--muted);
-}
-
 .theme-options {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -3400,12 +3214,7 @@ button:disabled {
   }
 
   .workflow-layout {
-    grid-template-columns: minmax(0, 1fr) 236px;
     gap: var(--space-3);
-  }
-
-  .target-card {
-    display: none;
   }
 
   .step-content {
@@ -3448,20 +3257,6 @@ button:disabled {
 
   .workflow-layout {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .build-aside {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: var(--space-4);
-  }
-
-  .world-card {
-    height: 190px;
-  }
-
-  .aside-footnote {
-    grid-column: 1 / -1;
   }
 
   .local-label {
@@ -3658,35 +3453,6 @@ button:disabled {
     padding: var(--space-2) var(--space-3);
   }
 
-  .build-aside {
-    grid-template-columns: 1fr;
-  }
-
-  .world-card {
-    height: 190px;
-  }
-
-  .world-card h3 {
-    font-size: 19px;
-  }
-
-  .aside-checklist {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: var(--space-3) var(--space-2);
-    padding: 0 2px;
-  }
-
-  .aside-checklist > h3 {
-    grid-column: 1 / -1;
-    margin: 0;
-  }
-
-  .aside-checklist > div {
-    margin: 0;
-    gap: 6px;
-  }
-
   .review-grid {
     grid-template-columns: 1fr;
   }
@@ -3780,14 +3546,6 @@ button:disabled {
   .theme-option small {
     flex-basis: 100%;
     margin-left: 24px;
-  }
-
-  .theme-toggle span {
-    display: none;
-  }
-
-  .theme-toggle {
-    padding: 3px 6px;
   }
 
   .confirm-dialog {
