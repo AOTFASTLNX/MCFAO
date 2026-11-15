@@ -914,9 +914,9 @@ button:disabled {
   font-size: 10px;
 }
 
-.recent-source select {
+.recent-source .recent-select {
   max-width: 72%;
-  font-size: 11px;
+  min-width: 0;
 }
 
 .source-report {
@@ -1142,8 +1142,9 @@ button:disabled {
   font-size: 10px;
 }
 
-.mod-filter select {
-  font-size: 10px;
+.mod-filter .mod-filter-select {
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .mod-result-count {
@@ -3120,12 +3121,151 @@ button:disabled {
   margin-top: var(--space-3);
 }
 
-.accent-setting select {
+.accent-setting .select-menu {
   width: 100%;
 }
 
 :root {
   scrollbar-color: var(--dim) var(--bg);
+}
+
+/* Popup button drawn by the page: the trigger keeps the input metrics and the
+   list animates open and closed instead of using the macOS select menu. */
+.select-menu {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.select-heading {
+  color: var(--muted);
+  font-size: 10.5px;
+}
+
+.select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  min-width: 0;
+  min-height: var(--control-height);
+  padding: 5px 9px;
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 11px;
+  text-align: left;
+  transition:
+    border-color 0.12s ease,
+    box-shadow 0.12s ease,
+    background-color 0.12s ease;
+}
+
+.select-trigger > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.select-trigger > svg {
+  flex-shrink: 0;
+  color: var(--dim);
+  transition: transform 0.16s ease;
+}
+
+.select-trigger:hover:not(:disabled) {
+  border-color: var(--dim);
+}
+
+.select-trigger[aria-expanded="true"] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.select-trigger[aria-expanded="true"] > svg {
+  transform: rotate(180deg);
+}
+
+.select-trigger:disabled {
+  opacity: 0.55;
+  background: var(--raised);
+  cursor: not-allowed;
+}
+
+.select-popup {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 30;
+  width: 100%;
+  min-width: max-content;
+  max-width: min(360px, 80vw);
+  overflow: hidden;
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-modal);
+  opacity: 0;
+  transform: translateY(-4px) scale(0.985);
+  transform-origin: top center;
+  visibility: hidden;
+  transition:
+    opacity 0.14s ease,
+    transform 0.16s cubic-bezier(0.2, 0.9, 0.3, 1),
+    visibility 0.16s;
+}
+
+.select-popup[data-open="true"] {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  visibility: visible;
+}
+
+.select-popup-inner {
+  display: flex;
+  flex-direction: column;
+  max-height: 260px;
+  padding: 4px;
+  overflow-y: auto;
+}
+
+.select-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 28px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 11px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.select-option > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.select-option > svg {
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
+.select-option:hover,
+.select-option.active {
+  background: var(--control-bg-hover);
+}
+
+.select-option.selected {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  font-weight: 500;
 }
 
 @media (max-width: 1220px) {

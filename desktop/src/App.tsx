@@ -78,6 +78,7 @@ import {
 import ModList from "./ModList";
 import ResourceManager from "./ResourceManager";
 import { LogView } from "./LogView";
+import { SelectMenu } from "./SelectMenu";
 import {
   ACCENT_KEY,
   accentOptions,
@@ -996,9 +997,11 @@ export default function App() {
                               </button>
                             </div>
                             {instances.length > 0 && (
-                              <label className="recent-source">
+                              <div className="recent-source">
                                 最近导入
-                                <select
+                                <SelectMenu
+                                  className="recent-select"
+                                  label="最近导入"
                                   value={
                                     instances.some(
                                       (i) => i.report.source === form.source,
@@ -1006,8 +1009,7 @@ export default function App() {
                                       ? form.source
                                       : ""
                                   }
-                                  onChange={async (e) => {
-                                    const v = e.target.value;
+                                  onChange={async (v) => {
                                     if (v) {
                                       update({ source: v });
                                       if (native) await inspect(v);
@@ -1019,15 +1021,15 @@ export default function App() {
                                         );
                                     }
                                   }}
-                                >
-                                  <option value="">选择最近的来源</option>
-                                  {instances.map((i) => (
-                                    <option key={i.id} value={i.report.source}>
-                                      {i.name}
-                                    </option>
-                                  ))}
-                                </select>
-                              </label>
+                                  options={[
+                                    { value: "", label: "选择最近的来源" },
+                                    ...instances.map((i) => ({
+                                      value: i.report.source,
+                                      label: i.name,
+                                    })),
+                                  ]}
+                                />
+                              </div>
                             )}
                             {currentReport && (
                               <div className="source-report">
@@ -1999,20 +2001,16 @@ export default function App() {
                   ))}
                 </div>
                 <div className="field accent-setting">
-                  <label>
-                    <span>交互强调色</span>
-                    <select
-                      aria-label="交互强调色"
-                      value={accent}
-                      onChange={(e) => chooseAccent(e.target.value)}
-                    >
-                      {accentOptions.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  <SelectMenu
+                    label="交互强调色"
+                    heading="交互强调色"
+                    value={accent}
+                    onChange={chooseAccent}
+                    options={accentOptions.map((option) => ({
+                      value: option.value,
+                      label: option.label,
+                    }))}
+                  />
                   <small>
                     选中、焦点和主要操作使用此颜色；成功、警告与错误状态保持不变。
                   </small>
