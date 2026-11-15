@@ -1,6 +1,6 @@
 # 当前状态（2026-11-15）
 
-2026-11-15 局域网登录修复：补齐 authlib 请求 / 响应及服务公钥的 AOT 反射闭包。真实依赖的桌面 AOT 对照复现了认证响应异常、加入请求序列化失败，以及公钥解析异常导致 `CompletableFuture.join()` 永久等待；修复版四模式通过。客户端停滞抓栈提前至 5 秒并记录正在处理的数据包。完整游戏重编译 / 新 IPA / 真机复测 NOT RUN，联机保持 BLOCKED。见 [修复与证据](LAN_LOGIN_FIX.md)。
+2026-11-16 局域网登录修复：补齐 authlib 请求 / 响应及服务公钥的 AOT 反射闭包。真实依赖的桌面 AOT 对照复现了认证响应异常、加入请求序列化失败，以及公钥解析异常导致 `CompletableFuture.join()` 永久等待；修复版四模式与 47 项回归通过。客户端停滞抓栈提前至 5 秒并记录正在处理的数据包。已从 `83d1013` 重新编译 Vanilla GL41 游戏并生成开发签名 IPA，解包验签、平台及资源哈希通过；真机复测 NOT RUN，联机保持 BLOCKED。见 [修复与证据](LAN_LOGIN_FIX.md)。
 
 > 2026-11-15：GL41、v21、MDAF 和通用 P0 已集成。干净提交 70d5cbe 已生成 ARM64 macOS GUI、真实 Vanilla GL41 AOT IPA 和开发签名包；Tauri 命令到完整 AOT/IPA 的实际工作流通过，独立测试应用安装成功。Mac 和测试设备锁屏阻断原生 GUI 交互与独立游戏启动，C0/世界/存档/30分钟及 Fabric 真机门槛保持 BLOCKED，不继承历史 PASS。详见 [交付记录](integration/GL41_DELIVERY.md)。以下早期实验记录保留原日期与验证范围。
 

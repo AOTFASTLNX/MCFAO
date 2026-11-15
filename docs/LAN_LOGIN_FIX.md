@@ -1,6 +1,6 @@
 # 局域网双向登录修复（2026-11-15）
 
-状态：研发修复，JVM / macOS ARM64 AOT 对照通过；本轮完整游戏 AOT / IPA / 真机复测 NOT RUN。联机验收保持 BLOCKED。
+状态：研发修复，JVM / macOS ARM64 AOT 对照通过。2026-11-16 已重新构建原版游戏 AOT 并生成开发签名 IPA，见下方交付记录；真机复测 NOT RUN，联机验收保持 BLOCKED。
 
 修复分支：`integration/gl41-gui-ipa-20261115-lan-login-fix`。独立工作副本：`.worktrees/lan-login-fix/`，以便与根工作区的并行开发隔离；下述命令在该工作副本内执行。
 
@@ -66,3 +66,26 @@ python3 -B tools/probe_authlib_json.py \
 ## 真机复测
 
 重新 AOT、签名和导出包含本次配置的新 IPA 后，由用户分别执行手机开局域网 / 手机加入电脑。确认两端加入提示、手机加载完成、移动 / 物理 / 方块操作和断线重连；测试已有单人存档的加载与保存。若仍卡住，等待至少 8 秒导出本次新日志，检查 `client_tick_stall`、`clientHandler` 及 `thread_dump_start` 到 `thread_dump_end`。401 和真实账号授权仍需独立验证，补齐元数据不产生有效账户会话。
+
+## 2026-11-16 原版真机测试 IPA
+
+- 源码：`83d10133db3d96d31d7b763a22c9773ba33d6abc`，包含 `562346e` 联机修复及外接盘迁移后的 GraalVM 真实路径解析修正。
+- Minecraft 26.1.2 Vanilla，无 Fabric Loader、无 Mod、无实例种子目录；GL41 / OSMesa-Zink / MoltenVK，iOS ARM64 原生 AOT。
+- IPA：`artifacts/mcfao/lan-vanilla-device-20261116-02/signed-ipa-final/FabricAOT-26.1.2-Vanilla-LAN-fix-20261116.ipa`。452,051,230 字节（431.1 MiB），SHA-256：`f970c73a0db46aff5dc82bbab57eee6e2cb376262f593f1d76b143b58164418a`。
+- Bundle ID：`fab.aot.kexin`；沿用已有本地开发签名与原始 App 权限，描述文件覆盖 3 台已登记设备，到期时间为北京时间 2026-11-20 00:13:37。未增加 JIT / 动态代码权限。
+- 新游戏 AOT 约 1 分 58 秒完成，生成 167,149,918 字节的 relocatable 对象，SHA-256：`2b63a1761d07fe653416e7e75ecfd1b1f9979e3a754be286661f79e414b21596`。隔离负例控制 PASS；运行库重新构建并链接至 `arm64-apple-ios17.0`。
+- `signed-ipa-final/result.json` 记录输入、AOT 对象、配置、脚本与最终 IPA 指纹。修复后的反射配置 SHA-256 为 `ce5c988152e318122a6798b626450db0476828cd10bdb6a4e9a85df67ba6cfc6`。
+- 原 CLI 在 exFAT 完成 Xcode 构建后，因 `._*.dylib` 被识别为额外库而未完成最终验证；失败日志保留在 `lan-vanilla-device-20261116-build-log-02/`。将其新构建结果复制到 APFS 临时目录，删除副本中的 5,023 个 AppleDouble 文件，以相同本地身份和原始权限重新签名，生成上述 IPA。封装脚本和每次签名命令保存在 `signed-ipa-final/`。
+- 最终 App 与 IPA 解包结果均通过 `codesign --verify --deep --strict`、ARM64 / iOS 平台、Native Image ABI、运行库 UUID 来源、全部游戏资源哈希校验；ZIP CRC 和解包前后逐文件 SHA-256 一致，无 AppleDouble 文件。外接盘挂载检查在构建和封装时均正常执行。
+- 未安装、启动或操作设备；两方向联机、地形加载、移动物理与存档仍待用户真机复测。
+- 本机中央 AAR 可执行文件不可用，登记请求保留为 `signed-ipa-final/registration-pending.json`；IPA 校验独立通过。
+
+构建命令（从修复工作副本执行，输出目录需新建）：
+
+```sh
+arch -arm64 python3 -B tools/mcfao.py build \
+  --version 26.1.2 --loader vanilla --target ios-arm64 --renderer gl41 \
+  --config /Users/kexin/Documents/ChatGPT/MCFAO/artifacts/mcfao-gl41.json \
+  --bundle-id fab.aot.kexin --heap-gib 7 --parallelism 3 \
+  --output artifacts/mcfao/lan-vanilla-device-20261116-02
+```
