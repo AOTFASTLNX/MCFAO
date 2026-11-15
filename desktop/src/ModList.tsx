@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { ChevronRight, Package, Search } from "lucide-react";
 import { findingLabels, type ModInventoryEntry, type Report } from "./model";
+import { SelectMenu } from "./SelectMenu";
 
 export function inventoryRows(report: Report): ModInventoryEntry[] {
   return (
@@ -128,26 +129,27 @@ export default function ModList({ report }: { report: Report }) {
                 }}
               />
             </label>
-            <label className="mod-filter">
+            <div className="mod-filter">
               状态
-              <select
-                aria-label="筛选 Mod 状态"
+              <SelectMenu
+                className="mod-filter-select"
+                label="筛选 Mod 状态"
                 value={filter}
-                onChange={(e) => {
-                  setFilter(e.target.value);
+                onChange={(next) => {
+                  setFilter(next);
                   setLimit(PAGE_SIZE);
                 }}
-              >
-                <option value="all">全部（{rows.length}）</option>
-                {Object.entries(labels).map(([state, label]) =>
-                  counts[state] ? (
-                    <option key={state} value={state}>
-                      {label}（{counts[state]}）
-                    </option>
-                  ) : null,
-                )}
-              </select>
-            </label>
+                options={[
+                  { value: "all", label: `全部（${rows.length}）` },
+                  ...Object.entries(labels)
+                    .filter(([state]) => counts[state])
+                    .map(([state, label]) => ({
+                      value: state,
+                      label: `${label}（${counts[state]}）`,
+                    })),
+                ]}
+              />
+            </div>
           </div>
           <p className="mod-result-count" role="status">
             显示 {Math.min(filtered.length, limit)} / {filtered.length} 个文件 ·

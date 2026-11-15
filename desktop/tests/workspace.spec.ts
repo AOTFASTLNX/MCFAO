@@ -6,12 +6,24 @@ const report = JSON.parse(
     encoding: "utf8",
   }),
 );
+/** Instance name shown in the recent-source menu (see sourceName). */
+const reportName: string = report.pack_name;
 async function importReport(page: Page, value: unknown = report) {
   await page.locator("input[type=file]").setInputFiles({
     name: "preflight.json",
     mimeType: "application/json",
     buffer: Buffer.from(JSON.stringify(value)),
   });
+}
+/** Open the page-drawn popup button and pick a row by its visible label. */
+async function pick(page: Page, label: string, option: string) {
+  const trigger = page.getByRole("button", { name: label, exact: true });
+  await trigger.click();
+  await page
+    .getByRole("listbox", { name: label, exact: true })
+    .getByRole("option", { name: option, exact: true })
+    .click();
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
 }
 test("client grading filters combine with categories and keep selection independent", async ({
   page,
@@ -183,7 +195,7 @@ test("resource management is a real fifth step with persisted per-file choices",
     page.getByText("保留 3 / 4 项资源", { exact: true }),
   ).toBeVisible();
   await page.reload();
-  await page.getByLabel("最近导入").selectOption(report.source);
+  await pick(page, "最近导入", reportName);
   await page.getByRole("button", { name: "2 资源管理", exact: true }).click();
   await expect(optional).toBeChecked();
   await page.setViewportSize({ width: 375, height: 1000 });
@@ -234,8 +246,12 @@ test("imports a real report, shows diagnostics and persists sources", async ({
   await page.getByRole("button", { name: "导出报告", exact: true }).click();
   expect((await download).suggestedFilename()).toBe("fabricaot-preflight.json");
   await page.reload();
-  await expect(page.getByLabel("最近导入").locator("option")).toHaveCount(2);
-  await page.getByLabel("最近导入").selectOption(report.source);
+  await page.getByRole("button", { name: "最近导入", exact: true }).click();
+  await expect(
+    page.getByRole("listbox", { name: "最近导入" }).getByRole("option"),
+  ).toHaveCount(2);
+  await page.keyboard.press("Escape");
+  await pick(page, "最近导入", reportName);
   await expect(page.getByText("静态检查通过", { exact: true })).toBeVisible();
 });
 test("Loader mismatch can be forced and records the choice in review", async ({
@@ -264,7 +280,7 @@ test("Loader mismatch can be forced and records the choice in review", async ({
     page.getByText("强制编译 · Fabric Loader 0.19.3", { exact: true }),
   ).toBeVisible();
   await page.reload();
-  await page.getByLabel("最近导入").selectOption(report.source);
+  await pick(page, "最近导入", reportName);
   await expect(force).not.toBeChecked();
   await expect(next).toBeEnabled();
 });
@@ -327,7 +343,7 @@ test("Mod list searches every file and filters statuses with per-file reasons", 
   ).toBeVisible();
   await expect(page.getByText("未测试", { exact: true })).toBeVisible();
   await page.getByLabel("搜索 Mod", { exact: true }).fill("");
-  await page.getByLabel("筛选 Mod 状态").selectOption("unreadable");
+  await pick(page, "筛选 Mod 状态", "读取失败（1）");
   await page.locator(".mod-item summary").click();
   await expect(
     page.getByText("broken.jar: invalid archive", { exact: true }),
@@ -549,15 +565,19 @@ test("system accent setting reaches interactive tokens only", async ({
   );
   await page.goto("/");
   await page.getByRole("button", { name: "设置", exact: true }).click();
-  await page.getByLabel("交互强调色").selectOption("#8B83CB");
-  await expect(page.getByLabel("交互强调色")).toHaveValue("#8B83CB");
+  await pick(page, "交互强调色", "紫色");
+  await expect(
+    page.getByRole("button", { name: "交互强调色", exact: true }),
+  ).toHaveText("紫色");
   const accent = await page.evaluate(() =>
     getComputedStyle(document.documentElement).getPropertyValue("--accent"),
   );
   expect(accent.trim()).toBe("#716aa5");
   await page.reload();
   await page.getByRole("button", { name: "设置", exact: true }).click();
-  await expect(page.getByLabel("交互强调色")).toHaveValue("#8B83CB");
+  await expect(
+    page.getByRole("button", { name: "交互强调色", exact: true }),
+  ).toHaveText("紫色");
 });
 
 const layerSurfaces = {
@@ -694,4 +714,48 @@ test("text keeps WCAG AA contrast on every neutral layer", async ({ page }) => {
       expect(row.dim).toBeGreaterThanOrEqual(4.5);
     }
   }
+});
+
+test("popup menus animate, close on outside click and work from the keyboard", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  const trigger = page.getByRole("button", { name: "交互强调色", exact: true });
+  // The closed list stays mounted so it can transition; it is aria-hidden then.
+  const popup = page.locator(".accent-setting .select-popup");
+
+  await expect(popup).toBeHidden();
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  const motion = await popup.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      duration: style.transitionDuration,
+      opacity: style.opacity,
+    };
+  });
+  expect(motion.opacity).toBe("0");
+  expect(motion.duration).toMatch(/0\.1[46]s/);
+
+  await trigger.click();
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  await expect(popup).toBeVisible();
+  await expect(trigger.locator("svg")).toHaveCSS("transform", /matrix/);
+
+  await page.mouse.click(4, 4);
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await expect(popup).toBeHidden();
+
+  await trigger.focus();
+  await page.keyboard.press("ArrowDown");
+  await expect(popup).toBeVisible();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+  await expect(popup).toBeHidden();
+  await expect(trigger).toHaveText("蓝色");
+
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Escape");
+  await expect(popup).toBeHidden();
+  await expect(trigger).toHaveText("蓝色");
 });
