@@ -1,0 +1,56 @@
+{
+  "release": "A1",
+  "build": "GL41 v14",
+  "game": {
+    "name": "Minecraft Java Edition",
+    "version": "26.1.2",
+    "evidence": [
+      "client input artifacts/ci/mc/meta/versions/26.1.2/26.1.2.jar",
+      "launch args --version 26.1.2 --assetIndex 30",
+      "client-graph.dylib contains 26.1.2 and no 26.2 string"
+    ]
+  },
+  "source": {
+    "repo": "https://github.com/AOTFASTLNX/MCFAO",
+    "commits": ["bb65fee", "509212c", "e0cb34f"],
+    "tag": "a1-v14"
+  },
+  "build_job": {
+    "project": "zhangrongxue/mc-aot-ios",
+    "job": 119,
+    "finished": "2026-11-14T21:04:43+08:00"
+  },
+  "packages": [
+    {
+      "file": "FabricAOT-A1-MC26.1.2-v14-unsigned.ipa",
+      "bytes": 466753894,
+      "sha256": "e408dce1ddfa21d15891602314f5dc47acf7c0a57d0d986df707f9a79ed7f9ce"
+    },
+    {
+      "file": "FabricAOT-A1-MC26.1.2-v14-signed.ipa",
+      "bytes": 483562228,
+      "sha256": "df79bfafd6fdd09d4fcc8ef03d8995ad67dea5835ae1b01864692b1df46b4aa7",
+      "bundle_id": "app.perseus4004.sunset349",
+      "bundle_version": 7
+    }
+  ],
+  "device": {
+    "model": "iPhone 16 Pro",
+    "median_fps": 71.3,
+    "min_fps": 44.2,
+    "finish_p95_ms": 13,
+    "outside_swap_p95_ms": 7,
+    "window_stdev_fps": [10.3, 10.9]
+  },
+  "known_limits": [
+    "frame rate floats between 46 and 86 FPS because the 120 Hz target is unreachable",
+    "per-frame cost sits in zink command submission (flush ~10.7 ms) rather than GPU work (gpu ~0.08 ms)",
+    "shader cache already persists; cold vs warm mean FPS 57.3 vs 57.1",
+    "first minute after world join still has 100-250 ms frames while chunks upload"
+  ],
+  "superseded": {
+    "v15": "not adopted - premise disproved (cache already worked)",
+    "v16": "not adopted - regressed to 27-29 FPS",
+    "v17": "built but not adopted - cloud iteration paused"
+  }
+}
