@@ -497,3 +497,8 @@ pack-88 之后工作重心从「找下一个崩溃」转成「让探针真正在
 ## 2026-11-13 Mixin 重定位 Guava 闭包修复
 
 用户 run-1794503860221.log 显示 wover/bclib 主入口已返回，BetterEnd 在 SmithingTemplates.combine 初始化缺 org.spongepowered.include.com.google.common.collect.ImmutableList。AotExport 现从固定 Mixin JAR 打包完整重定位 Guava 值库命名空间，保留其 ABI，不引入运行时类加载器。11 项相关回归通过，含隔离类加载器从该闭包创建 ImmutableList 的断言。content-samples-build-07 AOT（2m18s）、iOS 链接与签名通过；本轮不运行游戏或模拟器，真机待用户复验，原两项嵌套库排除仍在。
+
+
+## 2026-11-15 GL41 真机测试交接
+
+用户决定自行测试真机。新 `signed-gl41-03` Vanilla GL41 开发签名包已通过安装和独立应用进程启动；真实 Minecraft 首帧、世界、输入、存档重进、30 分钟及 Fabric 功能仍等待实测，不授予 FUNCTION_PASS。旧测试 profile 已过期，新包复用另一份有效现有资源并使用独立测试标识，保留原有应用数据。原生 Mac GUI 已验证 Prism 测试夹具预检、完整构建点击、实时日志、取消与重试；重试已完成真实 AOT → iOS 链接 → IPA 校验，产物为 `native-gui-vanilla-01`（480,378,242 字节）。见 [交接清单](integration/GL41_DEVICE_HANDOFF.md) 和 [交付记录](integration/GL41_DELIVERY.md)。
