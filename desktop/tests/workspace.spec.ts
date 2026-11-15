@@ -716,6 +716,51 @@ test("text keeps WCAG AA contrast on every neutral layer", async ({ page }) => {
   }
 });
 
+test("settings place labels left of controls without a wrapping card", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+
+  // The page sits on the window surface; only text inputs keep a card look.
+  const shell = await page.evaluate(() => {
+    const pageRoot = document.querySelector(".settings-page")!;
+    const style = getComputedStyle(pageRoot);
+    return {
+      cards: pageRoot.querySelectorAll(".panel, .builder-panel").length,
+      background: style.backgroundColor,
+      border: style.borderTopWidth,
+    };
+  });
+  expect(shell.cards).toBe(0);
+  expect(shell.background).toBe("rgba(0, 0, 0, 0)");
+  expect(shell.border).toBe("0px");
+
+  const rows = await page.evaluate(() => {
+    const rect = (element: Element) => element.getBoundingClientRect();
+    return Array.from(document.querySelectorAll(".setting-row")).map(
+      (row) => {
+        const label = row.querySelector(".setting-label")!;
+        const control = row.querySelector(
+          ".setting-control, .theme-options",
+        )!;
+        const a = rect(label);
+        const b = rect(control);
+        return {
+          labelRight: a.right,
+          controlLeft: b.left,
+          sameLine: Math.abs(a.top + a.height / 2 - (b.top + b.height / 2)) < 14,
+        };
+      },
+    );
+  });
+  expect(rows.length).toBeGreaterThan(0);
+  for (const row of rows) {
+    expect(row.controlLeft).toBeGreaterThan(row.labelRight);
+    expect(row.sameLine).toBe(true);
+  }
+});
+
 test("popup menus animate, close on outside click and work from the keyboard", async ({
   page,
 }) => {
