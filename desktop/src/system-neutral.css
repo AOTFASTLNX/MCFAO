@@ -361,15 +361,6 @@ code {
   color: var(--accent);
 }
 
-.nav-item.selected:before {
-  content: "";
-  position: absolute;
-  inset: 7px auto 7px -10px;
-  width: 3px;
-  border-radius: 0 2px 2px 0;
-  background: var(--accent);
-}
-
 .nav-count {
   min-width: 18px;
   margin-left: auto;
@@ -3321,7 +3312,6 @@ button:disabled {
     height: 14px;
   }
 
-  .nav-item.selected:before,
   .nav-count {
     display: none;
   }

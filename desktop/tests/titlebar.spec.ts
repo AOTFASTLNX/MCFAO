@@ -112,3 +112,23 @@ test("sidebar navigation keeps a comfortable row rhythm", async ({ page }) => {
   for (let i = 1; i < rows.length; i += 1)
     expect(rows[i].top - rows[i - 1].bottom).toBeGreaterThanOrEqual(4);
 });
+
+test("sidebar selection uses its row background without a side marker", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const selected = page.locator(".sidebar nav .nav-item.selected");
+  await expect(selected).toHaveCount(1);
+  expect(
+    await selected.evaluate((item) => {
+      const marker = getComputedStyle(item, "::before");
+      return {
+        content: marker.content,
+        rowBackground: getComputedStyle(item).backgroundColor,
+      };
+    }),
+  ).toEqual({
+    content: "none",
+    rowBackground: "color(srgb 0.184314 0.435294 0.745098 / 0.14)",
+  });
+});
