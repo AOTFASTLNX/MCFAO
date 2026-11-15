@@ -44,8 +44,19 @@ def cache_inputs()->dict:
         if not path.exists():
             temporary=path.with_suffix(path.suffix+".part")
             if temporary.exists():raise ValueError("Interrupted archive preserved: "+str(temporary))
-            subprocess.run(["/usr/bin/curl","-fsSL","--proto","=https","--max-time","180",spec["url"],"-o",str(temporary)],check=True)
-            if sha256(temporary)!=spec["sha256"]:raise ValueError("Shader tool download checksum mismatch")
+            failures=[]
+            for url in [spec["url"],*spec.get("mirrors",[])]:
+                if temporary.exists():temporary.unlink()
+                done=subprocess.run(["/usr/bin/curl","-fsSL","--proto","=https","--max-time","300",url,"-o",str(temporary)])
+                if done.returncode:
+                    failures.append(url+" (curl exit "+str(done.returncode)+")")
+                    continue
+                if sha256(temporary)!=spec["sha256"]:
+                    failures.append(url+" (checksum mismatch)")
+                    continue
+                break
+            else:
+                raise ValueError("Shader tool download failed: "+"; ".join(failures))
             temporary.rename(path)
         if path.stat().st_size!=spec["size"] or sha256(path)!=spec["sha256"]:raise ValueError("Changed shader tool archive: "+str(path))
         directory=CACHE/name;extract(path,directory)
