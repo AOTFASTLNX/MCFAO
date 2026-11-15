@@ -2,7 +2,7 @@ use serde::Serialize;
 use serde_json::Value;
 use std::{
     io::Read,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::OnceLock,
     thread,
@@ -21,12 +21,41 @@ struct Captured {
 
 // Fixed tool invocations, literal arguments, bounded output, and a deadline; no shell.
 fn capture(program: &str, args: &[&str], deadline: Duration) -> Result<Captured, String> {
+    capture_with_script_dir(program, args, deadline, None)
+}
+
+// The tools import sibling modules (`preflight` -> `mod_file_policy`), so the
+// interpreter needs the script directory on its module path. Passing it
+// explicitly keeps the lookup deterministic without relying on the current
+// working directory or on Python's implicit script-directory behaviour.
+fn script_module_path(script: &Path) -> Option<String> {
+    let dir = script.parent()?;
+    let existing = std::env::var_os("PYTHONPATH").unwrap_or_default();
+    let mut value = dir.as_os_str().to_owned();
+    if !existing.is_empty() {
+        value.push(":");
+        value.push(existing);
+    }
+    Some(value.to_string_lossy().into_owned())
+}
+
+fn capture_with_script_dir(
+    program: &str,
+    args: &[&str],
+    deadline: Duration,
+    script: Option<&Path>,
+) -> Result<Captured, String> {
     let mut command = Command::new(program);
     command
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    if let Some(script) = script {
+        if let Some(path) = script_module_path(script) {
+            command.env("PYTHONPATH", path);
+        }
+    }
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
@@ -90,11 +119,26 @@ fn native_capture(program: &str, args: &[&str], deadline: Duration) -> Result<Ca
     }
 }
 
+// Same as `native_capture`, with the script directory on the module path.
+fn native_capture_with_script(
+    program: &str,
+    args: &[&str],
+    deadline: Duration,
+    script: &Path,
+) -> Result<Captured, String> {
+    if cfg!(target_os = "macos") {
+        let mut native = vec!["-arm64", program];
+        native.extend(args);
+        capture_with_script_dir("/usr/bin/arch", &native, deadline, Some(script))
+    } else {
+        capture_with_script_dir(program, args, deadline, Some(script))
+    }
+}
+
 fn python_probe(program: &str) -> Option<(u32, u32)> {
     let output = native_capture(
         program,
         &[
-            "-I",
             "-c",
             "import sys; print('%d.%d' % sys.version_info[:2])",
         ],
@@ -227,13 +271,15 @@ fn inspect(script: PathBuf, source: &str, python: &str) -> Result<Inspection, St
     if source.is_empty() || source.len() > 4096 || source.contains(['\0', '\n', '\r']) {
         return Err("请选择有效的整合包文件或 Prism 实例目录".into());
     }
-    let script = script.to_str().ok_or("预检脚本路径无法编码")?;
+    let script_path = script.clone();
+    let script = script_path.to_str().ok_or("预检脚本路径无法编码")?;
     let started = Instant::now();
     let python = python_program(python);
-    let result = capture(
+    let result = capture_with_script_dir(
         &python,
-        &["-I", "-X", "utf8", script, source],
+        &["-X", "utf8", script, source],
         Duration::from_secs(120),
+        Some(&script_path),
     )?;
     if !matches!(result.code, Some(0 | 2)) {
         return Err(format!("预检工具异常退出：{}", result.stderr));
@@ -446,7 +492,12 @@ async fn workbench_action(
         // The desktop host may be Intel while running on Apple Silicon. Universal
         // Python otherwise inherits Rosetta and cannot satisfy the AOT host gate.
         let python = python_program(&python);
-        let output = native_capture(&python, &args, Duration::from_secs(110))?;
+        let output = native_capture_with_script(
+            &python,
+            &args,
+            Duration::from_secs(110),
+            &script,
+        )?;
         let value: Value = serde_json::from_str(&output.stdout)
             .map_err(|_| format!("构建服务未返回有效结果：{}", output.stderr))?;
         if output.code != Some(0) {
@@ -500,7 +551,6 @@ mod tests {
         let result = capture(
             &python,
             &[
-                "-I",
                 "-X",
                 "utf8",
                 "-c",
@@ -517,7 +567,7 @@ mod tests {
         let python = python_program("");
         let result = capture(
             &python,
-            &["-I", "-c", "import time; time.sleep(10)"],
+            &["-c", "import time; time.sleep(10)"],
             Duration::from_millis(100),
         );
         assert!(result.unwrap_err().contains("超时"));
@@ -527,11 +577,7 @@ mod tests {
         let python = python_program("");
         let result = capture(
             &python,
-            &[
-                "-I",
-                "-c",
-                "import sys; sys.stdout.write('a' * (9 * 1024 * 1024))",
-            ],
+            &["-c", "import sys; sys.stdout.write('a' * (9 * 1024 * 1024))"],
             Duration::from_secs(5),
         );
         assert!(result.unwrap_err().contains("超过"));
@@ -571,5 +617,23 @@ mod tests {
         assert!(inspect(PathBuf::from("invalid.py"), "a\nb", "")
             .unwrap_err()
             .contains("有效"));
+    }
+
+    #[test]
+    fn tools_import_their_sibling_modules() {
+        // `preflight` imports `mod_file_policy`; the interpreter only finds it
+        // when the script directory is on the module path.
+        let script = development_workspace().unwrap().join("tools/preflight.py");
+        let dir = script.parent().unwrap().to_path_buf();
+        assert_eq!(script_module_path(&script).unwrap(), dir.to_string_lossy());
+        let python = python_program("");
+        let output = capture_with_script_dir(
+            &python,
+            &["-X", "utf8", "-c", "import preflight"],
+            Duration::from_secs(30),
+            Some(&script),
+        )
+        .unwrap();
+        assert_eq!(output.code, Some(0), "{}", output.stderr);
     }
 }
