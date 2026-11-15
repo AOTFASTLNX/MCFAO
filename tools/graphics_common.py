@@ -21,6 +21,15 @@ def bridge_overlays(directory: Path) -> list[Path]:
             raise ValueError("Modified graphics overlay: "+str(path))
     return paths
 
+def verify_gl41_bridge(directory: Path) -> None:
+    # Historical overlays can have valid artifact hashes but lack the iOS OpenGL defaults.
+    # Platform.IOS then always throws during GL initialization and AOT prunes the game loop.
+    report=json.loads((directory / "result.json").read_text())
+    for name in ("compiler/lwjgl-lite/Overlay.java",
+                 "compiler/lwjgl-lite/src/org/lwjgl/system/Library.java"):
+        if report.get("sourcesSHA256", {}).get(name) != sha256(ROOT / name):
+            raise ValueError("GL41 LWJGL overlay predates the current iOS adaptation; rebuild LWJGL: " + name)
+
 def register_tree(path: Path, command: list[str], *, regenerable: bool = True, kind: str = "BUILD", recursive: bool = True) -> dict:
     if os.environ.get("AAR_HOME"):
         raise RuntimeError("AAR_HOME must be unset: the central registry is mandatory")

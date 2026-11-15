@@ -1,6 +1,16 @@
 # 局域网双向登录修复（2026-11-15）
 
-状态：研发修复，JVM / macOS ARM64 AOT 对照通过。2026-11-16 已重新构建原版游戏 AOT 并生成开发签名 IPA，见下方交付记录；真机复测 NOT RUN，联机验收保持 BLOCKED。
+状态：研发修复，联机验收保持 BLOCKED。2026-11-16 用户新日志确认主线程阻塞在 authlib 服务公钥就绪信号。上轮 IPA 后续审计发现旧 LWJGL 输入使游戏代码不可达；签名通过不能证明该包能启动游戏。下方保留历史交付记录，最新调查见本节。
+
+## 2026-11-16 第二次用户日志与构建审计
+
+- 用户提供 `run-1794759895707.log`，日志第 738–765 行主线程为 WAITING：`CompletableFuture.join → YggdrasilServicesKeyInfo.lambda$get$1 → ServicesKeySet.keys → SignatureValidator.from → Services.profileKeySignatureValidator → ClientPacketListener.initializeChatSession`。区块已经抵达，主循环停在 626，不能继续解码和加载地形。
+- 第 324 行仍为旧诊断格式，没有新版 `tickStallSeconds` 与 handler 字段。日志中的游戏主循环和旧诊断不可能来自上轮交付 IPA 的新 AOT 二进制；现有日志缺少镜像 UUID，无法进一步确定设备实际运行的包。不能据此归因于用户安装操作。
+- 上轮配置引用 `lwjgl-ios-world-02`；其 JAR 哈希有效，但产物早于当前 OpenGL 适配代码。`Configuration.OPENGL_LIBRARY_NAME_DEFAULTS()` 仍按桌面平台分派，`Platform.IOS` 永远走异常分支。原生反汇编显示 GlDevice 构造器调用 GL 初始化后无正常返回；AOT 对象与 IPA 中均缺少 Minecraft.runTick、ClientPacketListener 和 PlayDiagnostics。
+- 上轮反射元数据确实进入 AOT，但后续游戏路径被裁掉，所以不能将它视为可用的联机测试包。旧包保留作失败证据，不应继续分发。
+- 已按现有源码重建 LWJGL，主机 JNI / Minecraft Window / NativeImage 隔离夹具通过。新检查在 AOT、链接、最终 App 三处确认主循环、玩家信息处理器与新版诊断存在，并提前拒绝过期的 GL41 overlay。检查是可达代码下限，不等于运行验收。
+- 宿主启动日志增加实际 run_main 所属 Mach-O 的 LC_UUID，供下次直接与 IPA 二进制核对。保持认证和聊天签名规则不变；日志中 accessToken=0 引起的账户授权失败需单独处理。
+- 本轮 78 项针对性回归通过，0 跳过，原始记录在工作副本 `build/lan-regression-20261116-03/`。新增回归确认“只有 AOT 入口”和“只有旧诊断”的镜像均被拒绝。新真机包仍在重建，设备测试由用户完成。
 
 修复分支：`integration/gl41-gui-ipa-20261115-lan-login-fix`。独立工作副本：`.worktrees/lan-login-fix/`，以便与根工作区的并行开发隔离；下述命令在该工作副本内执行。
 

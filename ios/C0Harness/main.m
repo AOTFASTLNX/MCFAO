@@ -19,6 +19,7 @@
 #import <signal.h>
 #import <execinfo.h>
 #import <mach/mach.h>
+#import <mach-o/loader.h>
 #import <os/proc.h>
 #import <stdio.h>
 #import <string.h>
@@ -36,6 +37,26 @@ static const unsigned long long FAOTReservedSpaceDefault = 4ULL * 1024 * 1024 * 
 typedef int (*faot_create_isolate_t)(void *params, void **isolate, void **thread);
 typedef int (*faot_run_main_t)(int argc, char **argv);
 typedef int (*faot_tear_down_t)(void *thread);
+
+static NSString *FAOTImageUUID(const void *entry) {
+    Dl_info image = {0};
+    if (!dladdr(entry, &image) || !image.dli_fbase) return @"unavailable";
+    const struct mach_header_64 *header = image.dli_fbase;
+    if (header->magic != MH_MAGIC_64) return @"unavailable";
+    const uint8_t *cursor = (const uint8_t *)(header + 1);
+    const uint8_t *end = cursor + header->sizeofcmds;
+    for (uint32_t index = 0; index < header->ncmds; index++) {
+        if ((size_t)(end - cursor) < sizeof(struct load_command)) break;
+        const struct load_command *command = (const void *)cursor;
+        if (command->cmdsize < sizeof(*command) || command->cmdsize > (size_t)(end - cursor)) break;
+        if (command->cmd == LC_UUID && command->cmdsize >= sizeof(struct uuid_command)) {
+            const struct uuid_command *uuid = (const void *)cursor;
+            return [[NSUUID alloc] initWithUUIDBytes:uuid->uuid].UUIDString;
+        }
+        cursor += command->cmdsize;
+    }
+    return @"unavailable";
+}
 
 
 /* Clamped so a 4 GiB phone keeps its native/Metal headroom. */
@@ -357,6 +378,10 @@ static void FAOTProbeReservations(FILE *logFile) {
             return;
         }
 
+        emit([NSString stringWithFormat:@"[FAOT] imageUUID=%@ appVersion=%@ build=%@",
+              FAOTImageUUID((const void *)runMain),
+              [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"],
+              [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleVersion"]]);
         if (logFile) FAOTProbeReservations(logFile);
 
         // run_main creates the isolate itself (JavaMainWrapper's prologue). Creating one here first
