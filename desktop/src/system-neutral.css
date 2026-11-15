@@ -522,42 +522,12 @@ code {
   padding: var(--space-6) var(--space-6) var(--space-5);
 }
 
-.page-intro {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: var(--space-5);
-  margin: 0 0 var(--space-5);
-}
-
-.page-intro.compact {
-  margin-bottom: var(--space-4);
-}
-
 .eyebrow {
   color: var(--dim);
   font-size: 9px;
   font-weight: 600;
   letter-spacing: 0.9px;
   text-transform: uppercase;
-}
-
-.page-intro h1 {
-  margin-top: 5px;
-  font-size: 24px;
-  line-height: 1.25;
-  letter-spacing: -0.5px;
-}
-
-.page-intro p {
-  margin-top: 5px;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.55;
-}
-
-.compact h1 {
-  font-size: 22px;
 }
 
 .target-card {
@@ -2868,7 +2838,15 @@ button:disabled {
   padding: 4px 9px;
 }
 
-.page-intro-actions {
+.page-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-4);
+}
+
+.page-toolbar-actions {
   display: flex;
   flex-shrink: 0;
   flex-wrap: wrap;
@@ -3362,20 +3340,10 @@ button:disabled {
     padding: var(--space-3);
   }
 
-  .page-intro {
-    align-items: flex-start;
+  .page-toolbar {
     flex-wrap: wrap;
-    gap: var(--space-3);
-    margin-bottom: var(--space-4);
-  }
-
-  .page-intro h1 {
-    margin-top: 3px;
-    font-size: 20px;
-  }
-
-  .page-intro p {
-    font-size: 11px;
+    justify-content: flex-start;
+    gap: var(--space-2);
   }
 
   .eyebrow {

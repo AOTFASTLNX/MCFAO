@@ -201,8 +201,9 @@ test("new workbench prioritizes a guided IPA build and exposes browser limits", 
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("/");
   await expect(
-    page.getByRole("heading", { name: "把你的世界，装进 iPhone。" }),
+    page.getByRole("heading", { name: "选择要构建的游戏内容" }),
   ).toBeVisible();
+  await expect(page.getByText("FROM YOUR MAC TO YOUR IPHONE")).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: "选择 .mrpack", exact: true }),
   ).toBeDisabled();
@@ -455,7 +456,7 @@ for (const width of [375, 768, 1280, 1440])
     await page.setViewportSize({ width, height: 1000 });
     await page.goto("/");
     await expect(
-      page.getByRole("heading", { name: "把你的世界，装进 iPhone。" }),
+      page.getByRole("heading", { name: "选择要构建的游戏内容" }),
     ).toBeVisible();
     expect(
       await page.evaluate(
@@ -463,9 +464,7 @@ for (const width of [375, 768, 1280, 1440])
       ),
     ).toBe(true);
     await page.getByRole("button", { name: "构建记录", exact: true }).click();
-    await expect(
-      page.getByRole("heading", { name: "准备好你的第一个 IPA。" }),
-    ).toBeVisible();
+    await expect(page.getByText("还没有构建任务", { exact: true })).toBeVisible();
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= innerWidth,

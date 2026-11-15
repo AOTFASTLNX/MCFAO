@@ -4,7 +4,7 @@ test("guided studio exposes OpenGL compatibility in build review", async ({
 }) => {
   await page.goto("/");
   await expect(
-    page.getByRole("heading", { name: "把你的世界，装进 iPhone。" }),
+    page.getByRole("heading", { name: "选择要构建的游戏内容" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "5 确认构建", exact: true }).click();
   await expect(

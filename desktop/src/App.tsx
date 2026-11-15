@@ -842,12 +842,7 @@ export default function App() {
           )}
           {page === "builder" && (
             <>
-              <section className="page-intro">
-                <div>
-                  <span className="eyebrow">FROM YOUR MAC TO YOUR IPHONE</span>
-                  <h1>把你的世界，装进 iPhone。</h1>
-                  <p>从整合包到签名 IPA，在一个工作台里完成。</p>
-                </div>
+              <div className="page-toolbar">
                 <div className="target-card">
                   <div className="target-icon">
                     <Package size={26} />
@@ -858,7 +853,7 @@ export default function App() {
                     <small>本地原生执行 · 无 Java JIT</small>
                   </div>
                 </div>
-              </section>
+              </div>
               <div className="workflow-layout">
                 <section className="builder-panel">
                   <div className="stepper" aria-label="构建步骤">
@@ -1521,13 +1516,8 @@ export default function App() {
           )}
           {page === "history" && (
             <>
-              <section className="page-intro compact">
-                <div>
-                  <span className="eyebrow">BUILD HISTORY</span>
-                  <h1>每一次构建，都有迹可循。</h1>
-                  <p>查看真实阶段、保留的日志和已验证的 IPA。</p>
-                </div>
-                <div className="page-intro-actions">
+              <div className="page-toolbar">
+                <div className="page-toolbar-actions">
                   <button
                     className="primary"
                     onClick={() => {
@@ -1564,7 +1554,7 @@ export default function App() {
                     从已有构建导出 IPA
                   </button>
                 </div>
-              </section>
+              </div>
               <div className="history-layout">
                 <section className="job-list-panel">
                   <div className="list-heading">
@@ -1917,12 +1907,7 @@ export default function App() {
           )}
           {page === "environment" && (
             <>
-              <section className="page-intro compact">
-                <div>
-                  <span className="eyebrow">ENVIRONMENT & RESOURCES</span>
-                  <h1>所有构建条件，一目了然。</h1>
-                  <p>本地客户端、编译工具链和原生后端是实际构建输入。</p>
-                </div>
+              <div className="page-toolbar">
                 <button
                   className="primary"
                   disabled={!native || !!busy || !form.config}
@@ -1931,7 +1916,7 @@ export default function App() {
                   <RefreshCw size={17} />
                   检测环境
                 </button>
-              </section>
+              </div>
               <div className="settings-layout">
                 <section className="panel">
                   <h2>构建资源</h2>
@@ -1973,13 +1958,6 @@ export default function App() {
           )}
           {page === "settings" && (
             <>
-              <section className="page-intro compact">
-                <div>
-                  <span className="eyebrow">WORKSPACE SETTINGS</span>
-                  <h1>让工作台适合你的习惯。</h1>
-                  <p>设置仅保存在本机，不保存账户密码和签名私钥。</p>
-                </div>
-              </section>
               <section className="panel narrow">
                 <h2>外观</h2>
                 <p className="section-description">
