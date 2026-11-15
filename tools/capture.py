@@ -9,6 +9,7 @@ import os
 import signal
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -32,7 +33,26 @@ def capture(argv: list[str], directory: Path, timeout: int = 180, cwd: Path = RO
             child = subprocess.Popen(argv, cwd=cwd, env=env, stdout=out, stderr=err,
                                      stdin=subprocess.DEVNULL, start_new_session=True)
             try:
-                code = child.wait(timeout=timeout)
+                if os.environ.get("MCFAO_STREAM_LOGS") == "1":
+                    deadline = time.monotonic() + timeout
+                    readers = [(directory / name).open("rb") for name in ("stdout.log", "stderr.log")]
+                    try:
+                        while child.poll() is None:
+                            for reader in readers:
+                                chunk = reader.read(65536)
+                                if chunk:
+                                    print(chunk.decode("utf-8", errors="replace"), end="", flush=True)
+                            if time.monotonic() >= deadline:
+                                raise subprocess.TimeoutExpired(argv, timeout)
+                            time.sleep(0.2)
+                        for reader in readers:
+                            print(reader.read().decode("utf-8", errors="replace"), end="", flush=True)
+                        code = child.wait()
+                    finally:
+                        for reader in readers:
+                            reader.close()
+                else:
+                    code = child.wait(timeout=timeout)
             except subprocess.TimeoutExpired:
                 timed_out = True
                 os.killpg(child.pid, signal.SIGTERM)

@@ -357,30 +357,97 @@ final class RuntimeLowering implements Opcodes {
      * replaces the whole {@code ModResourcePackCreator} layer rather than specialising any Mod.
      */
     static void lowerVanillaPackBuilder(ClassNode node, String sourceHash, List<String> adaptations) {
-        if (!node.name.equals(VANILLA_PACK_BUILDER)) return;
-        MethodNode build = method(node, "build", VANILLA_BUILD_DESC);
-        int replaced = 0;
-        for (AbstractInsnNode instruction : build.instructions) {
-            if (!(instruction instanceof MethodInsnNode call) || call.getOpcode() != INVOKESTATIC
-                    || !call.owner.equals("java/util/Set") || !call.name.equals("copyOf")
-                    || !call.desc.equals(SET_COPY_DESC)) continue;
-            AbstractInsnNode previous = previousReal(call);
-            if (!(previous instanceof FieldInsnNode field) || field.getOpcode() != GETFIELD
-                    || !field.owner.equals(VANILLA_PACK_BUILDER) || !field.name.equals("namespaces")) {
-                throw new IllegalArgumentException("Unexpected Set.copyOf in vanilla pack builder: "
-                        + sourceHash);
+        lowerVanillaPackBuilder(node, sourceHash, adaptations, new ArrayList<>());
+    }
+
+    static void lowerVanillaPackBuilder(ClassNode node, String sourceHash, List<String> adaptations,
+            List<Map<String, Object>> ruleOutcomes) {
+        var rule = new AdaptationRuleEngine.Rule() {
+            private MethodNode build(ClassNode target) {
+                return method(target, "build", VANILLA_BUILD_DESC);
             }
-            call.owner = MOD_NAMESPACES;
-            call.name = "withVanilla";
-            call.desc = "(Ljava/util/Set;)Ljava/util/Set;";
-            call.itf = false;
-            replaced++;
-        }
-        if (replaced != 1) {
-            throw new IllegalArgumentException("Expected one namespace freeze in "
-                    + node.name + "#build, found " + replaced + " (" + sourceHash + ")");
-        }
-        adaptations.add(node.name + "#build = ModNamespaces.withVanilla(namespaces)");
+
+            @Override public String id() { return "fabric.resource.merged-namespace-index.v1"; }
+            @Override public String mechanism() {
+                return "Vanilla built-in pack namespace index over merged Mod resources";
+            }
+            @Override public String target(ClassNode target) {
+                return target.name + "#build" + VANILLA_BUILD_DESC;
+            }
+            @Override public boolean matches(ClassNode target) {
+                return target.name.equals(VANILLA_PACK_BUILDER);
+            }
+            @Override public boolean alreadyApplied(ClassNode target) {
+                MethodNode method = build(target);
+                int rewritten = 0;
+                int original = 0;
+                for (AbstractInsnNode instruction : method.instructions) {
+                    if (!(instruction instanceof MethodInsnNode call)) continue;
+                    if (call.getOpcode() == INVOKESTATIC && call.owner.equals(MOD_NAMESPACES)
+                            && call.name.equals("withVanilla")
+                            && call.desc.equals("(Ljava/util/Set;)Ljava/util/Set;")) rewritten++;
+                    if (call.getOpcode() == INVOKESTATIC && call.owner.equals("java/util/Set")
+                            && call.name.equals("copyOf") && call.desc.equals(SET_COPY_DESC)) original++;
+                }
+                return rewritten == 1 && original == 0;
+            }
+            @Override public String preconditionFailure(ClassNode target) {
+                MethodNode method = build(target);
+                int candidates = 0;
+                for (AbstractInsnNode instruction : method.instructions) {
+                    if (!(instruction instanceof MethodInsnNode call)
+                            || call.getOpcode() != INVOKESTATIC
+                            || !call.owner.equals("java/util/Set") || !call.name.equals("copyOf")
+                            || !call.desc.equals(SET_COPY_DESC)) continue;
+                    AbstractInsnNode previous = previousReal(call);
+                    if (!(previous instanceof FieldInsnNode field)
+                            || field.getOpcode() != GETFIELD
+                            || !field.owner.equals(VANILLA_PACK_BUILDER)
+                            || !field.name.equals("namespaces")) {
+                        return "Set.copyOf is not fed by this.namespaces";
+                    }
+                    candidates++;
+                }
+                return candidates == 1 ? null
+                        : "expected one structural namespace freeze, found " + candidates
+                                + " (source SHA-256 " + sourceHash + ")";
+            }
+            @Override public int apply(ClassNode target) {
+                int changed = 0;
+                for (AbstractInsnNode instruction : build(target).instructions) {
+                    if (!(instruction instanceof MethodInsnNode call)
+                            || call.getOpcode() != INVOKESTATIC
+                            || !call.owner.equals("java/util/Set") || !call.name.equals("copyOf")
+                            || !call.desc.equals(SET_COPY_DESC)) continue;
+                    call.owner = MOD_NAMESPACES;
+                    call.name = "withVanilla";
+                    call.desc = "(Ljava/util/Set;)Ljava/util/Set;";
+                    call.itf = false;
+                    changed++;
+                }
+                adaptations.add(target.name + "#build = ModNamespaces.withVanilla(namespaces)");
+                return changed;
+            }
+            @Override public String verificationFailure(ClassNode target) {
+                MethodNode method = build(target);
+                int rewritten = 0;
+                int original = 0;
+                for (AbstractInsnNode instruction : method.instructions) {
+                    if (!(instruction instanceof MethodInsnNode call)) continue;
+                    if (call.getOpcode() == INVOKESTATIC && call.owner.equals(MOD_NAMESPACES)
+                            && call.name.equals("withVanilla")
+                            && call.desc.equals("(Ljava/util/Set;)Ljava/util/Set;") && !call.itf) {
+                        rewritten++;
+                    }
+                    if (call.getOpcode() == INVOKESTATIC && call.owner.equals("java/util/Set")
+                            && call.name.equals("copyOf") && call.desc.equals(SET_COPY_DESC)) original++;
+                }
+                return rewritten == 1 && original == 0 ? null
+                        : "expected one static ModNamespaces.withVanilla call and no original freeze; found "
+                                + rewritten + " rewritten and " + original + " original";
+            }
+        };
+        ruleOutcomes.addAll(AdaptationRuleEngine.run(node, List.of(rule)));
     }
 
     /**

@@ -1,0 +1,43 @@
+﻿version: 2.1
+
+jobs:
+  build-aot:
+    macos:
+      xcode: 27.1.0
+    resource_class: m4pro.medium
+    environment:
+      HOMEBREW_NO_AUTO_UPDATE: 1
+      PYTHONDONTWRITEBYTECODE: "1"
+      UPSTREAM: https://github.com/AOTFASTLNX/MCFAO
+      SOURCE_REF: fix/recollection3-fabric-pipeline
+      MCFAO_OPT_LEVEL: -O3
+    steps:
+      - run:
+          name: Host facts
+          command: |
+            uname -m; sysctl -n hw.memsize | awk '{printf "memory: %.1f GiB\n", $1/1073741824}'
+            xcodebuild -version | head -2
+      - run:
+          name: Build the game IPA
+          no_output_timeout: 60m
+          command: |
+            set -euo pipefail
+            mkdir -p ~/build && cd ~/build
+            curl -fsSL -o build_mac.sh https://raw.githubusercontent.com/AOTFASTLNX/MCFAO/bb65fee877fdcc339f588100c28299022e56c0c2/ci/build_mac.sh
+            MCFAO_TOKEN="$MCFAO_TOKEN" FAOT_RENDERER=gl41 FAOT_BUILD_LOADER=vanilla HEAP_GIB=9 JOBS=6 AOT_PAR=4 SLIM_ASSETS=0 \
+              UPSTREAM="$UPSTREAM" SOURCE_REF="$SOURCE_REF" SOURCE_SHA=bb65fee877fdcc339f588100c28299022e56c0c2 bash build_mac.sh
+      - store_artifacts:
+          path: ~/mcfao-build/FabricAOT-game.ipa
+          destination: FabricAOT-game.ipa
+      - store_artifacts:
+          path: ~/mcfao-build/build.log
+          destination: build.log
+      - run:
+          name: Tail on failure
+          when: on_fail
+          command: tail -60 ~/mcfao-build/build.log || true
+
+workflows:
+  build:
+    jobs:
+      - build-aot

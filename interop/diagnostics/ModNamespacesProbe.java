@@ -115,12 +115,18 @@ public final class ModNamespacesProbe implements Opcodes {
                 "The original namespace freeze must be gone");
         require(adaptations.size() == 1 && adaptations.get(0).startsWith(BUILDER + "#build "),
                 "The rewrite must be reported: " + adaptations);
+        List<java.util.Map<String, Object>> outcomes = new ArrayList<>();
+        RuntimeLowering.lowerVanillaPackBuilder(builder, "probe-hash", adaptations, outcomes);
+        require(outcomes.size() == 1
+                        && outcomes.get(0).get("status").equals("VERIFIED_ALREADY_APPLIED")
+                        && outcomes.get(0).get("changes").equals(0),
+                "Reapplying the rule must verify without editing: " + outcomes);
         // The stack still holds a Set when the call runs, and the rewritten class still verifies.
         new Analyzer<>(new BasicVerifier()).analyze(builder.name, build);
         byte[] rewritten = bytes(builder);
         new ClassReader(rewritten).accept(new ClassNode(), 0);
 
-        // A changed upstream build() must fail loudly instead of shipping an orphan table.
+        // A changed upstream build() is left untouched and carried forward as a report-only finding.
         ClassNode extra = builder();
         MethodNode extraBuild = method(extra, "build");
         var insn = new org.objectweb.asm.tree.InsnList();
@@ -129,21 +135,51 @@ public final class ModNamespacesProbe implements Opcodes {
         insn.add(new MethodInsnNode(INVOKESTATIC, SET, "copyOf", COPY_DESC, true));
         insn.add(new InsnNode(POP));
         extraBuild.instructions.insert(insn);
-        require(throwsOnRewrite(extra), "A second namespace freeze must be refused, not guessed at");
+        require(reportsSkippedPrecondition(extra), "A second namespace freeze must be reported, not guessed at");
         ClassNode missing = builder();
         for (AbstractInsnNode node : method(missing, "build").instructions.toArray()) {
             if (node instanceof MethodInsnNode call && call.name.equals("copyOf")) {
                 method(missing, "build").instructions.remove(call);
             }
         }
-        require(throwsOnRewrite(missing), "A build() without a namespace freeze must be refused");
+        require(reportsSkippedPrecondition(missing), "A build() without a namespace freeze must be reported");
         ClassNode other = builder();
         other.name = "net/minecraft/server/packs/SomeOtherBuilder";
         RuntimeLowering.lowerVanillaPackBuilder(other, "probe-hash", adaptations);
         require(adaptations.size() == 1, "An unrelated class must be left alone");
 
         if (arguments.length > 0) realClient(Path.of(arguments[0]));
+        assertRuleEngineGuards();
         System.out.println("MCFAO_MOD_NAMESPACES_PASS " + merged.size() + " namespaces");
+    }
+
+    private static void assertRuleEngineGuards() {
+        ClassNode target = new ClassNode();
+        var conflicts = AdaptationRuleEngine.run(target, List.of(dummyRule("rule.one", "same-target"),
+                dummyRule("rule.two", "same-target")));
+        require(conflicts.size() == 2
+                        && conflicts.stream().allMatch(row -> row.get("status").equals("SKIPPED_RULE_CONFLICT")),
+                "Conflicting rules must be reported without application: " + conflicts);
+        try {
+            AdaptationRuleEngine.run(target, List.of(dummyRule("rule.nonconverging", "target")));
+            throw new AssertionError("A non-converging rule exceeded the pass limit");
+        } catch (IllegalStateException expected) {
+            require(expected.getMessage().contains("did not converge after 2 passes"),
+                    expected.getMessage());
+        }
+    }
+
+    private static AdaptationRuleEngine.Rule dummyRule(String id, String target) {
+        return new AdaptationRuleEngine.Rule() {
+            @Override public String id() { return id; }
+            @Override public String mechanism() { return "probe guard"; }
+            @Override public String target(ClassNode node) { return target; }
+            @Override public boolean matches(ClassNode node) { return true; }
+            @Override public boolean alreadyApplied(ClassNode node) { return false; }
+            @Override public String preconditionFailure(ClassNode node) { return null; }
+            @Override public int apply(ClassNode node) { return 1; }
+            @Override public String verificationFailure(ClassNode node) { return null; }
+        };
     }
 
     /**
@@ -197,13 +233,11 @@ public final class ModNamespacesProbe implements Opcodes {
         return count;
     }
 
-    private static boolean throwsOnRewrite(ClassNode node) {
-        try {
-            RuntimeLowering.lowerVanillaPackBuilder(node, "probe-hash", new ArrayList<>());
-        } catch (IllegalArgumentException expectedFailure) {
-            return true;
-        }
-        return false;
+    private static boolean reportsSkippedPrecondition(ClassNode node) {
+        List<java.util.Map<String, Object>> outcomes = new ArrayList<>();
+        RuntimeLowering.lowerVanillaPackBuilder(node, "probe-hash", new ArrayList<>(), outcomes);
+        return outcomes.size() == 1
+                && outcomes.get(0).get("status").equals("SKIPPED_PRECONDITION");
     }
 
     /** Mirrors the real VanillaPackResourcesBuilder.build() instruction sequence. */

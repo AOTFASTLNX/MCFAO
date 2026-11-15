@@ -33,6 +33,24 @@ public final class Overlay {
                         }
                     },0);data=writer.toByteArray();
                 }
+                if(name.equals("org/lwjgl/system/Configuration.class")){
+                    ClassReader reader=new ClassReader(data);ClassWriter writer=new ClassWriter(0);
+                    reader.accept(new ClassVisitor(Opcodes.ASM9,writer){
+                        public MethodVisitor visitMethod(int access,String method,String desc,String sig,String[] ex){
+                            if((method.equals("OPENGL_LIBRARY_NAME_DEFAULTS")||method.equals("OPENGL_OSMESA_LIBRARY_NAME_DEFAULTS"))
+                                    &&desc.equals("()[Ljava/lang/String;")){
+                                MethodVisitor mv=super.visitMethod(access,method,desc,sig,ex);
+                                mv.visitCode();mv.visitInsn(Opcodes.ICONST_1);
+                                mv.visitTypeInsn(Opcodes.ANEWARRAY,"java/lang/String");
+                                mv.visitInsn(Opcodes.DUP);mv.visitInsn(Opcodes.ICONST_0);
+                                mv.visitLdcInsn("lwjgl_opengl");
+                                mv.visitInsn(Opcodes.AASTORE);mv.visitInsn(Opcodes.ARETURN);
+                                mv.visitMaxs(4,0);mv.visitEnd();return null;
+                            }
+                            return super.visitMethod(access,method,desc,sig,ex);
+                        }
+                    },0);data=writer.toByteArray();
+                }
                 if((name.startsWith("org/lwjgl/glfw/")||name.startsWith("org/lwjgl/stb/"))&&name.endsWith("CallbackI.class")){
                     ClassReader reader=new ClassReader(data);ClassWriter writer=new ClassWriter(0);
                     reader.accept(new ClassVisitor(Opcodes.ASM9,writer){

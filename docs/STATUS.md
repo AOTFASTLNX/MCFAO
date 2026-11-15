@@ -1,4 +1,7 @@
-# 当前状态（2026-11-10）
+# 当前状态（2026-11-15）
+
+> 2026-11-15：GL41、v21、MDAF 和通用 P0 已集成。干净提交 70d5cbe 已生成 ARM64 macOS GUI、真实 Vanilla GL41 AOT IPA 和开发签名包；Tauri 命令到完整 AOT/IPA 的实际工作流通过，独立测试应用安装成功。Mac 和测试设备锁屏阻断原生 GUI 交互与独立游戏启动，C0/世界/存档/30分钟及 Fabric 真机门槛保持 BLOCKED，不继承历史 PASS。详见 [交付记录](integration/GL41_DELIVERY.md)。以下早期实验记录保留原日期与验证范围。
+
 
 2026-11-12 末地修复：pack-92 真机日志在创建龙时因 `DragonHoverPhase(EnderDragon)` 反射查询失败退出。现已补齐 11 个阶段的精确构造注册，pack-93 最终 AOT 配置为 149 条、阶段覆盖 11/11；构建为 `SIGNED_DEVICE_APP`，签名导出为 `DEVELOPMENT_IPA_VERIFIED`。IPA：`artifacts/mcfao/fabric-pack-93-end-fix-signed-ipa/export/FabricAOT World.ipa`。助手按用户要求未运行测试、模拟器或手机；用户于 2026-11-12 安装复测后明确确认“确实修好了”，本次末地加载闪退按用户真机反馈记为已修复。完整战斗、复活及长时稳定性不由此推定通过。新复测日志确认末地已就绪并可见，随后出现后台 GPU 提交被拒绝的独立崩溃，前后台渲染生命周期问题仍 OPEN。调查与后续加固见 [末地加载崩溃](END_DIMENSION_CRASH_PLAN.md)。
 
@@ -494,3 +497,8 @@ pack-88 之后工作重心从「找下一个崩溃」转成「让探针真正在
 ## 2026-11-13 Mixin 重定位 Guava 闭包修复
 
 用户 run-1794503860221.log 显示 wover/bclib 主入口已返回，BetterEnd 在 SmithingTemplates.combine 初始化缺 org.spongepowered.include.com.google.common.collect.ImmutableList。AotExport 现从固定 Mixin JAR 打包完整重定位 Guava 值库命名空间，保留其 ABI，不引入运行时类加载器。11 项相关回归通过，含隔离类加载器从该闭包创建 ImmutableList 的断言。content-samples-build-07 AOT（2m18s）、iOS 链接与签名通过；本轮不运行游戏或模拟器，真机待用户复验，原两项嵌套库排除仍在。
+
+
+## 2026-11-15 GL41 真机测试交接
+
+用户决定自行测试真机。新 `signed-gl41-03` Vanilla GL41 开发签名包已通过安装和独立应用进程启动；真实 Minecraft 首帧、世界、输入、存档重进、30 分钟及 Fabric 功能仍等待实测，不授予 FUNCTION_PASS。旧测试 profile 已过期，新包复用另一份有效现有资源并使用独立测试标识，保留原有应用数据。原生 Mac GUI 已验证 Prism 测试夹具预检、完整构建点击、实时日志、取消与重试；重试已完成真实 AOT → iOS 链接 → IPA 校验，产物为 `native-gui-vanilla-01`（480,378,242 字节）。见 [交接清单](integration/GL41_DEVICE_HANDOFF.md) 和 [交付记录](integration/GL41_DELIVERY.md)。

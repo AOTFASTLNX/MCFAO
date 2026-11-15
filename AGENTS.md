@@ -1,5 +1,8 @@
 # FabricAOT — 编码 Agent 根指令
 
+> 2026-11-15 集成决策：本次主要渲染路线按 docs/evidence/ADR-009.md：Blaze3D OpenGL → LWJGL JNI → OSMesa/Zink → MoltenVK → Metal/CAMetalLayer；保留 compiler/metal-backend 为可选 Metal 构建。所有开发位于 integration/gl41-gui-ipa-20261115 或子分支，禁止推送/合并 main 或删除备份分支。桌面构建器继续 desktop/ 的 Tauri 2 + React + TypeScript + Rust，仅验收 Apple Silicon macOS。
+
+
 > 本仓库是 **Minecraft Java Edition 26.1.2 + Fabric Only** 的 iOS 无 Java JIT 原生运行工程。最终目标是 Mac 导入兼容整合包、编译签名 IPA、iPhone 本地真实游玩。**不是 UI mock，不是 Web 串流，不是解释器假装 AOT。**
 
 ## 不可更改的产品约束
@@ -36,7 +39,7 @@
 
 ## 代码结构建议
 
-- `macos/` SwiftUI macOS 整合包导入、诊断、构建编排、日志与签名。
+- `desktop/` Tauri 2 + React + TypeScript + Rust macOS 整合包导入、诊断、构建编排、日志与签名。
 - `compiler/` Java 25、Fabric 加载图、构建期 Mixin、AOT、资源处理、可复现构建。
 - `ios/` Swift/Objective-C++、触摸输入、Metal 图形适配、音频、文件/沙盒、日志。
 - `interop/` Java 与 iOS 原生 API 之间的窄接口和测试夹具。

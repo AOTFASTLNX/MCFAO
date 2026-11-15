@@ -45,7 +45,12 @@ public final class Library {
         public String getName(){return path.getFileName().toString();}
         public String getPath(){return path.toString();}
         public long address(){return handle;}
-        public long getFunctionAddress(ByteBuffer name){return IOSNative.symbol(handle,MemoryUtil.memAddress(name));}
+        public long getFunctionAddress(ByteBuffer name){
+            long address=IOSNative.symbol(handle,MemoryUtil.memAddress(name));
+            // A symbol re-exported by a dependency (for example OSMesa behind liblwjgl_opengl)
+            // is also resolved through the process-global image list.
+            return address!=0?address:IOSNative.symbol(0,MemoryUtil.memAddress(name));
+        }
         public void free(){if(handle!=0){IOSNative.close(handle);handle=0;}}
     }
 }

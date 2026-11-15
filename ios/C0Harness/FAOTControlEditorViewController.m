@@ -114,19 +114,24 @@
 
 #pragma mark - Toolbar
 
-- (void)finishTapped {
-    if (self.completion) self.completion(self.layout, NO);
-    [self dismissViewControllerAnimated:YES completion:nil];
-}
-
-- (void)saveTapped {
+- (BOOL)saveLayout {
     NSError *error = nil;
     if (![self.layout saveNamed:self.layoutName error:&error]) {
         self.hint.text = [NSString stringWithFormat:@"保存失败：%@", error.localizedDescription];
-        return;
+        return NO;
     }
+    [NSUserDefaults.standardUserDefaults setObject:self.layoutName forKey:FAOTControlLayoutDefaultsKey];
     self.hint.text = [NSString stringWithFormat:@"已保存到 controlmap/%@.json", self.layoutName];
     if (self.completion) self.completion(self.layout, YES);
+    return YES;
+}
+
+- (void)finishTapped {
+    if ([self saveLayout]) [self dismissViewControllerAnimated:YES completion:nil];
+}
+
+- (void)saveTapped {
+    [self saveLayout];
 }
 
 - (void)addTapped {

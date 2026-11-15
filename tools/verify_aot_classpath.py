@@ -94,6 +94,32 @@ def parse_probe_output(completed, expected_count):
     return failures, total, failed
 
 
+def verify_entries(entries: list[str | Path], java_bin: Path = JAVA, *,
+                   verify_members: bool = False, timeout: int = 900) -> dict:
+    """Run the classpath probe without requiring a completed mcfao build directory."""
+    names = class_names([str(entry) for entry in entries])
+    with tempfile.TemporaryDirectory(prefix="classpath-check-") as work:
+        work_path = Path(work)
+        source = work_path / "LoadAll.java"
+        source.write_text(PROBE)
+        subprocess.run([str(java_bin / "javac"), "-nowarn", "-d", str(work_path), str(source)],
+                       check=True, capture_output=True, timeout=timeout)
+        completed = subprocess.run(
+            [str(java_bin / "java"), "-Xmx2g", "-XX:+UseSerialGC",
+             "-cp", ":".join([*map(str, entries), str(work_path)]), "LoadAll",
+             *( ["--verify-members"] if verify_members else [])],
+            input="\n".join(names), text=True, capture_output=True, timeout=timeout)
+
+    failures, total, failed = parse_probe_output(completed, len(names))
+    by_cause: dict[str, int] = {}
+    for failure in failures:
+        by_cause[failure["cause"]] = by_cause.get(failure["cause"], 0) + 1
+    return {"classes": total, "unloadable": failed, "topCauses": dict(
+        sorted(by_cause.items(), key=lambda item: -item[1])[:20]), "failures": failures,
+        "memberResolution": verify_members,
+        "status": "REPORT_ONLY_FINDINGS" if failed else "PASS"}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build", type=Path, required=True, help="mcfao build output directory")
@@ -105,33 +131,16 @@ def main(argv=None):
     build = args.build.resolve()
 
     entries, source = classpath_of(build)
-    names = class_names(entries)
     output = args.output or build / ("classpath-members-check.json" if args.verify_members else "classpath-check.json")
-    print(f"{len(names)} classes over {len(entries)} classpath entries ({source})")
-
-    with tempfile.TemporaryDirectory(prefix="classpath-check-") as work:
-        work_path = Path(work)
-        (work_path / "LoadAll.java").write_text(PROBE)
-        subprocess.run([str(JAVA / "javac"), "-nowarn", "-d", str(work_path),
-                        str(work_path / "LoadAll.java")], check=True, capture_output=True)
-        completed = subprocess.run(
-            [str(JAVA / "java"), "-Xmx2g", "-XX:+UseSerialGC", "-cp", ":".join(entries + [str(work_path)]),
-             "LoadAll", *( ["--verify-members"] if args.verify_members else [])],
-            input="\n".join(names), text=True, capture_output=True, timeout=args.timeout)
-
-    failures, total, failed = parse_probe_output(completed, len(names))
-    by_cause: dict[str, int] = {}
-    for failure in failures:
-        by_cause[failure["cause"]] = by_cause.get(failure["cause"], 0) + 1
-    report = {"classes": total, "unloadable": failed, "topCauses": dict(
-        sorted(by_cause.items(), key=lambda item: -item[1])[:20]), "failures": failures,
-        "classpath": entries, "aotCommand": str(source), "memberResolution": args.verify_members}
+    report = verify_entries(entries, JAVA, verify_members=args.verify_members, timeout=args.timeout)
+    report.update(classpath=entries, aotCommand=str(source))
+    print(f"{report['classes']} classes over {len(entries)} classpath entries ({source})")
     output.write_text(json.dumps(report, indent=1) + "\n")
 
-    for cause, count in sorted(by_cause.items(), key=lambda item: -item[1])[:10]:
+    for cause, count in sorted(report["topCauses"].items(), key=lambda item: -item[1])[:10]:
         print(f"{count:6d}  {cause}")
-    print(f"unloadable {failed}/{total} -> {output}")
-    return 0 if failed == 0 else 1
+    print(f"unloadable {report['unloadable']}/{report['classes']} -> {output}")
+    return 0 if report["unloadable"] == 0 else 1
 
 
 if __name__ == "__main__":

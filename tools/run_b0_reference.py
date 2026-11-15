@@ -99,6 +99,8 @@ def execute(argv: list[str], folder: Path, cwd: Path, *, timeout=120, cpu_second
                         key.fileobj.close()
                         continue
                     key.data.write(data[:remaining])
+                    if os.environ.get("MCFAO_STREAM_LOGS") == "1":
+                        print(data[:remaining].decode("utf-8", errors="replace"), end="", flush=True)
                     remaining = max(0, remaining - len(data))
                     if remaining == 0:
                         output_limit = True

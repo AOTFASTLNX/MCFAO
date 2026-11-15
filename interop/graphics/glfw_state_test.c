@@ -22,6 +22,7 @@ void faot_surface_title(void *p,const char *s){(void)p;(void)s;}
 void *faot_surface_layer(void *p){return p;}
 void faot_surface_clipboard_set(const char *s){(void)s;}
 char *faot_surface_clipboard_copy(void){return strdup("fixture");}
+/* GL41 scales its own window; the native Metal / NO_API surface stays at full resolution. */
 static void size(GLFWwindow *w,int a,int b){assert(w==window&&a==390&&b==844);sizes++;}
 static void framebuffer(GLFWwindow *w,int a,int b){assert(w==window&&a==1170&&b==2532);pixels++;}
 static void focus(GLFWwindow *w,int f){assert(w==window&&f==1);focused++;}
@@ -39,7 +40,15 @@ int main(void){
     const char *error;assert(glfwGetError(&error)==GLFW_NOT_INITIALIZED&&error);
     assert(glfwGetError(&error)==0&&error==NULL);
     assert(glfwInit());
-    assert(!glfwCreateWindow(1,1,"GL is unsupported",NULL,NULL));
+    /* The OpenGL client API is now accepted; its OSMesa context is created lazily by
+       MakeCurrent. An unknown API value still has to fail closed. */
+    window=glfwCreateWindow(1,1,"deferred GL context",NULL,NULL);assert(window);
+    int scaledWidth=0,scaledHeight=0;
+    glfwGetWindowSize(window,&scaledWidth,&scaledHeight);assert(scaledWidth==312&&scaledHeight==675);
+    glfwGetFramebufferSize(window,&scaledWidth,&scaledHeight);assert(scaledWidth==936&&scaledHeight==2026);
+    glfwDestroyWindow(window);window=NULL;destroyed=0;
+    glfwWindowHint(GLFW_CLIENT_API,0x9999);
+    assert(!glfwCreateWindow(1,1,"unknown API",NULL,NULL));
     assert(glfwGetError(NULL)==GLFW_API_UNAVAILABLE);
     glfwWindowHint(GLFW_CLIENT_API,GLFW_NO_API);
     window=glfwCreateWindow(100,100,"fixture",NULL,NULL);assert(window);

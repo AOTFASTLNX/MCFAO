@@ -5,6 +5,8 @@
 //  the AOT harness instead.
 //
 #import <UIKit/UIKit.h>
+#include <math.h>
+#include <stdlib.h>
 #import "FAOTLauncherViewController.h"
 
 @interface SmokeSceneDelegate : UIResponder <UIWindowSceneDelegate>
@@ -16,6 +18,18 @@
 - (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session
       options:(UISceneConnectionOptions *)options {
     if (![scene isKindOfClass:UIWindowScene.class]) return;
+    // Exercise persistence using production code inside the simulator sandbox.
+    FAOTControlLayout *probe=[FAOTControlLayout defaultLayout];
+    FAOTControlModel *button=probe.controls.firstObject;
+    button.x=0.321;button.width=0.123;button.keycode=71;
+    NSString *probeName=[@"save-test-" stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSError *saveError=nil;
+    if(![probe saveNamed:probeName error:&saveError]) abort();
+    FAOTControlLayout *loaded=[FAOTControlLayout loadNamed:probeName];
+    FAOTControlModel *restored=loaded.controls.firstObject;
+    if(!restored || fabs(restored.x-0.321)>0.00001 || fabs(restored.width-0.123)>0.00001 || restored.keycode!=71) abort();
+    [[NSFileManager defaultManager] removeItemAtPath:[[FAOTControlLayout layoutDirectory] stringByAppendingPathComponent:[probeName stringByAppendingPathExtension:@"json"]] error:nil];
+    NSLog(@"CONTROL_LAYOUT_PERSISTENCE_PASS");
     self.window = [[UIWindow alloc] initWithWindowScene:(UIWindowScene *)scene];
     FAOTLauncherViewController *launcher = [FAOTLauncherViewController new];
 

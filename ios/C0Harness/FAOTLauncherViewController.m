@@ -345,7 +345,6 @@ NSString *FAOTPojavDefaultLayoutJSON(void) {
                                                      layoutName:self.layoutName
                                                      completion:^(FAOTControlLayout *updated, BOOL saved) {
             if (saved) {
-                [updated saveNamed:weakSelf.layoutName error:nil];
                 weakSelf.statusLabel.text = [NSString stringWithFormat:@"Saved %@ (%lu buttons)",
                                              weakSelf.layoutName, (unsigned long)updated.controls.count];
             }

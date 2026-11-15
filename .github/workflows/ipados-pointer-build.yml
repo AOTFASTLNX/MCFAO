@@ -23,7 +23,8 @@ jobs:
       - name: Host GLFW event state regression
         run: |
           clang -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined \
-            -Iios/glfw-lite ios/glfw-lite/glfw_lite.c \
+            -Iios/glfw-lite ios/glfw-lite/glfw_lite.c ios/glfw-lite/osmesa_gl.c \
+            ios/glfw-lite/osmesa_present_host_stub.c \
             interop/graphics/glfw_state_test.c -o out/glfw-state-test
           out/glfw-state-test | tee out/glfw-state-test.log
 
@@ -38,7 +39,7 @@ jobs:
           xcrun --sdk iphoneos clang -target arm64-apple-ios17.0 \
             -std=c11 -fobjc-arc -O2 -Wall -Wextra -Werror \
             -Wno-deprecated-declarations -dynamiclib \
-            ios/glfw-lite/glfw_lite.c ios/glfw-lite/uikit_surface.m \
+            ios/glfw-lite/glfw_lite.c ios/glfw-lite/uikit_surface.m ios/glfw-lite/osmesa_gl.c \
             -framework UIKit -framework QuartzCore -framework CoreGraphics \
             -framework Metal -framework GameController \
             -install_name @rpath/libglfw.dylib -o out/libglfw.dylib \

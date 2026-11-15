@@ -31,12 +31,28 @@ public final class LwjglProbe {
         glfwSetErrorCallback(error);
         if(!glfwInit())throw new AssertionError("init");
         glfwDefaultWindowHints();
-        if(glfwCreateWindow(10,10,"reject GL",0,0)!=0)throw new AssertionError("GL incorrectly accepted");
+        long glWindow=glfwCreateWindow(10,10,"deferred GL41 context",0,0);
+        if(glWindow==0)throw new AssertionError("GL41 window rejected before deferred context creation");
+        glfwDestroyWindow(glWindow);
+        glfwWindowHint(GLFW_CLIENT_API,GLFW_OPENGL_ES_API);
+        if(glfwCreateWindow(10,10,"reject GLES",0,0)!=0)throw new AssertionError("unsupported GLES accepted");
         if(errors[0]!=1)throw new AssertionError("native -> Java error callback");
         glfwGetError(null);
         glfwWindowHint(GLFW_CLIENT_API,GLFW_NO_API);
         long window=glfwCreateWindow(10,10,"host fixture",0,0);
         if(window==0)throw new AssertionError("window");
+        if(GLFW.getLibrary().getFunctionAddress("glfwGetMouseButton")==0)
+            throw new AssertionError("malilib mouse polling symbol missing");
+        // Exercise the exact Java -> invokePI(JIJ)I -> GLFW boundary from the
+        // device crash. The C state fixture separately covers press/release.
+        for(int tick=0;tick<300;tick++){
+            for(int button=0;button<=GLFW_MOUSE_BUTTON_LAST;button++)
+                if(glfwGetMouseButton(window,button)!=GLFW_RELEASE)
+                    throw new AssertionError("unexpected initial mouse state");
+            if(glfwGetKey(window,GLFW_KEY_W)!=GLFW_RELEASE)
+                throw new AssertionError("unexpected initial key state");
+        }
+        System.out.println("LWJGL_INPUT_POLL_PASS ticks=300 buttons=8");
         int[] x={0},y={0};glfwGetFramebufferSize(window,x,y);
         if(x[0]!=1170||y[0]!=2532)throw new AssertionError("array JNI ABI");
         int[] calls={0};

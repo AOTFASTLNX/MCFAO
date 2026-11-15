@@ -1,5 +1,8 @@
 # FabricAOT — 终版产品需求
 
+> 2026-11-15 集成决策：本轮交付范围是 Apple Silicon macOS 的 desktop/ Tauri 2 构建器与 GL41 测试 IPA。GUI 应提供 GL41 和可选原生 Metal，执行真实 AOT、实时日志、取消、失败重试和 IPA 清单。仅 prepare-only 不算完成。所有真机游玩与 Fabric 功能分别验收。
+
+
 ## 产品定位
 
 Mac 上的 Fabric 26.1.2 静态构建器 + iPhone 本地原生客户端。用户导入 `.mrpack` / Prism 实例，构建器解析依赖、诊断兼容性、执行构建期类转换、编译 AOT、对接 iOS 渲染与输入，最后生成用户自行签名并安装的 IPA。终端 iOS 无需 Java JIT、越狱、PC 串流。

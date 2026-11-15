@@ -13,7 +13,7 @@ import zipfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 
 from mcfao import (Build, device_xcode, export_ipa, load_config, resolve_development_team,
-                   select_development_team, tree_files, write_json)
+                   main as mcfao_main, select_development_team, tree_files, write_json)
 from prepare_fabric_aot import MAX_TRANSFORM_ARCHIVES
 from prepare_fabric_aot import inspect_archives, inspect_compatibility, main as prepare_fabric
 from prepare_fabric_aot import merge_client, root_mod_ids, runtime_overlay_sources
@@ -141,6 +141,34 @@ class FabricInputTests(unittest.TestCase):
                                    "--mods", str(self.root), "--output", str(output), "--inspect"])
         self.assertEqual(code, 2)
         self.assertIn("Fabric preparation failed: invalid Fabric metadata", stderr.getvalue())
+        report = json.loads((output / "mdaf-report.json").read_text())
+        self.assertEqual(report["policy"], "REPORT_ONLY")
+        self.assertEqual(report["status"], "PREPARATION_FAILED")
+        self.assertEqual(report["failure"], "invalid Fabric metadata")
+        result = json.loads((output / "result.json").read_text())
+        self.assertEqual(result["mdaf"]["failedStage"], "PREPARATION")
+
+    def test_tracing_agent_requires_explicitly_audited_mods(self):
+        stderr = io.StringIO()
+        with patch("sys.stderr", stderr):
+            with self.assertRaises(SystemExit) as raised:
+                prepare_fabric(["--prepared", str(self.root), "--client", str(self.root / "client.jar"),
+                                "--mods", str(self.root), "--output", str(self.root / "output"),
+                                "--inspect", "--trace-agent"])
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("--trace-agent requires --audited-mods", stderr.getvalue())
+        self.assertFalse((self.root / "output").exists())
+
+    def test_compile_cli_rejects_tracing_without_audit_before_loading_config(self):
+        stderr = io.StringIO()
+        with patch("sys.stderr", stderr):
+            with self.assertRaises(SystemExit) as raised:
+                mcfao_main(["build", "--version", "26.1.2", "--loader", "fabric",
+                            "--config", str(self.root / "absent.json"), "--mods", str(self.root),
+                            "--trace-agent", "--target", "ios-arm64",
+                            "--output", str(self.root / "build")])
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("--trace-agent requires --audited-mods", stderr.getvalue())
 
     def test_nested_metadata_is_read_without_extracting_archive_paths(self):
         nested = archive([("fabric.mod.json", '{"id":"test_nested","schemaVersion":1}')])

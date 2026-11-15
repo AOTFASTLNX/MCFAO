@@ -18,11 +18,22 @@ from client_graph_diagnostics import audit_metadata, parse_time_rss, read_analys
 from graphics_common import bridge_overlays
 from lwjgl_codegen import CALLBACKS
 from config_reflection import reflection_from_jar
+from mdaf import (build_native_image_config, merge_agent_metadata,
+                  validate_reflection_entries)
+from verify_aot_classpath import verify_entries
 
 def verify_split_runtime_input(candidate: Path)->dict|None:
     manifest=candidate.parent/'result.json'
     if not manifest.is_file():return None
     record=json.loads(manifest.read_text())
+    if record.get("status") == "GL41_CLIENT_PATCHED":
+        if sha256(candidate) != record.get("outputJarSHA256"):
+            raise ValueError("GL41 client fingerprint changed")
+        original = Path(record["client"])
+        verified = verify_split_runtime_input(original)
+        if not verified or sha256(original) != record.get("clientSHA256"):
+            raise ValueError("GL41 client split provenance changed")
+        return {"gl41ManifestSHA256": sha256(manifest), "split": verified}
     if record.get('status')=='BACKEND_INJECTED':
         if sha256(candidate)!=record.get('outputJarSHA256'):raise ValueError('Injected client fingerprint changed')
         original=Path(record['client']);verified=verify_split_runtime_input(original)
@@ -35,6 +46,56 @@ def verify_split_runtime_input(candidate: Path)->dict|None:
     if not changed or any('finalFieldsUnfinalised' not in row for row in changed):
         raise ValueError('Old split client lacks final-field relocation validation; use the corrected split output')
     return {'manifestSHA256':sha256(manifest),'finalFieldsUnfinalised':sum(row['finalFieldsUnfinalised'] for row in changed)}
+
+
+def collect_mdaf_configuration(maintained, inferred, tracing_directories, classpath, output):
+    agent_metadata, agent_file_conflicts = merge_agent_metadata(tracing_directories)
+    documents, merge_conflicts = build_native_image_config(maintained, inferred, agent_metadata)
+    config_dir = output / "mdaf-native-image-config"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    for name, document in documents.items():
+        if Path(name).name != name or not name.endswith(".json"):
+            raise ValueError(f"Unsupported tracing-agent metadata filename: {name}")
+        (config_dir / name).write_text(json.dumps(document, indent=2, sort_keys=True) + "\n")
+    reflection = documents.get("reflect-config.json", [])
+    unified = documents.get("reachability-metadata.json", {})
+    unified_reflection = unified.get("reflection", []) if isinstance(unified, dict) else []
+    unified_validation = [
+        ({**entry, "name": entry["type"]} if isinstance(entry, dict)
+         and isinstance(entry.get("type"), str) else entry)
+        for entry in unified_reflection
+    ]
+    resolution = validate_reflection_entries([*reflection, *unified_validation], classpath)
+    report = {
+        "schemaVersion": 1,
+        "policy": "REPORT_ONLY",
+        "reflectionCollection": {
+            "maintainedEntries": len(maintained),
+            "staticInferenceEntries": len(inferred),
+            "tracingEntries": (len(agent_metadata.get("reflect-config.json", ()))
+                                + len(unified_reflection)),
+            "tracingEntryCounts": {
+                "legacyReflection": len(agent_metadata.get("reflect-config.json", ())),
+                "unifiedReflection": len(unified_reflection),
+            },
+            "tracingDirectories": [str(Path(path).resolve()) for path in tracing_directories],
+            "agentCategoriesIncluded": sorted(documents),
+            "unobservedDynamicPaths": "A desktop trace covers only the executed scenario; completeness is not claimed",
+        },
+        "mergeConflicts": [*agent_file_conflicts, *merge_conflicts],
+        "reflectionResolution": resolution,
+        "compatibilityCoverage": {
+            "unknownFabricApi": "NOT EXHAUSTIVELY SCANNED",
+            "mixinPatterns": "See transform.json; static findings do not establish runtime behavior",
+            "stubAndNoOpResidue": "See transform.json; report-only",
+        },
+        "classpathMemberResolution": {
+            "status": "NOT RUN",
+            "source": "Existing verify_aot_classpath --verify-members check",
+        },
+    }
+    (output / "mdaf-report.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+    return config_dir, report
 
 
 def main(argv=None):
@@ -75,6 +136,8 @@ def main(argv=None):
                         help="Use this client jar instead of the verified launcher copy (e.g. a split build)")
     parser.add_argument("--client-jar-note",default="",
                         help="Free-form provenance note recorded next to the client jar override")
+    parser.add_argument("--tracing-config",type=Path,action="append",default=[],
+                        help="GraalVM tracing-agent output directory; repeat to merge several rehearsals")
     parser.add_argument("--include-game-resources",action="store_true",help="Embed owned vanilla assets/data and pack/version metadata for the actual Main entry")
     parser.add_argument("--initialize-at-build-time",default="",
                         help="Comma separated classes initialized on the build host instead of at run time")
@@ -167,9 +230,13 @@ def main(argv=None):
         if split_input:client_jar_override['splitRuntimeValidation']=split_input
     output = args.output.absolute()
     output.mkdir(parents=True, exist_ok=False)
+    # The output may live under an artifacts symlink in a worktree. Sandbox rules and child cwd
+    # must use the same physical path; otherwise macOS denies getcwd() despite the lexical work
+    # path being allowed, and HotSpot fails during VM property initialization.
+    output = output.resolve(strict=True)
     sources=output/"source"
     for name in ["probe_client_graph.py","client_graph_diagnostics.py","run_b0_reference.py",
-                 "config_reflection.py"]:
+                 "config_reflection.py", "mdaf.py", "verify_aot_classpath.py"]:
         sources.mkdir(exist_ok=True)
         shutil.copy2(ROOT/"tools"/name,sources/name)
     work = output / "work"
@@ -315,13 +382,30 @@ def main(argv=None):
         result["sandboxProbe"]="PASS"
         # The sandbox only opens the work directory for reads, so the reflection config is copied in
         # rather than referenced from compiler/ where it is maintained.
-        reflection_config = work / "reflection-config.json"
         reflection_entries = json.loads((ROOT / "compiler/reflection-config.json").read_text())
         inferred = reflection_from_jar(args.client_jar) if args.client_jar else []
-        by_name = {entry["name"]: entry for entry in reflection_entries}
-        for entry in inferred:
-            by_name.setdefault(entry["name"], {}).update(entry)
-        reflection_config.write_text(json.dumps(list(by_name.values()), indent=2) + "\n")
+        tracing_directories = [path.resolve(strict=True) for path in args.tracing_config]
+        if not tracing_directories and args.client_jar:
+            discovered = args.client_jar.resolve().parent / "tracing-agent"
+            if discovered.is_dir() and any(discovered.glob("*.json")):
+                tracing_directories.append(discovered)
+        for directory in tracing_directories:
+            if not directory.is_dir():
+                parser.error("--tracing-config must point to a directory: " + str(directory))
+        native_config_dir, mdaf_report = collect_mdaf_configuration(
+            reflection_entries, inferred, tracing_directories, libraries, work)
+        try:
+            member_resolution = verify_entries(libraries, home / "bin", verify_members=True)
+        except (OSError, RuntimeError, subprocess.SubprocessError, zipfile.BadZipFile,
+                ValueError) as error:
+            member_resolution = {
+                "status": "NOT RUN",
+                "memberResolution": True,
+                "failure": f"{type(error).__name__}: {error}",
+            }
+        mdaf_report["classpathMemberResolution"] = member_resolution
+        (work / "mdaf-report.json").write_text(json.dumps(mdaf_report, indent=2, sort_keys=True) + "\n")
+        result["mdaf"] = mdaf_report
         result["configurationReflection"] = [entry["name"] for entry in inferred]
         # Name-based lookups Mods perform at run time. A closed world answers getDeclaredMethod
         # from metadata only, so these are the members whose absence would look like a missing
@@ -347,7 +431,7 @@ def main(argv=None):
              # Real cause of that message: joptsimple's constructorConverter calls
              # type.getConstructor(String.class) and swallows NoSuchMethodException. Native Image
              # ships no constructor metadata unless asked, so File had none. The config registers it.
-             "-H:ReflectionConfigurationFiles="+str(reflection_config),
+             "-H:ConfigurationFileDirectories="+str(native_config_dir),
              "--enable-native-access=ALL-UNNAMED","-cp",":".join(map(str,libraries)),"-o",str(work/"client-graph"),
              entry_class]
         if entry_class=='net.minecraft.client.main.Main':

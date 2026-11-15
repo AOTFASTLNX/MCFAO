@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"tools"))
-from build_glfw_lite import required_symbols,exported_symbols
+from build_glfw_lite import required_symbols,exported_symbols,INPUT_POLL_EXPORTS,validate_input_exports
 from graphics_common import bridge_overlays,register_tree
 from lwjgl_codegen import descriptor,generate_callbacks,generate_jni,mangle,parse_natives
 from bootstrap_toolchain import sha256
@@ -22,7 +22,13 @@ class NativeBoundaryTests(unittest.TestCase):
             {"owner":"org/lwjgl/glfw/GLFWNativeCocoa","name":"glfwGetCocoaWindow"},
             {"owner":"org/lwjgl/glfw/GLFWVidMode","name":"width"},
             {"owner":"org/lwjgl/glfw/Callbacks","name":"glfwFreeCallbacks"}]}
-        self.assertEqual(required_symbols(inventory),{"glfwInit","glfwGetCocoaWindow"})
+        self.assertEqual(required_symbols(inventory),{"glfwInit","glfwGetCocoaWindow"}|INPUT_POLL_EXPORTS)
+    def test_mod_polling_is_required_without_vanilla_call_sites(self):
+        self.assertEqual(required_symbols({"methods":[]}),INPUT_POLL_EXPORTS)
+    def test_historical_glfw_without_mouse_polling_is_rejected(self):
+        with self.assertRaisesRegex(ValueError,"glfwGetMouseButton"):
+            validate_input_exports({"glfwGetKey","glfwGetCursorPos"})
+        validate_input_exports(set(INPUT_POLL_EXPORTS))
     def test_mach_o_symbol_prefix_is_removed_once(self):
         self.assertEqual(exported_symbols("_glfwInit\n_Java_a_b\n"),{"glfwInit","Java_a_b"})
     def test_jni_overload_mangling_is_unambiguous(self):
@@ -147,5 +153,11 @@ class BridgeInputTests(unittest.TestCase):
         with patch.dict(os.environ,{"AAR_HOME":"/private/tmp/private-registry"}):
             with self.assertRaisesRegex(RuntimeError,"central registry"):
                 register_tree(Path("/private/tmp/test-graphics"),["build"])
+    def test_missing_registry_retains_pending_request(self):
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {}, clear=True), patch("graphics_common.subprocess.run", side_effect=FileNotFoundError):
+            result = register_tree(Path(temp), ["build"])
+            self.assertEqual(result["status"], "REGISTRATION_PENDING")
+            self.assertEqual(json.loads((Path(temp) / "registration-pending.json").read_text()), result)
+            self.assertIn("register", result["argv"])
 
 if __name__=="__main__":unittest.main()

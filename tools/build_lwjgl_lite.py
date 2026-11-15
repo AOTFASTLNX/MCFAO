@@ -14,6 +14,7 @@ from graphics_common import register_tree
 from lwjgl_codegen import generate_callbacks,generate_jni,parse_natives,CALLBACKS
 from run_b0_reference import sandbox_policy
 from fetch_stb import verify_sources
+from build_glfw_lite import exported_symbols, validate_input_exports
 
 def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__)
@@ -23,7 +24,7 @@ def main(argv=None):
     p.add_argument("--glfw-library",type=Path,default=ROOT/"artifacts/graphics/glfw-sim-01/libglfw.dylib")
     args=p.parse_args(argv)
     out=args.output.resolve();out.mkdir(parents=True,exist_ok=False)
-    home=ROOT/".cache/toolchains/graalvm-25.0.2/graalvm-community-openjdk-25.0.2+10.1/Contents/Home"
+    home=(ROOT/".cache/toolchains/graalvm-25.0.2/graalvm-community-openjdk-25.0.2+10.1/Contents/Home").resolve(strict=True)
     manifest=json.loads((ROOT/"artifacts/b0/prepared-04/result.json").read_text())
     libraries={}
     for entry in manifest["referenceLibraries"]:
@@ -53,6 +54,7 @@ def main(argv=None):
         step([home/"bin/javac","-proc:none","-cp",asm,"-d",transformer,ROOT/"compiler/lwjgl-lite/Overlay.java"],"transformer-compile")
         overlay_libraries=[]
         exports=subprocess.check_output(["xcrun","nm","-gUj",str(args.glfw_library.resolve(strict=True))],text=True)
+        validate_input_exports(exported_symbols(exports))
         symbol_file=out/"glfw-symbols.txt"
         symbol_file.write_text('\n'.join(sorted(x.strip().removeprefix('_') for x in exports.splitlines()))+'\n')
         result["glfwLibrarySHA256"]=sha256(args.glfw_library)
@@ -81,7 +83,7 @@ def main(argv=None):
         if args.test_host:
             host=out/"host";host.mkdir()
             step(["xcrun","clang","-std=c11","-O1","-g","-Wall","-Wextra","-Werror",*jni_include,"-dynamiclib",*native,"-o",host/"liblwjgl.dylib"],"host-native-compile")
-            step(["xcrun","clang","-std=c11","-dynamiclib","-I",ROOT/"ios/glfw-lite",ROOT/"ios/glfw-lite/glfw_lite.c",ROOT/"interop/graphics/glfw_state_test.c","-o",host/"libglfw.dylib"],"host-window-compile")
+            step(["xcrun","clang","-std=c11","-dynamiclib","-I",ROOT/"ios/glfw-lite",ROOT/"ios/glfw-lite/glfw_lite.c",ROOT/"ios/glfw-lite/osmesa_gl.c",ROOT/"ios/glfw-lite/osmesa_present_host_stub.c",ROOT/"interop/graphics/glfw_state_test.c","-o",host/"libglfw.dylib"],"host-window-compile")
             test_classes=out/"test-classes";test_classes.mkdir()
             cp=os.pathsep.join(map(str,overlay_libraries))
             step([home/"bin/javac","-proc:none","-cp",cp,"-d",test_classes,ROOT/"interop/graphics/LwjglProbe.java"],"host-probe-compile")

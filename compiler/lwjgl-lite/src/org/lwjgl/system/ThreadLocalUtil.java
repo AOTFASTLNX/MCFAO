@@ -18,9 +18,13 @@ public final class ThreadLocalUtil {
         return false;
     }
     public static void setCapabilities(long address){
-        if(address!=0)throw new UnsupportedOperationException("JNI thread-table dispatch is unavailable; explicit function pointers are required");
+        // This build resolves every GL entry through the explicit pointer buffer passed to JNI;
+        // there is no VM JNIEnv table to rebase per thread. Keeping the address is unnecessary.
+        if(address<0)throw new IllegalArgumentException("negative capability address");
     }
     public static void setFunctionMissingAddresses(int count){
-        if(count!=0)throw new UnsupportedOperationException("JNI thread-table dispatch is unavailable; missing explicit pointers fail in the static adapter");
+        /* The generated static JNI adapters validate their explicit pointer argument before
+           every call, so this bookkeeping count is not used. */
+        if(count<0)throw new IllegalArgumentException("negative function count");
     }
 }

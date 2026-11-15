@@ -22,7 +22,7 @@ from urllib.parse import urlsplit
 TARGET_MINECRAFT = "26.1.2"
 MAX_MANIFEST = 2 * 1024 * 1024
 MAX_MOD_METADATA = 512 * 1024
-MAX_EMBEDDED_JAR = 64 * 1024 * 1024
+MAX_EMBEDDED_JAR = 96 * 1024 * 1024
 MAX_ENTRIES = 10_000
 MAX_TOTAL_UNCOMPRESSED = 4 * 1024 * 1024 * 1024
 MAX_COMPRESSION_RATIO = 500
@@ -74,7 +74,7 @@ def _canonical(path: str) -> str:
     return unicodedata.normalize("NFC", path).casefold()
 
 
-def validate_zip_members(archive: zipfile.ZipFile, findings: list, label: str) -> bool:
+def validate_zip_members(archive: zipfile.ZipFile, findings: list, label: str, *, jar_entries: bool = False) -> bool:
     """Inspect ZIP directory entries before reading user-controlled members."""
     fatal = False
     members = archive.infolist()
@@ -82,6 +82,7 @@ def validate_zip_members(archive: zipfile.ZipFile, findings: list, label: str) -
         findings.append(finding("error", "ZIP_ENTRY_LIMIT", f"{label}: too many ZIP entries"))
         return False
     seen = set()
+    exact = set()
     total = 0
     for item in members:
         name = item.filename[:-1] if item.is_dir() else item.filename
@@ -90,9 +91,14 @@ def validate_zip_members(archive: zipfile.ZipFile, findings: list, label: str) -
             fatal = True
             continue
         key = _canonical(name)
-        if key in seen:
+        if name in exact or (key in seen and not jar_entries):
             findings.append(finding("error", "ZIP_PATH_COLLISION", f"{label}: {item.filename!r}"))
             fatal = True
+        elif key in seen:
+            # JAR class/resource lookup is case-sensitive; a filesystem extraction
+            # onto a case-insensitive volume is still unsafe and must not be used.
+            findings.append(finding("warning", "JAR_CASE_SENSITIVE_ENTRIES", f"{label}: {item.filename!r}; do not extract to a case-insensitive filesystem"))
+        exact.add(name)
         seen.add(key)
         if stat.S_IFMT(item.external_attr >> 16) == stat.S_IFLNK:
             findings.append(finding("error", "ZIP_SYMLINK", f"{label}: {item.filename!r}"))
@@ -173,12 +179,39 @@ def scan_mod_bytes(content: bytes, jar_name: str, findings: list, mods: list):
         return
     try:
         with zipfile.ZipFile(io.BytesIO(content)) as archive:
-            if not validate_zip_members(archive, findings, jar_name):
+            if not validate_zip_members(archive, findings, jar_name, jar_entries=True):
                 return
             if "fabric.mod.json" not in archive.namelist():
                 findings.append(finding("warning", "NO_FABRIC_META", f"{jar_name}: fabric.mod.json not found"))
                 return
-            meta = read_json_limited(archive, "fabric.mod.json", MAX_MOD_METADATA)
+            try:
+                meta = read_json_limited(archive, "fabric.mod.json", MAX_MOD_METADATA)
+            except ValueError as strict_error:
+                item = archive.getinfo("fabric.mod.json")
+                if item.file_size > MAX_MOD_METADATA:
+                    raise strict_error
+                with archive.open(item) as stream:
+                    raw = stream.read(MAX_MOD_METADATA + 1)
+                if len(raw) > MAX_MOD_METADATA:
+                    raise strict_error
+                try:
+                    meta = json.loads(raw.decode("utf-8-sig"), strict=False, object_pairs_hook=_json_no_duplicate_keys)
+                except (UnicodeError, ValueError):
+                    raise strict_error
+                # Match the build-side exception: literal newlines are allowed
+                # only inside the human-readable description, never in IDs,
+                # paths, dependency declarations, or executable metadata.
+                def contains_controls(value):
+                    if isinstance(value, str): return any(ord(c) < 32 for c in value)
+                    if isinstance(value, list): return any(contains_controls(v) for v in value)
+                    if isinstance(value, dict): return any(contains_controls(k) or contains_controls(v) for k, v in value.items())
+                    return False
+                if not isinstance(meta, dict) or not isinstance(meta.get("description"), str):
+                    raise strict_error
+                description = meta["description"].replace("\n", "").replace("\r", "")
+                if contains_controls(description) or any(contains_controls(k) or contains_controls(v) for k, v in meta.items() if k != "description"):
+                    raise strict_error
+                findings.append(finding("warning", "MOD_METADATA_NONSTANDARD_JSON", f"{jar_name}: unescaped line breaks in description; loader compatibility not verified"))
             if not isinstance(meta, dict):
                 raise ValueError("fabric.mod.json must be an object")
             mod_id, version = meta.get("id"), meta.get("version")
@@ -313,7 +346,7 @@ def scan_pack(path: Path) -> dict:
             if selected.is_symlink() or not selected.resolve().is_relative_to(root):
                 findings.append(finding("error", "UNSAFE_MOD_DIRECTORY", str(selected)))
             else:
-                jar_paths = sorted(selected.glob("*.jar"))
+                jar_paths = sorted(p for p in selected.iterdir() if p.suffix.lower() == ".jar")
                 if len(jar_paths) > 2500:
                     findings.append(finding("error", "TOO_MANY_MODS", str(len(jar_paths))))
                     jar_paths = jar_paths[:2500]
