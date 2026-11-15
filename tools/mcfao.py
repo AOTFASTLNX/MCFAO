@@ -680,7 +680,7 @@ def build(args, config):
                 or "--no-fallback" not in flags or "-H:+ExitAfterRelocatableImageWrite" not in flags):
             raise ValueError(f"Invalid AOT object or arguments. Logs: {aot / 'analysis'}")
         if gl41:
-            write_json(aot / "game-code-check.json", verify_game_image(image_object))
+            verify_game_image(image_object)
         runtime = pipeline.step("runtime", script(
             "build_ios_runtime", "--sdk", "iphoneos", "--with-extnet",
             "--graalvm-home", home, "--jdk-source", manifest["runtimeSources"]["jdk"],
@@ -691,7 +691,7 @@ def build(args, config):
             "--stub-unsupported-jni", "--output", "{product}"))
         validate_dylib(linked / "client-graph.dylib")
         if gl41:
-            write_json(linked / "game-code-check.json", verify_game_image(linked / "client-graph.dylib"))
+            verify_game_image(linked / "client-graph.dylib")
         staged = pipeline.step("stage", script(
             "stage_device_xcode", "--client", linked,
             *(argument for name in config_names(renderer)

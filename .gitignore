@@ -8,6 +8,7 @@
 /docs/.codex/
 /.workbuddy/
 /build/
+/.local-build/
 /ios/C0Harness/build/
 .venv/
 __pycache__/

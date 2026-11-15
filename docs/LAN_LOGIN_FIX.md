@@ -10,7 +10,29 @@
 - 上轮反射元数据确实进入 AOT，但后续游戏路径被裁掉，所以不能将它视为可用的联机测试包。旧包保留作失败证据，不应继续分发。
 - 已按现有源码重建 LWJGL，主机 JNI / Minecraft Window / NativeImage 隔离夹具通过。新检查在 AOT、链接、最终 App 三处确认主循环、玩家信息处理器与新版诊断存在，并提前拒绝过期的 GL41 overlay。检查是可达代码下限，不等于运行验收。
 - 宿主启动日志增加实际 run_main 所属 Mach-O 的 LC_UUID，供下次直接与 IPA 二进制核对。保持认证和聊天签名规则不变；日志中 accessToken=0 引起的账户授权失败需单独处理。
-- 本轮 78 项针对性回归通过，0 跳过，原始记录在工作副本 `build/lan-regression-20261116-03/`。新增回归确认“只有 AOT 入口”和“只有旧诊断”的镜像均被拒绝。新真机包仍在重建，设备测试由用户完成。
+- 本轮 78 项针对性回归通过，0 跳过，原始记录在工作副本 `build/lan-regression-20261116-03/`。新增回归确认“只有 AOT 入口”和“只有旧诊断”的镜像均被拒绝。新包见下节，设备测试由用户完成。
+
+## 第二版无 Mod 真机测试包（2026-11-16）
+
+- IPA：`artifacts/mcfao/lan-vanilla-device-20261116-03/FabricAOT-26.1.2-Vanilla-LAN-r2-20261116.ipa`；481,516,686 字节（459.2 MiB）。SHA-256：`4348167082acef5bec02c956ed84bd9847a757d3064707a9a80d2f89d51b9f27`。
+- 源码：`067e2f76e0fce17480fea07aaa9daa9a615d8d22`；构建时已跟踪源码无差异。Minecraft 26.1.2 Vanilla / GL41 / iOS ARM64；无 Mod、无 Fabric Loader/Mixin 运行时输入、无实例种子目录。
+- LWJGL 从当前工作副本源码重新生成，保留与 GLFW 的输入哈希绑定。JNI / Window / NativeImage 主机夹具通过；额外 JVM 检查实际执行 iOS 下的两个 OpenGL 默认库方法，均返回 `lwjgl_opengl`。
+- 新 AOT 4 分 17 秒完成，49,960 个可达类型、204,940 个方法；对象 242,180,191 字节，SHA-256 `6949be4649a263bd8eeaddb9dc884ffb922a08fe0f32cf2afd1778c07fc8e39d`。原生对象、链接结果和签名 App 均通过当前游戏代码检查，最终 IPA 解包后再次通过。
+- 实际游戏镜像 UUID：`0AAAECFC-C42A-3F2D-B439-F19055A42CC5`。下次启动日志应有 `[FAOT] imageUUID=0AAAECFC-...`，进入世界后诊断应包含 `tickStallSeconds=5` 及 handler 字段。
+- 解包后的逐文件哈希、ZIP CRC、全部资产、镜像来源 UUID、arm64/iOS、开发签名、描述文件和无动态代码权限检查通过。签名保留 Bundle ID `fab.aot.kexin`，覆盖 3 台设备，到期为北京时间 2026-11-20 00:13:37。链接仍保留原有 OperatingSystemImpl.initialize0 的显式不支持入口，不提升平台兼容性结论。
+- 构建在 APFS 临时目录完成，外接盘挂载检查正常执行。最终 IPA 与原始日志、对象、输入指纹归档到上面的外接盘目录；`archive.json` 记录来源路径映射和复制前后哈希。`verification-final-03/result.json` 是最终检查记录。第一轮受限验签无法访问信任信息，第二轮精确符号检查写错嵌套类前缀；原始失败日志保留，最终使用正确符号并在可访问本机信任信息的环境全部通过。
+- 构建后将代码检查改为只读，避免新增验证报告改变阶段检查点指纹；不改变游戏二进制。
+- 尚未安装或启动设备。两方向联机、移动 / 物理、地形加载和保存仍待用户复测，状态保持 BLOCKED。
+
+重现命令（配置中的 LWJGL 指向本轮新生成依赖，输出目录需不存在）：
+
+```sh
+arch -arm64 python3 -B tools/mcfao.py build \
+  --version 26.1.2 --loader vanilla --target ios-arm64 --renderer gl41 \
+  --config .local-build/lan-gl41-config.json --bundle-id fab.aot.kexin \
+  --heap-gib 7 --parallelism 3 \
+  --output /private/tmp/mcfao-lan-vanilla-device-20261116-03
+```
 
 修复分支：`integration/gl41-gui-ipa-20261115-lan-login-fix`。独立工作副本：`.worktrees/lan-login-fix/`，以便与根工作区的并行开发隔离；下述命令在该工作副本内执行。
 

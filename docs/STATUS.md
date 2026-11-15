@@ -504,3 +504,7 @@ pack-88 之后工作重心从「找下一个崩溃」转成「让探针真正在
 ## 2026-11-15 GL41 真机测试交接
 
 用户决定自行测试真机。新 `signed-gl41-03` Vanilla GL41 开发签名包已通过安装和独立应用进程启动；真实 Minecraft 首帧、世界、输入、存档重进、30 分钟及 Fabric 功能仍等待实测，不授予 FUNCTION_PASS。旧测试 profile 已过期，新包复用另一份有效现有资源并使用独立测试标识，保留原有应用数据。原生 Mac GUI 已验证 Prism 测试夹具预检、完整构建点击、实时日志、取消与重试；重试已完成真实 AOT → iOS 链接 → IPA 校验，产物为 `native-gui-vanilla-01`（480,378,242 字节）。见 [交接清单](integration/GL41_DEVICE_HANDOFF.md) 和 [交付记录](integration/GL41_DELIVERY.md)。
+
+## 2026-11-16 局域网公钥等待与第二版测试包
+
+用户新日志确认 Render thread 永久等待 authlib 服务公钥。审计发现第一版本地 LAN 包引用过期 LWJGL overlay，导致 GL 初始化必抛异常，游戏代码被 AOT 裁掉；不能用其签名检查作为可玩证据。当前源码重建依赖后，从 067e2f7 生成第二版 Vanilla GL41 签名 IPA，保留完整游戏路径、公钥反射闭包和新版诊断，并记录实际镜像 UUID。78 项回归、隔离夹具、真实默认库方法执行、AOT/链接/最终二进制检查及 IPA 解包验签通过；外接盘归档复制哈希一致。构建检查随后改为只读以保留阶段缓存。未运行模拟器或设备，联机验收保持 BLOCKED。包、指纹和复测说明见 [LAN_LOGIN_FIX](LAN_LOGIN_FIX.md)。
