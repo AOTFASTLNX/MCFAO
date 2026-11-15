@@ -1959,63 +1959,63 @@ export default function App() {
             </>
           )}
           {page === "settings" && (
-            <>
-              <section className="panel narrow">
+            <section className="settings-page">
+              <div className="settings-group">
                 <h2>外观</h2>
-                <p className="section-description">
-                  深色与浅色配色都适配工作台的全部页面；选择会保存在本机。
-                </p>
-                <div
-                  className="theme-options"
-                  role="group"
-                  aria-label="外观主题"
-                >
-                  {(
-                    [
-                      ["system", "跟随系统", Monitor],
-                      ["light", "浅色", Sun],
-                      ["dark", "深色", Moon],
-                    ] as const
-                  ).map(([value, label, Icon]) => (
-                    <button
-                      key={value}
-                      className={
-                        "theme-option " + (theme === value ? "selected" : "")
-                      }
-                      aria-label={label}
-                      aria-pressed={theme === value}
-                      onClick={() => chooseTheme(value)}
-                    >
-                      <Icon size={19} aria-hidden="true" />
-                      <strong>{label}</strong>
-                      <small>
-                        {value === "system"
-                          ? systemDark
-                            ? "当前跟随为深色"
-                            : "当前跟随为浅色"
-                          : value === "light"
-                            ? "明亮背景，适合白天"
-                            : "深色背景，减少眩光"}
-                      </small>
-                    </button>
-                  ))}
+                <div className="setting-row">
+                  <div className="setting-label">
+                    <strong>外观主题</strong>
+                    <small>深色与浅色配色都适配全部页面。</small>
+                  </div>
+                  <div
+                    className="theme-options"
+                    role="group"
+                    aria-label="外观主题"
+                  >
+                    {(
+                      [
+                        ["system", "跟随系统", Monitor],
+                        ["light", "浅色", Sun],
+                        ["dark", "深色", Moon],
+                      ] as const
+                    ).map(([value, label, Icon]) => (
+                      <button
+                        key={value}
+                        className={
+                          "theme-option " + (theme === value ? "selected" : "")
+                        }
+                        aria-label={label}
+                        aria-pressed={theme === value}
+                        onClick={() => chooseTheme(value)}
+                      >
+                        <Icon size={16} aria-hidden="true" />
+                        <strong>{label}</strong>
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <div className="field accent-setting">
-                  <SelectMenu
-                    label="交互强调色"
-                    heading="交互强调色"
-                    value={accent}
-                    onChange={chooseAccent}
-                    options={accentOptions.map((option) => ({
-                      value: option.value,
-                      label: option.label,
-                    }))}
-                  />
-                  <small>
-                    选中、焦点和主要操作使用此颜色；成功、警告与错误状态保持不变。
-                  </small>
+                <div className="setting-row">
+                  <div className="setting-label">
+                    <strong>交互强调色</strong>
+                    <small>
+                      选中、焦点和主要操作使用此颜色；状态色保持不变。
+                    </small>
+                  </div>
+                  <div className="setting-control accent-setting">
+                    <SelectMenu
+                      label="交互强调色"
+                      value={accent}
+                      onChange={chooseAccent}
+                      options={accentOptions.map((option) => ({
+                        value: option.value,
+                        label: option.label,
+                      }))}
+                    />
+                  </div>
                 </div>
-                <div className="divider" />
+              </div>
+
+              <div className="settings-group">
                 <h2>本地执行</h2>
                 <div className="field">
                   <label>
@@ -2035,69 +2035,81 @@ export default function App() {
                   directory
                   onChange={(v) => update({ workspace: v })}
                 />
-                <div className="divider" />
+              </div>
+
+              <div className="settings-group">
                 <h2>来源记录</h2>
                 <p className="section-description">
                   移除记录只影响工作台列表，原始文件与产物仍保留。
                 </p>
                 {instances.map((i) => (
-                  <div className="instance-setting" key={i.id}>
-                    <Package size={18} />
-                    <span>
-                      {i.name}
-                      <small>{i.report.source}</small>
-                    </span>
-                    <button
-                      className="icon-button"
-                      aria-label={"移除来源记录 " + i.name}
-                      onClick={() =>
-                        setInstances((old) => old.filter((x) => x.id !== i.id))
-                      }
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                  <div className="setting-row" key={i.id}>
+                    <div className="setting-label instance-label">
+                      <Package size={16} aria-hidden="true" />
+                      <span>
+                        <strong>{i.name}</strong>
+                        <small>{i.report.source}</small>
+                      </span>
+                    </div>
+                    <div className="setting-control">
+                      <button
+                        className="icon-button"
+                        aria-label={"移除来源记录 " + i.name}
+                        onClick={() =>
+                          setInstances((old) => old.filter((x) => x.id !== i.id))
+                        }
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
                   </div>
                 ))}
                 {!instances.length && (
                   <p className="muted">还没有导入的来源。</p>
                 )}
-                <div className="divider" />
+              </div>
+
+              <div className="settings-group">
                 <h2>本地记录</h2>
-                <div className="button-line">
-                  <button
-                    className="secondary"
-                    onClick={() =>
-                      void attempt("正在导出本地记录", () =>
-                        saveDocument(
-                          "fabricaot-workspace.json",
-                          JSON.stringify(
-                            {
-                              builder: localStorage.getItem(FORM_KEY),
-                              legacy: localStorage.getItem(STORAGE_KEY),
-                            },
-                            null,
-                            2,
+                <div className="setting-row">
+                  <div className="setting-label">
+                    <strong>界面记录</strong>
+                    <small>
+                      任务历史保存在项目 artifacts/desktop-jobs，重置界面不会删除构建文件。
+                    </small>
+                  </div>
+                  <div className="setting-control button-line">
+                    <button
+                      className="secondary"
+                      onClick={() =>
+                        void attempt("正在导出本地记录", () =>
+                          saveDocument(
+                            "fabricaot-workspace.json",
+                            JSON.stringify(
+                              {
+                                builder: localStorage.getItem(FORM_KEY),
+                                legacy: localStorage.getItem(STORAGE_KEY),
+                              },
+                              null,
+                              2,
+                            ),
                           ),
-                        ),
-                      )
-                    }
-                  >
-                    <Download size={16} />
-                    导出原始记录
-                  </button>
-                  <button
-                    className="danger subtle"
-                    onClick={() => setReset(true)}
-                  >
-                    重置界面记录
-                  </button>
+                        )
+                      }
+                    >
+                      <Download size={16} />
+                      导出原始记录
+                    </button>
+                    <button
+                      className="danger subtle"
+                      onClick={() => setReset(true)}
+                    >
+                      重置界面记录
+                    </button>
+                  </div>
                 </div>
-                <small className="muted">
-                  任务历史保存在项目
-                  artifacts/desktop-jobs，重置界面不会删除构建文件。
-                </small>
-              </section>
-            </>
+              </div>
+            </section>
           )}
           <footer className="page-footer">
             <span>FabricAOT · 本地构建，内容由你掌控。</span>

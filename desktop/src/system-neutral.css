@@ -2852,6 +2852,132 @@ button:disabled {
   max-width: 790px;
 }
 
+/* Settings sit directly on the window: a label column on the left and the
+   control on the right. Only text inputs keep the stacked form layout. */
+.settings-page {
+  max-width: 880px;
+  padding-top: var(--space-2);
+}
+
+.settings-group + .settings-group {
+  margin-top: var(--space-6);
+}
+
+.settings-group > h2 {
+  margin-bottom: var(--space-2);
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.settings-group > .section-description {
+  margin: 0 0 var(--space-2);
+  color: var(--dim);
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.setting-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 0.9fr) minmax(0, 1.4fr);
+  align-items: center;
+  gap: var(--space-4);
+  padding: 11px 0;
+}
+
+.setting-row + .setting-row {
+  padding-top: var(--space-4);
+}
+
+.setting-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.setting-label > strong {
+  color: var(--text);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.setting-label > small {
+  color: var(--dim);
+  font-size: 9.5px;
+  line-height: 1.5;
+}
+
+.setting-label.instance-label {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--dim);
+}
+
+.setting-label.instance-label > span {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.setting-label.instance-label small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.setting-control {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.setting-control .select-menu {
+  width: 100%;
+  max-width: 260px;
+}
+
+.settings-page .theme-options {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  margin: 0;
+}
+
+.settings-page .theme-option {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 9px;
+  flex: 0 0 auto;
+}
+
+@media (max-width: 720px) {
+  .setting-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-2);
+    align-items: start;
+  }
+
+  .setting-control {
+    justify-content: flex-start;
+  }
+
+  .settings-page .theme-options {
+    justify-content: flex-start;
+  }
+
+  .setting-control .select-menu {
+    max-width: none;
+  }
+}
+
 .divider {
   margin: var(--space-5) 0;
   height: 1px;
