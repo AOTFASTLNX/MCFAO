@@ -1,0 +1,36 @@
+{
+  "branch": "integration/gl41-gui-ipa-20261115-system-neutral-ui",
+  "baseCommit": "039c6357d3e3cde06e15614f42badfb213b47a51",
+  "date": "2026-11-15",
+  "design": "System Neutral",
+  "commands": {
+    "unit": "npm test",
+    "browser": "npx playwright test",
+    "build": "npm run build",
+    "rust": "cargo test --manifest-path src-tauri/Cargo.toml --lib",
+    "clippy": "cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings",
+    "python": "python3 -m unittest discover -s tests -p 'test_desktop_workbench.py'",
+    "package": "npm run build:mac"
+  },
+  "results": {
+    "unit": "56 passed",
+    "browser": "22 passed",
+    "build": "PASS",
+    "rust": "7 passed",
+    "clippy": "PASS",
+    "python": "35 passed",
+    "package": "PASS, arm64, ad-hoc signed, 31.36 MiB"
+  },
+  "native": {
+    "path": "desktop/src-tauri/target/debug/bundle/macos/FabricAOT.app",
+    "arch": "arm64",
+    "signature": "strict verify PASS",
+    "theme": "light and dark toggled on the live window; system accent read and persisted"
+  },
+  "screenshots": "artifacts/desktop/system-neutral/",
+  "notRun": [
+    "Full Minecraft AOT rebuild",
+    "iPhone installation or gameplay",
+    "Fabric pack functional compatibility"
+  ]
+}

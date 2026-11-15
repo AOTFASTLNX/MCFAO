@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { native } from "./bridge";
+import { LogView } from "./LogView";
 import type { Settings } from "./model";
 interface ImportedInstance {
   root: string;
@@ -50,7 +51,7 @@ export function BuildPanel({
   setModsPath: (value: string) => void;
   source?: string;
 }) {
-  const [renderer, setRenderer] = useState("");
+  const renderer = "gl41";
   const [loader, setLoader] = useState("vanilla");
   const [unsigned, setUnsigned] = useState(true);
   const [audited, setAudited] = useState(false);
@@ -140,18 +141,14 @@ export function BuildPanel({
   }
   const artifact = snapshot?.artifact;
   return (
-    <section
-      className="panel"
-      aria-label="完整本地 AOT 构建"
-      style={{ padding: 24, marginBottom: 20 }}
-    >
+    <section className="panel build-panel" aria-label="完整本地 AOT 构建">
       <div className="section-heading">
         <h2>完整本地 AOT → IPA</h2>
         <span className="badge">Apple Silicon macOS</span>
       </div>
       <p className="small muted">
-        使用所选 MCFAO 源码与已核验的本地游戏资源。GL41
-        是主要研发路线；真机验证前请显式选择渲染器。构建进度来自真实阶段与日志。
+        使用所选 MCFAO 源码与已核验的本地游戏资源。默认使用 OpenGL
+        兼容模式（GL41 / Zink / MoltenVK）。构建进度来自真实阶段与日志。
       </p>
       <div className="build-grid">
         <div>
@@ -178,7 +175,7 @@ export function BuildPanel({
           {importResult && (
             <details>
               <summary>已获取的 Mod 元数据与静态风险</summary>
-              <div style={{ overflowX: "auto" }}>
+              <div className="table-wrap">
                 <table>
                   <thead>
                     <tr>
@@ -205,7 +202,7 @@ export function BuildPanel({
                   </tbody>
                 </table>
               </div>
-              <pre style={{ whiteSpace: "pre-wrap" }}>
+              <pre className="inline-code">
                 {JSON.stringify(importResult.modFindings, null, 2)}
               </pre>
             </details>
@@ -226,15 +223,10 @@ export function BuildPanel({
             渲染器
             <select
               aria-label="完整构建渲染器"
-              value={renderer}
+              defaultValue={renderer}
               disabled={busy}
-              onChange={(e) => setRenderer(e.target.value)}
             >
-              <option value="" disabled>
-                请选择渲染器
-              </option>
-              <option value="gl41">GL41 / Zink / MoltenVK（主要研发）</option>
-              <option value="metal">原生 Metal（实验 / 维护）</option>
+              <option value="gl41">OpenGL 兼容（GL41 / Zink / MoltenVK）</option>
             </select>
           </label>
           <label className="field">
@@ -370,19 +362,11 @@ export function BuildPanel({
               {snapshot.error}
             </p>
           )}
-          <pre
-            aria-label="完整构建实时日志"
+          <LogView
+            label="完整构建实时日志"
             className="build-live-log"
-            style={{
-              maxHeight: 460,
-              overflow: "auto",
-              whiteSpace: "pre-wrap",
-              overflowWrap: "anywhere",
-            }}
-          >
-            {snapshot?.lines.join("\n") ||
-              "阶段日志将在此显示。不会虚构百分比或预计剩余时间。"}
-          </pre>
+            text={snapshot?.lines.join("\n") ?? ""}
+          />
           {snapshot && (
             <>
               <p className="small muted">完整日志：{snapshot.logPath}</p>
@@ -414,7 +398,7 @@ export function BuildPanel({
             <div aria-label="IPA 产物清单">
               <h3>IPA 完整性校验通过</h3>
               <p className="small">真机游玩和 Mod 功能需要独立验收。</p>
-              <dl style={{ overflowWrap: "anywhere" }}>
+              <dl>
                 {Object.entries({
                   IPA: artifact.ipa,
                   大小: `${artifact.bytes} bytes`,
@@ -460,14 +444,7 @@ export function BuildPanel({
                 下列数据来自实际转换报告；运行状态 NOT RUN，不能据此判定
                 FUNCTION_PASS。
               </p>
-              <pre
-                style={{
-                  maxHeight: 500,
-                  overflow: "auto",
-                  whiteSpace: "pre-wrap",
-                  overflowWrap: "anywhere",
-                }}
-              >
+              <pre className="inline-code tall">
                 {JSON.stringify(adaptation, null, 2)}
               </pre>
             </details>
