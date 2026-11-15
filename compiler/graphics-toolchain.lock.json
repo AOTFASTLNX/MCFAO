@@ -4,7 +4,10 @@
     "file": "cmake-3.31.12-macos-universal.tar.gz",
     "url": "https://cmake.org/files/v3.31/cmake-3.31.12-macos-universal.tar.gz",
     "sha256": "799af7fd545db9bf1b9cfe72f8095880e727a2d4e0df0e3dffc3bc7b95c2d3b0",
-    "size": 79954716
+    "size": 79954716,
+    "mirrors": [
+      "https://github.com/Kitware/CMake/releases/download/v3.31.12/cmake-3.31.12-macos-universal.tar.gz"
+    ]
   },
   "glslang": {
     "version": "16.1.0",
