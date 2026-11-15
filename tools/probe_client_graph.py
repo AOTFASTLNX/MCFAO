@@ -181,7 +181,8 @@ def main(argv=None):
         parser.error("Confirmed B1 device behavior required")
     prepared = args.prepared.resolve(strict=True)
     manifest = json.loads((prepared / "result.json").read_text())
-    home = Path(manifest["javaHome"])
+    # Sandbox rules must name the real toolchain after external-storage relocation.
+    home = Path(manifest["javaHome"]).resolve(strict=True)
     if sha256(home / "bin/java") != manifest["javaSHA256"]:
         parser.error("Java changed")
     libraries = []
