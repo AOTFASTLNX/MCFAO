@@ -1,0 +1,90 @@
+import { test, expect } from "@playwright/test";
+import { readFileSync } from "node:fs";
+
+const windowConfig = JSON.parse(
+  readFileSync(
+    new URL("../src-tauri/tauri.conf.json", import.meta.url),
+    "utf8",
+  ),
+).app.windows[0];
+
+for (const theme of ["light", "dark"] as const) {
+  for (const size of [
+    { width: windowConfig.width, height: windowConfig.height },
+    { width: windowConfig.minWidth, height: windowConfig.minHeight },
+  ]) {
+    test(`macOS titlebar and compact layout ${theme} ${size.width}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize(size);
+      await page.emulateMedia({ colorScheme: theme });
+      await page.goto("/");
+      // Browser previews exercise the same overlay spacing as the macOS host.
+      await page.locator(".app-shell").evaluate((shell) => {
+        shell.setAttribute("data-window-chrome", "overlay");
+      });
+      const titlebar = page.locator(".sidebar-titlebar");
+      await expect(titlebar).toBeVisible();
+      const clearance = (await titlebar.boundingBox())!;
+      const brand = (await page.locator(".brand").boundingBox())!;
+      expect(brand.y).toBeGreaterThanOrEqual(clearance.y + clearance.height);
+      expect(
+        await page.locator(".topbar").evaluate((header) => {
+          const bounds = header.getBoundingClientRect();
+          return document
+            .elementFromPoint(bounds.x + bounds.width / 2, bounds.y + 4)
+            ?.hasAttribute("data-tauri-drag-region");
+        }),
+      ).toBe(true);
+
+      const toggle = page.getByRole("button", {
+        name: theme === "light" ? "切换为深色模式" : "切换为浅色模式",
+      });
+      expect(
+        await toggle.evaluate((button) => {
+          const bounds = button.getBoundingClientRect();
+          return (
+            document
+              .elementFromPoint(
+                bounds.x + bounds.width / 2,
+                bounds.y + bounds.height / 2,
+              )
+              ?.closest("button") === button
+          );
+        }),
+      ).toBe(true);
+      await toggle.click();
+      await expect(page.locator("html")).toHaveAttribute(
+        "data-theme",
+        theme === "light" ? "dark" : "light",
+      );
+      await page
+        .getByRole("button", {
+          name: theme === "light" ? "切换为浅色模式" : "切换为深色模式",
+        })
+        .click();
+
+      for (const name of ["构建 IPA", "构建记录", "环境与资源", "设置"]) {
+        await page.getByRole("button", { name, exact: true }).first().click();
+        expect(
+          await page.evaluate(
+            () => document.documentElement.scrollWidth <= innerWidth,
+          ),
+        ).toBe(true);
+        await page.evaluate(() =>
+          window.scrollTo(0, document.body.scrollHeight),
+        );
+        await expect(page.locator(".topbar")).toBeInViewport();
+        expect((await page.locator(".topbar").boundingBox())!.y).toBe(0);
+      }
+      await page
+        .getByRole("button", { name: "构建 IPA", exact: true })
+        .first()
+        .click();
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await page.screenshot({
+        path: `../artifacts/desktop/titlebar-compact/${theme}-${size.width}.png`,
+      });
+    });
+  }
+}

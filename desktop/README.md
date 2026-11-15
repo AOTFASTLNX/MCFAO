@@ -1,71 +1,56 @@
-# FabricAOT Desktop（实验版）
+# FabricAOT IPA 构建工作台（实验版）
 
-Tauri 2 + React + TypeScript 的本地工作台，面向 macOS、Windows 和 Linux。当前已在 macOS Apple Silicon 构建与测试；Windows / Linux 原生包仍需在对应系统验证。
+中文本地图形工具：选择游戏内容 → 构建环境 → 开发签名 → 构建 IPA。包含真实后台任务、阶段日志、取消、失败重试、任务恢复、IPA 校验和 Finder 定位。界面提供跟随系统、浅色和深色三种外观，选择保存在本机，并同步 macOS 窗口标题栏。
+
+视觉体系采用 System Neutral：中性系统表面、macOS 原生强调色、独立的成功 / 警告 / 错误状态色。设置页可跟随系统强调色，或固定一个可读的交互色；状态色不会随强调色变化。日志使用等宽字体并按 INFO / WARN / ERROR 着色，同时保留文字标签。
 
 ## 启动
 
-需要 Node.js 22.12+（或 24+）与 npm。桌面模式另需 Rust stable、对应系统的 Tauri 2 开发依赖以及 Python 3。
+在 desktop 目录执行 npm ci，然后 npm run tauri dev。浏览器预览使用 npm run dev，地址 http://127.0.0.1:1420；预览可以导入报告、查看界面和配置表单，真实构建必须在桌面应用执行。
 
-在本目录执行：
+桌面开发需要 Node.js 22.12+、Rust / Tauri 开发依赖。完整 IPA 构建另需 macOS Apple Silicon、ARM64 Python 3.11+、Xcode、现有 AOT 前置配置和本机开发签名。详细输入准备见 docs/BUILDING.md。
 
-~~~sh
-npm ci
-npm run dev
-~~~
+来源卡片可勾选「强制编译（忽略 Loader 版本差异）」，使用内置 Loader 0.19.3 尝试构建；来源与实际版本保留在任务中。详细边界见 docs/DESKTOP.md。
 
-浏览器打开 `http://127.0.0.1:1420`。预览模式支持报告导入、实例管理、筛选、导出、本地设置与准备命令生成。
+## 本地打包
 
-桌面模式：
+在 desktop 执行 npm run build:mac。脚本运行 Tauri 开发包构建，并对 FabricAOT.app 执行临时签名及严格验签。产物在 src-tauri/target/debug/bundle/macos/FabricAOT.app。工作台不包含游戏文件；运行时选择完整 FabricAOT 源码目录。正式分发签名和公证尚未验收。
 
-~~~sh
-npm run tauri dev
-~~~
+## 使用
 
-若浏览器预览服务已启动，先停止它，再启动桌面开发模式，避免端口冲突。
+- 导入 .mrpack 或 Prism 实例，或选择原版 26.1.2。Fabric 固定 Loader 0.19.3。
+- 自动识别本机配置，或在高级资源配置中选择路径并保存。新机器需先准备 CLI 所需的合法游戏资源与原生输入。
+- 使用 Xcode 已准备的证书和描述文件，Team ID 可留空。确认已审计的 Fabric Mod 后直接构建 IPA。
+- 构建记录显示持久任务与日志；可取消和重试。关闭应用不结束后台任务。
+- 已有构建可从 result.json 所在目录直接重新导出 IPA。
 
-## 当前能力
+来源的静态检查不证明 Mod 真机兼容。IPA 成功表示构建、签名和内容校验通过，真机安装、游玩及存档仍按独立验收标准验证。当前不自动操作任何设备。
 
-- 中文工作台、实例库、兼容性报告、构建准备、会话任务日志、工作环境和设置。
-- 桌面应用通过文件选择器或拖放导入 `.mrpack` / Prism 实例，实际调用仓库 `tools/preflight.py`。
-- Python 脚本随桌面应用打包；用户仍需本机安装 Python 3，可在设置中指定解释器。导入不依赖项目目录配置。
-- 浏览器与桌面均可导入静态预检 JSON；报告最多 8 MiB。JSON 字段经过校验，错误与警告分开显示。
-- 实例、报告和设置保存在当前 WebView / 浏览器的本地存储。两种模式的存储彼此独立，任务日志仅保留当前会话。
-- 导出 JSON 报告、预检日志和构建准备说明。桌面导出使用系统保存对话框。
-- 本机 Python / Java 25 / Xcode 检测，明确显示缺失和平台限制。
+## 外观与日志
 
-完整 AOT 编译、签名与 IPA 导出仍使用 [构建文档](../docs/BUILDING.md)。界面生成的命令固定为 `--prepare-only`；不会自动授予第三方 Mod 审计许可或执行完整构建。远程 Mac 调度尚未接入。
+- 外观默认跟随系统；设置页可固定浅色或深色，并切换交互强调色。
+- 强调色默认读取 macOS 系统设置；浅色模式会自动调整填充色的明度，保证按钮文字可读。
+- 状态色固定表示成功、警告和错误。构建日志使用等宽字体，并同时用文字标签与颜色区分等级。
 
-静态报告始终保留未测试状态；导入报告中的兼容性或真机验证宣称不会被当作实际验收证据。游戏与 Mod 行为按 [验收标准](../docs/ACCEPTANCE.md) 独立验证。
+## 测试
 
-## 测试与打包
+- npm test
+- npm run test:e2e
+- npm run build
+- cargo test --manifest-path src-tauri/Cargo.toml --lib
+- cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
+- 仓库根执行 python3 -m unittest discover -s tests -p 'test_desktop_workbench.py'
 
-~~~sh
-npm test
-npx playwright install chromium
-npm run test:e2e
-cargo test --manifest-path src-tauri/Cargo.toml --lib
-npm run build
-npm run tauri build
-~~~
+## 实现
 
-仅构建本地 macOS 开发包（不需要分发证书）：
+- src/App.tsx：Fabric 五步 / 原版四步的构建、环境、签名、任务和设置界面。
+- src/system-neutral.css：System Neutral 语义令牌、控件、页面与响应式规则。
+- src/theme.ts：外观与系统强调色偏好、可读性映射和原生窗口同步。
+- src/LogView.tsx、src/log.ts：构建日志的等宽呈现与 INFO / WARN / ERROR 语义分级。
+- src/workflow.ts：构建输入、持久化和前置约束。
+- src/model.ts：静态报告校验与旧记录迁移。
+- src-tauri/src/lib.rs：固定第一方操作桥接，ARM64 服务启动。
+- ../tools/desktop_workbench.py：受控下载、暂存、持久任务、CLI 调度与恢复。
+- scripts/package-macos.mjs：本地开发应用签名打包。
 
-~~~sh
-npm run tauri build -- --debug --bundles app
-~~~
-
-输出位于 `src-tauri/target/debug/bundle/macos/FabricAOT.app`。正式分发的签名与公证尚未配置。Windows / Linux 安装包应在各自系统构建与验收。
-
-本轮本机 Rust 为 x86_64 工具链，已验证的开发包为 Intel / Rosetta 版本；Apple Silicon 原生桌面包尚未构建验收。验证结果与本地工件记录见 [DESKTOP.md](../docs/DESKTOP.md)。
-
-测试夹具由 `tests/make_fixture.py` 生成，只有第一方元数据，不含 Minecraft、第三方 Mod 代码、账户或存档。首页方块山林插画和标记为本项目原创 SVG，不是游戏截图。
-
-## 实现入口
-
-- `src/App.tsx`：页面、工作流与本地状态。
-- `src/model.ts`：报告校验、实例去重、持久化格式、命令参数引用。
-- `src/bridge.ts`：浏览器 / Tauri 能力边界。
-- `src-tauri/src/lib.rs`：固定预检命令、超时与输出限制、环境检测、文件导出。
-- `src-tauri/capabilities/default.json`：仅开放所需本地对话框；没有 shell 插件。
-
-npm 的可选开发工具 peer 解析在当前环境触发了安装器错误，项目 `.npmrc` 固定 `legacy-peer-deps=true`；提交的锁文件记录实际依赖版本。
+边界、详细验证与证据见 docs/DESKTOP.md。界面使用原创 SVG 插画；不是游戏截图。

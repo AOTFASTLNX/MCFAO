@@ -1,42 +1,95 @@
-# 跨平台桌面工作台
+# 本地 IPA 构建工作台
 
-Last reviewed: 2026-11-14
+Last reviewed: 2026-11-15
 
-状态：实验版前端与本地静态预检桥接。源码和使用说明见 [desktop/README.md](../desktop/README.md)。本次前端工作不提升游戏运行、Mod、签名或性能 Gate。
+状态：Tauri 2 / React / TypeScript 实验版构建工具。工作台可直接启动本机完整构建与 IPA 导出；游戏的真机、整合包与性能 Gate 仍按 ACCEPTANCE.md 独立验收。
 
-## 平台与功能
+## 操作流程
 
-桌面管理界面采用 Tauri 2、React、TypeScript、Vite；面向 macOS、Windows、Linux。iOS AOT 工具链继续运行于 macOS Apple Silicon。桌面端调用随应用打包的第一方 `preflight.py`，仅读取本地元数据。Python 3 由本机提供；GUI 可配置解释器路径。浏览器模式通过 JSON 报告完成相同的查看、筛选、实例管理和导出工作。
+1. **游戏内容**：选择或拖入 .mrpack / Prism 实例，运行静态检查；也可选择原版 26.1.2。当前 Fabric 构建器使用 Loader 0.19.3；来源声明不同版本时，可在来源卡片勾选「强制编译（忽略 Loader 版本差异）」继续。原包保持不变，实际使用的 Loader 版本写入任务记录与暂存清单。
+2. **构建环境**：选择完整 FabricAOT 源码目录，自动识别 artifacts/mcfao-local.json 或 mcfao.local.json。可选已有配置，也能在高级配置中逐项选择前置路径并保存独立 JSON。选择产物根目录后，每次构建会创建独立目录。
+3. **开发签名**：Team ID 可选，默认读取本机有效描述文件的团队；导出配置默认使用 ios/C0Harness/ExportOptions.plist。证书与私钥交由系统钥匙串和 Xcode 管理。
+4. **确认构建**：Fabric 来源必须由使用者明确确认已审计构建期代码。点击「构建 IPA」实际运行 doctor、build、export；不生成待用户复制执行的 shell 命令。
 
-支持 `.mrpack`、Prism 目录选择和原生拖放；阻断与预警按原始报告展示。首版构建页可生成元数据准备命令，实际编译、签名和导出仍使用现有 CLI。没有远程 Mac 服务。
+「构建记录」也支持选择含 result.json 的已完成 SIGNED_DEVICE_APP 目录，重新核验原包，再执行归档、开发签名、IPA 导出及解包验签。此路径复用既有 AOT，不表示本次重新编译。
 
-## 边界
+## 真实执行与持久任务
 
-- 报告输入校验后统一为静态预检类型。所有 Mod 的 iOS / AOT 状态为未测试，不从 imported JSON 的 VERIFIED 字段推断真机证据。
-- 不下载或执行 Mod。Rust 仅以参数数组启动第一方脚本，不借助 shell；预检 120 秒超时、stdout 8 MiB / stderr 64 KiB 上限。
-- 环境检查只证明被调用工具的当前可用性，Java / Xcode 检测不证明完整 iOS GraalVM 工具链有效。
-- 本地存储损坏时保留原始记录、暂停覆盖，提供导出和显式重置。工作台移除实例仅删除报告记录。
-- 应用只包含前端、原创 SVG 和预检脚本，不包含游戏文件、Mod 二进制、账户、存档和签名材料。
+- Rust 仅允许固定 workbench 操作，使用参数数组启动第一方 tools/desktop_workbench.py，无 shell 文本执行。桌面宿主可以是 Intel，但 macOS 构建服务显式使用 ARM64 Python，避免 Rosetta 继承。
+- supervisor 将 job.json、参数、输出与取消标记保存在 artifacts/desktop-jobs/<id>。构建目录位于用户选择的产物根下。关闭 UI 后进程继续运行，重开工作台读取持久记录。
+- 每个项目同时只允许一个任务。取消会终止任务的子进程树，包括原 CLI 新建会话的编译子进程；中断和失败保留日志。重试复用原始请求、暂存文件与构建路径，CLI 仍核对输入、参数和产物指纹才复用检查点。
+- GUI 轮询阶段输出及嵌套编译日志，显示真实阶段，不伪造百分比。可导出当前日志快照，完整日志保留在任务目录；可分别在 Finder 定位 IPA 或任务文件夹。
+- 只有 export 的 DEVELOPMENT_IPA_VERIFIED 结果、IPA 路径和 SHA-256 再次匹配后才显示「IPA 已验证」。不会由退出码 0 单独推断成功。
 
-## 验证入口
+## 来源与资源边界
 
-`desktop/src/model.test.ts` 验证报告输入、状态边界、跨系统路径、重复导入与命令参数；`desktop/tests/workspace.spec.ts` 使用真实第一方预检输出检查导入、持久化、筛选、导出、阻断、键盘和响应式布局。Rust 测试验证命令参数、超时、输出限额、无效源和错误报告传递。
+Prism 从 .minecraft、minecraft 或实例根选择真实 mods 目录；复制 mods、config、defaultconfigs、resourcepacks、shaderpacks、kubejs、scripts 白名单树。不会读取账户或复制玩家世界。拒绝树内符号链接。
 
-本轮测试、截图和本地打包记录放在 `artifacts/desktop/`。Windows / Linux 的原生构建、文件对话框和运行验收尚未执行；当前 macOS 的结果不作为其他系统的验收证据。
+.mrpack 先检查清单、路径、解压总量、碰撞等，再获取客户端 required 文件。server-only 与 optional 文件跳过并记日志。自动下载仅允许 HTTPS cdn.modrinth.com，使用 macOS 系统代理与 `*_proxy` 环境变量，TLS 证书和主机名继续校验；代理的 fake-IP 或本机解析结果不再被当作攻击拒绝。每次重定向重新校验域名。下载大小、SHA-1 / SHA-512 与清单逐个匹配。其他下载源或不支持的必要路径明确失败，建议通过 Prism 完成下载后导入本地实例。单文件上限 256 MiB，总暂存预算 4 GiB，最多 128 个根 Mod JAR。
 
-## 2026-11-14 本轮结果
+覆盖文件依次应用 overrides、client-overrides，保存最终树 SHA-256。实际 JAR 再次静态检查，之后才交给原 CLI 的隔离转换流程。包配置和资源通过 --instance-data 进入输入指纹、Xcode instance-seed 资源及导出后校验。iOS 启动时仅补入不存在的包文件，保留已有用户配置；升级已有配置的迁移不在此实现。
 
-| 检查 | 结果 |
+Fabric 构建期转换发现静态 AOT 排除项时，任务会暂停并弹出确认：列明受影响的根 Mod 文件、不能转换的原因，以及依赖这些 Mod 的连带排除项。确认后从已校验暂存内容创建新副本，移除整份受影响根 JAR 和依赖项，再用新的构建目录重新运行转换；原始整合包、先前暂存与失败诊断都保留。取消会停止当前任务。若新一轮仍发现排除项，会再次征求确认，最多五轮。
+
+用户确认只授权构建这个已明确缩减的子集，不会把被排除项目视为已转换或已验证。静态报告仍不能授予 `FUNCTION_PASS`；构建期隔离沿用现有受审计执行策略，D0 不因 UI 或下载检查而升级。
+
+## 本机前置条件
+
+- 完整构建使用 macOS Apple Silicon、ARM64 Python 3.11+、Xcode / iPhoneOS SDK，以及已有的 Java25 AOT、运行库、图形/音频和合法游戏资源配置。
+- 工作台需要用户选择完整源码目录；应用包不包含游戏本体、工具链缓存、玩家账户或签名私钥。尚未实现新机器上一键从零准备全部原生前置输入。
+- Windows / Linux 保留界面与静态报告能力，不能在本机执行 iOS AOT / 签名；远程 Mac 构建服务未实现。
+- 开发包必须完成临时签名，否则 macOS 文件访问可能停滞。本地打包使用 npm run build:mac，脚本在 Tauri 打包后执行 ad-hoc 签名与严格验签；这不等于正式分发签名或公证。
+
+## 外观
+
+macOS 使用 Overlay 标题栏并隐藏原生标题文字，保留系统红黄绿按钮；侧栏延伸到窗口顶部，品牌区为系统按钮预留 64 pt，右侧顶栏与页面使用同一背景。侧栏顶部与右侧顶栏空白处可拖动窗口，主题按钮保持独立点击；顶栏在滚动时保持可见。默认居中打开为 1100 × 760 pt，最小 800 × 640 pt，仍可自由调整。
+
+2026-11-15 标题栏回归：47 项单元测试、20 项浏览器交互测试（`workspace.spec.ts` 与 `titlebar.spec.ts`）和前端生产构建通过。浏览器检查覆盖浅 / 深色的默认与最小尺寸、所有导航页面无横向溢出、拖动区域命中、主题按钮点击与滚动后顶栏可见；截图在 `artifacts/desktop/titlebar-compact/`。已有 1420 端口预览属于另一工作目录，复验使用独立 15420 端口。本轮只验证桌面窗口，不改变游戏 Gate。
+
+使用项目隔离的 `cache/cargo-home` / `cache/rustup` ARM64 工具链与 `cache/cargo-arm64` 产物目录完成 `npm run build:mac`；`file` 确认 arm64，严格验签通过，并实际启动检查融合标题栏与默认尺寸。交付副本：`artifacts/desktop/FabricAOT-titlebar-arm64.app`。验证摘要与二进制哈希见 `artifacts/desktop/titlebar-compact/verification.json`。
+
+顶栏提供「跟随系统 / 浅色 / 深色」一键切换，设置页可固定选择并说明当前跟随结果。偏好写入 `fabricaot.theme.v1`，启动前即应用，避免浅色用户看到深色闪烁；桌面模式通过第一方 `set_window_theme` 命令把同一外观应用到 macOS 原生窗口：标题栏、红黄绿按钮、菜单和滚动条会与页面一起切换，窗口底色同时更新，不再只换网页内容。
+
+视觉体系为 System Neutral：浅色使用 `#F5F5F7` 窗口、`#FFFFFF` 内容、`#ECEDEF` 侧栏，深色使用 `#18191B` / `#27282B` / `#222326`，全部通过 `desktop/src/system-neutral.css` 的语义令牌消费，页面不再硬编码品牌绿。交互强调色默认读取 macOS `controlAccentColor`（第一方 `system_accent` 命令），也可在设置中固定蓝、紫、红、橙或绿；浅色模式会在保持色相的前提下调深填充色，使白色按钮文字达到正常文本对比度，深色模式则保留可读的系统色。成功、警告、错误保持独立语义，不随强调色变化。构建日志使用等宽字体，并按 INFO / WARN / ERROR 分级着色，同时保留文字级别标签，避免只靠颜色传达状态。
+
+验证记录见 `desktop/src/theme.test.ts`、`desktop/src/log.test.ts` 与浏览器回归（切换、跟随系统、强调色持久化、375 / 768 / 1440 无横向溢出、全部页面文字对比度）；截图见 `artifacts/desktop/system-neutral/`，包含浅色 / 深色的构建、Mod、资源、确认、记录、环境、设置、窄窗口与真实原生窗口。
+
+## 强制编译
+
+来源卡片勾选后可绕过 Loader 版本精确匹配，确认页显示编译方式，任务与日志记录来源版本和实际构建版本。切换来源或重开应用后需重新勾选。该选项用于尝试编译；Minecraft 26.1.2 / Fabric 目标、文件完整性、合法路径、构建期代码审计、签名和最终产物校验继续生效。实际依赖解析、Mixin 或 AOT 错误会保留原始日志并将任务标记为失败。
+
+## 2026-11-15 验证
+
+日志与截图：artifacts/desktop-rewrite/。
+
+| 验证 | 结果 |
 |---|---|
-| TypeScript / Vite 生产构建 | PASS |
-| 数据模型与命令参数自动化 | 19 PASS |
-| 浏览器工作流与 375 / 768 / 1280 / 1440 布局 | 10 PASS |
-| Rust 预检桥接、超时与输出上限 | 5 PASS |
-| Rust Clippy（-D warnings） | PASS |
-| macOS 桌面开发包 | PASS，约 30.54 MiB |
-| 原生 .mrpack 选择、Python 预检、报告和任务日志 | PASS，第一方元数据夹具 |
-| 原生系统保存对话框导出日志 | PASS |
+| TypeScript / Vite 生产构建 | PASS（含浅色主题与原生窗口外观，2026-11-15 复验） |
+| 模型与流程单测 | 47 PASS（含 6 项主题单测） |
+| 浏览器交互、375 / 768 / 1280 / 1440 布局 | 22 PASS（含外观切换、强调色持久化与浅色窄屏） |
+| 系统强调色与日志语义单测 | 9 PASS（6 项强调色、3 项日志） |
+| Rust 桥接与系统强调色读取 | 7 PASS |
+| Rust Clippy -D warnings | PASS |
+| Python supervisor、下载安全、复制与取消、产物门槛 | 32 PASS（新增代理 fake-IP 与重定向校验 5 项） |
+| 原有 mcfao 构建回归 | 36 PASS |
+| 静态预检回归 | 15 PASS |
+| iOS 宿主回归 | 17 PASS |
+| Rust 桥接单测 | 7 PASS |
+| Rust Clippy -D warnings | PASS |
+| 原生标题栏 / 滚动条随主题切换（真实窗口） | PASS |
+| macOS x86_64 / Rosetta 工作台开发包 | PASS，构建服务为 ARM64 Python |
+| 原生 UI 自动识别配置、环境与开发签名检测 | PASS |
+| 原生 UI 选择已有真实构建并导出 IPA、Finder 定位 | PASS |
 
-本机 Rust 工具链默认 host 为 x86_64-apple-darwin，本轮开发包也为 x86_64，在 Apple Silicon 宿主通过 Rosetta 运行验证。aarch64 原生包、正式分发签名与公证尚未验证。原生 Prism 目录选择和拖放有实现，未在本轮逐项交互验收。
+真实 GUI 导出任务 1670cbc6d2ee41f0a902a9d17a330e65：从既有 metal-p0-triple-full-game-01 构建重新核验、归档和导出，生成 714,445,927 字节开发 IPA，SHA-256 a99a54cd1dc9a83284611b0885d524f52bd978ff9dfa4207774091b5901f04e9。任务本身保留原生签名、平台、资源和归档日志。本轮没有安装或启动真机，也没有从新导入的第三方整合包重新执行完整 AOT；此路径由第一方测试夹具和既有 CLI 回归覆盖，不记为新的整合包真机验收。
 
-原始日志：`artifacts/desktop/unit-tests.log`、`browser-tests.log`、`native-tests.log`、`native-preflight-log.txt`。概要、工件与附带脚本指纹见同目录 `result.json`。本机生成的 `FabricAOT-macos-x64-experimental.zip` 测试包未提交到仓库，只包含工作台与预检工具。
+## 分步工作台与 OpenGL 构建
+
+工作台按游戏内容、资源管理、构建环境、开发签名、确认构建组织；Fabric 来源使用完整五步，原版使用四步并跳过资源管理。渲染入口固定为 OpenGL 兼容（GL41 / Zink / MoltenVK），高级配置使用 gl41 与 lwjglOpengl；doctor 和 build 均显式传递 --renderer gl41。强制编译、持久任务、日志、取消、重试、IPA 导出继续使用同一工作台。启动时迁移到应用对应源码目录及其 GL41 配置，保留已导入来源。实例通过校验过的 import.json 和 --instance-data 接入当前构建链。
+
+- 2026-11-15: “游戏内容”步骤中完成来源检查后，可点击“查看 Mod 列表”，搜索名称、ID 或文件名，并按状态筛选。展开单项可查看版本、来源路径、运行侧、Mixin/入口点/嵌套依赖等机制及具体诊断。列表包含包内、本地和清单引用文件；待下载文件的 ID/版本保持未知，可选、仅服务端和已禁用项目分别标注。所有 iOS / AOT 状态仍为未测试；旧报告可重新检查来源以补齐清单。
+
+- 2026-11-15: 整合包构建流程现为：游戏内容 → 资源管理 → 构建环境 → 开发签名 → 确认构建。资源管理按 Mod、材质包、光影包、配置与脚本、其他资源分类，支持搜索、逐项勾选、批量保留/排除和恢复默认。可选资源默认不勾选，可手动加入；所选文件真正参与下载/复制，排除项不进入本次构建。文件夹形式的材质包/光影包整体保留。原包不改动，选择保存到任务及导入清单。光影包仅保留资源，不代表当前可启用；依赖与重复版本仍在后续构建检查中验证。
+- 2026-11-15: 工作台新增「跟随系统 / 浅色 / 深色」外观，顶栏按钮一键切换，设置页可固定选择；偏好写入 `fabricaot.theme.v1`，启动前应用避免闪白/闪黑，macOS 标题栏同步（`core:window:allow-set-theme`）。浅色配色覆盖侧栏、卡片、表单、诊断、日志、弹窗与移动布局；`desktop/src/theme.test.ts` 和浏览器回归验证切换、跟随系统、刷新保留、375 / 768 / 1440 无横向溢出及全部页面文字对比度。截图见 artifacts/desktop/light-theme/。
+
+- 2026-11-15: 资源管理支持按客户端必需、客户端可选、待确认、仅服务端、不可导入分级筛选，并与资源分类和搜索组合。必需/可选来自整合包清单声明，包内或本地未声明资源列为待确认；不等同于 iOS 兼容性或依赖解析结果。排除必需资源会显示提示及恢复按钮，不阻止手动调整。

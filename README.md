@@ -71,7 +71,7 @@ flowchart LR
 | [ci](ci) | GitHub Actions、CircleCI 和云端构建脚本 |
 | `artifacts/` | 本地构建产物与实验证据，体积很大，不属于源码 |
 
-Mac 端目前以根目录的 [`./mcfao`](mcfao) 命令行和 `tools/` 下的 Python 编排为主。产品文档中规划的 SwiftUI Mac 图形界面尚未实现。
+Mac 端提供 [`desktop/`](desktop) 的四步 Tauri 工作台（游戏内容 → 资源管理 → 构建环境 → 开发签名 → 确认构建），底层仍调用 [`./mcfao`](mcfao) 命令行与 `tools/` 下的 Python 编排。工作台可执行真实 AOT、开发签名、IPA 导出与校验；真机安装、游玩和存档保留按 [验收标准](docs/ACCEPTANCE.md) 独立验证。
 
 ## 快速开始
 

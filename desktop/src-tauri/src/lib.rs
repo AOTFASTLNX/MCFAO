@@ -4,63 +4,12 @@ use std::{
     io::Read,
     path::PathBuf,
     process::{Command, Stdio},
+    sync::OnceLock,
     thread,
     time::{Duration, Instant},
 };
 use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
-mod build_job;
-#[tauri::command]
-async fn stage_instance(
-    workspace: String,
-    source: String,
-    python: String,
-) -> Result<Value, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        if workspace
-            .chars()
-            .chain(source.chars())
-            .any(|c| c.is_control())
-        {
-            return Err("路径包含控制字符".into());
-        }
-        let root = PathBuf::from(workspace)
-            .canonicalize()
-            .map_err(|e| e.to_string())?;
-        let source = PathBuf::from(source)
-            .canonicalize()
-            .map_err(|e| e.to_string())?;
-        let script = root.join("tools/import_instance.py");
-        if !root.join(".git").exists() || !script.is_file() {
-            return Err("请选择包含导入工具的 MCFAO 工作区".into());
-        }
-        let id = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|e| e.to_string())?
-            .as_nanos();
-        let output = root.join("artifacts/desktop-imports").join(id.to_string());
-        let args = vec![
-            "-u".to_string(),
-            "-B".into(),
-            script.to_string_lossy().into_owned(),
-            "--source".into(),
-            source.to_string_lossy().into_owned(),
-            "--output".into(),
-            output.to_string_lossy().into_owned(),
-        ];
-        let result = capture(
-            python_program(&python),
-            &args.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
-            Duration::from_secs(900),
-        )?;
-        if result.code != Some(0) {
-            return Err(format!("实例文件导入失败：{}", result.stderr));
-        }
-        serde_json::from_str(&result.stdout).map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
 
 const MAX_OUTPUT: usize = 8 * 1024 * 1024;
 #[derive(Debug)]
@@ -126,21 +75,76 @@ fn capture(program: &str, args: &[&str], deadline: Duration) -> Result<Captured,
         stderr: String::from_utf8_lossy(&stderr?).trim().into(),
     })
 }
-fn python_program(custom: &str) -> &str {
-    if custom.trim().is_empty() {
-        if std::path::Path::new("/Library/Frameworks/Python.framework/Versions/3.11/bin/python3")
-            .is_file()
-        {
-            return "/Library/Frameworks/Python.framework/Versions/3.11/bin/python3";
-        }
-        if cfg!(target_os = "windows") {
-            "python"
-        } else {
-            "python3"
-        }
+const MIN_PYTHON: (u32, u32) = (3, 11);
+
+// GUI launches inherit launchd's PATH (/usr/bin:/bin:/usr/sbin:/sbin), where "python3" is the
+// Xcode 3.9 stub. Run a candidate through "arch -arm64" so Rosetta-only interpreters fail here
+// instead of inside the AOT host gate.
+fn native_capture(program: &str, args: &[&str], deadline: Duration) -> Result<Captured, String> {
+    if cfg!(target_os = "macos") {
+        let mut native = vec!["-arm64", program];
+        native.extend(args);
+        capture("/usr/bin/arch", &native, deadline)
     } else {
-        custom
+        capture(program, args, deadline)
     }
+}
+
+fn python_probe(program: &str) -> Option<(u32, u32)> {
+    let output = native_capture(
+        program,
+        &[
+            "-I",
+            "-c",
+            "import sys; print('%d.%d' % sys.version_info[:2])",
+        ],
+        Duration::from_secs(10),
+    )
+    .ok()?;
+    if output.code != Some(0) {
+        return None;
+    }
+    let mut parts = output.stdout.trim().split('.');
+    Some((parts.next()?.parse().ok()?, parts.next()?.parse().ok()?))
+}
+
+fn discover_python() -> String {
+    if cfg!(target_os = "windows") {
+        return "python".into();
+    }
+    let mut candidates: Vec<String> = Vec::new();
+    if let Some(path) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&path) {
+            for name in ["python3.14", "python3.13", "python3.12", "python3.11", "python3"] {
+                let candidate = dir.join(name);
+                if candidate.is_file() {
+                    candidates.push(candidate.to_string_lossy().into_owned());
+                }
+            }
+        }
+    }
+    for known in [
+        "/Library/Frameworks/Python.framework/Versions/3.14/bin/python3",
+        "/Library/Frameworks/Python.framework/Versions/3.13/bin/python3",
+        "/Library/Frameworks/Python.framework/Versions/3.12/bin/python3",
+        "/Library/Frameworks/Python.framework/Versions/3.11/bin/python3",
+        "/opt/homebrew/bin/python3",
+        "/usr/local/bin/python3",
+    ] {
+        candidates.push(known.into());
+    }
+    candidates
+        .into_iter()
+        .find(|program| python_probe(program).is_some_and(|version| version >= MIN_PYTHON))
+        .unwrap_or_else(|| "python3".into())
+}
+
+fn python_program(custom: &str) -> String {
+    if !custom.trim().is_empty() {
+        return custom.trim().into();
+    }
+    static DISCOVERED: OnceLock<String> = OnceLock::new();
+    DISCOVERED.get_or_init(discover_python).clone()
 }
 fn development_workspace() -> Option<PathBuf> {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -152,6 +156,65 @@ fn development_workspace() -> Option<PathBuf> {
 #[tauri::command]
 fn default_workspace() -> Option<String> {
     development_workspace().map(|p| p.to_string_lossy().into_owned())
+}
+
+// The macOS title bar, traffic lights and overlay scroll bars are drawn by the
+// native window, not the webview. Applying the appearance app-wide keeps the
+// window chrome on the same theme as the workbench.
+#[tauri::command]
+fn set_window_theme(app: tauri::AppHandle, theme: String) -> Result<(), String> {
+    let theme = match theme.as_str() {
+        "light" => tauri::Theme::Light,
+        "dark" => tauri::Theme::Dark,
+        other => return Err(format!("未知外观：{other}")),
+    };
+    app.set_theme(Some(theme));
+    if let Some(window) = app.get_webview_window("main") {
+        let background = if matches!(theme, tauri::Theme::Light) {
+            (245, 245, 247, 255)
+        } else {
+            (24, 25, 27, 255)
+        };
+        window
+            .set_background_color(Some(tauri::window::Color(
+                background.0,
+                background.1,
+                background.2,
+                background.3,
+            )))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+// The webview does not expose the macOS accent color. Read AppKit's
+// controlAccentColor once per launch and map it to the same interaction tokens
+// used by the stylesheet; status colors stay independent.
+#[tauri::command]
+fn system_accent() -> String {
+    #[cfg(target_os = "macos")]
+    {
+        use objc2_app_kit::{NSColor, NSColorSpace};
+        objc2::rc::autoreleasepool(|_| {
+            let color = NSColor::controlAccentColor();
+            let space = NSColorSpace::sRGBColorSpace();
+            color
+                .colorUsingColorSpace(&space)
+                .map(|value| {
+                    format!(
+                        "#{:02X}{:02X}{:02X}",
+                        (value.redComponent() * 255.0).round() as u8,
+                        (value.greenComponent() * 255.0).round() as u8,
+                        (value.blueComponent() * 255.0).round() as u8
+                    )
+                })
+                .unwrap_or_else(|| "#3478D4".into())
+        })
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        "#3478D4".into()
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -166,8 +229,9 @@ fn inspect(script: PathBuf, source: &str, python: &str) -> Result<Inspection, St
     }
     let script = script.to_str().ok_or("预检脚本路径无法编码")?;
     let started = Instant::now();
+    let python = python_program(python);
     let result = capture(
-        python_program(python),
+        &python,
         &["-I", "-X", "utf8", script, source],
         Duration::from_secs(120),
     )?;
@@ -253,17 +317,29 @@ fn tool_check(name: &str, program: &str, args: &[&str], expected: Option<&str>) 
         detail,
     }
 }
+fn python_check(custom: &str) -> Check {
+    let program = python_program(custom);
+    let (status, detail) = match python_probe(&program) {
+        Some(version) if version >= MIN_PYTHON => (
+            "ready",
+            format!("{program} · Python {}.{}", version.0, version.1),
+        ),
+        Some((major, minor)) => (
+            "missing",
+            format!("{program} 是 Python {major}.{minor}，需要 3.11 或更高版本"),
+        ),
+        None => ("missing", format!("无法运行 {program}")),
+    };
+    Check {
+        name: "Python 3".into(),
+        status,
+        detail,
+    }
+}
 #[tauri::command]
 async fn check_environment(python: String) -> Result<Environment, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let python_thread = thread::spawn(move || {
-            tool_check(
-                "Python 3",
-                python_program(&python),
-                &["--version"],
-                Some("3"),
-            )
-        });
+        let python_thread = thread::spawn(move || python_check(&python));
         let java_thread =
             thread::spawn(|| tool_check("Java 25", "java", &["--version"], Some("25")));
         let xcode = if cfg!(target_os = "macos") {
@@ -311,30 +387,107 @@ async fn save_document(
     .await
     .map_err(|e| e.to_string())?
 }
+#[tauri::command]
+async fn workbench_action(
+    workspace: String,
+    python: String,
+    action: String,
+    request: Value,
+    id: Option<String>,
+) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if ![
+            "bootstrap",
+            "check",
+            "start",
+            "status",
+            "cancel",
+            "history",
+            "retry",
+            "resolve-exclusions",
+            "save-config",
+            "reveal",
+            "reveal-folder",
+        ]
+        .contains(&action.as_str())
+        {
+            return Err("不支持的工作台操作".into());
+        }
+        let root = PathBuf::from(&workspace)
+            .canonicalize()
+            .map_err(|e| e.to_string())?;
+        if !root.join("tools/mcfao.py").is_file()
+            || !root.join("tools/desktop_workbench.py").is_file()
+        {
+            return Err("请选择完整的 FabricAOT 项目目录".into());
+        }
+        let script = root.join("tools/desktop_workbench.py");
+        let serialized = serde_json::to_string(&request).map_err(|e| e.to_string())?;
+        if serialized.len() > 65536 {
+            return Err("任务配置过大".into());
+        }
+        let actual_action = if action == "reveal" || action == "reveal-folder" {
+            "status"
+        } else {
+            &action
+        };
+        let mut args = vec![
+            "-B",
+            script.to_str().ok_or("路径无法编码")?,
+            actual_action,
+            "--workspace",
+            &workspace,
+            "--request",
+            &serialized,
+        ];
+        if let Some(ref ident) = id {
+            args.extend(["--id", ident]);
+        }
+        // The desktop host may be Intel while running on Apple Silicon. Universal
+        // Python otherwise inherits Rosetta and cannot satisfy the AOT host gate.
+        let python = python_program(&python);
+        let output = native_capture(&python, &args, Duration::from_secs(110))?;
+        let value: Value = serde_json::from_str(&output.stdout)
+            .map_err(|_| format!("构建服务未返回有效结果：{}", output.stderr))?;
+        if output.code != Some(0) {
+            return Err(value["error"].as_str().unwrap_or("构建操作失败").into());
+        }
+        if action == "reveal" || action == "reveal-folder" {
+            let path = if action == "reveal-folder" {
+                value["folder"].as_str()
+            } else {
+                value["ipa"].as_str().or_else(|| value["folder"].as_str())
+            }
+            .ok_or("没有可打开的产物")?;
+            if cfg!(target_os = "macos") {
+                Command::new("/usr/bin/open")
+                    .args(["-R", path])
+                    .spawn()
+                    .map_err(|e| e.to_string())?;
+            } else {
+                return Err("此操作需要 macOS".into());
+            }
+        }
+        Ok(value)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 pub fn run() {
     tauri::Builder::default()
-        .manage(build_job::Jobs::default())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             default_workspace,
+            set_window_theme,
+            system_accent,
+            workbench_action,
             inspect_pack,
             check_environment,
-            save_document,
-            build_job::start_build,
-            build_job::build_status,
-            build_job::cancel_build,
-            build_job::open_build_output,
-            build_job::export_build_log,
-            stage_instance,
-            build_job::build_adaptation_report
+            save_document
         ])
-        .build(tauri::generate_context!())
-        .expect("无法启动 FabricAOT 桌面工作台")
-        .run(|app, event| {
-            if matches!(event, tauri::RunEvent::Exit) {
-                app.state::<build_job::Jobs>().shutdown();
-            }
-        });
+        .run(tauri::generate_context!())
+        .expect("无法启动 FabricAOT 桌面工作台");
 }
 
 #[cfg(test)]
@@ -343,8 +496,9 @@ mod tests {
     #[test]
     fn arguments_are_literal_and_unicode_is_preserved() {
         let value = "中文 path ' $(echo BAD) ; echo BAD";
+        let python = python_program("");
         let result = capture(
-            python_program(""),
+            &python,
             &[
                 "-I",
                 "-X",
@@ -360,8 +514,9 @@ mod tests {
     }
     #[test]
     fn deadline_kills_process() {
+        let python = python_program("");
         let result = capture(
-            python_program(""),
+            &python,
             &["-I", "-c", "import time; time.sleep(10)"],
             Duration::from_millis(100),
         );
@@ -369,8 +524,9 @@ mod tests {
     }
     #[test]
     fn output_is_bounded() {
+        let python = python_program("");
         let result = capture(
-            python_program(""),
+            &python,
             &[
                 "-I",
                 "-c",
@@ -379,6 +535,24 @@ mod tests {
             Duration::from_secs(5),
         );
         assert!(result.unwrap_err().contains("超过"));
+    }
+    #[test]
+    fn default_interpreter_meets_the_build_requirement() {
+        let python = python_program("");
+        let version = python_probe(&python)
+            .unwrap_or_else(|| panic!("默认解释器 {python} 无法运行"));
+        assert!(
+            version >= MIN_PYTHON,
+            "默认解释器 {python} 是 {version:?}，低于 3.11"
+        );
+        assert_eq!(python_check("").status, "ready");
+    }
+    #[test]
+    fn explicit_interpreter_choice_is_respected() {
+        assert_eq!(python_program("  /opt/custom/python3.12  "), "/opt/custom/python3.12");
+        let old = python_check("/usr/bin/python3");
+        assert_eq!(old.status, "missing");
+        assert!(old.detail.contains("3.9"), "{}", old.detail);
     }
     #[test]
     fn fatal_preflight_is_a_report_not_an_ipc_failure() {

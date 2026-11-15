@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "FabricAOT",
-  "version": "0.1.0",
-  "identifier": "org.fabricaot.desktop.integration20261115",
+  "version": "0.2.6",
+  "identifier": "org.fabricaot.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://127.0.0.1:1420",
@@ -13,13 +13,17 @@
     "windows": [
       {
         "label": "main",
-        "title": "FabricAOT · 本地工作台",
-        "width": 1360,
-        "height": 940,
+        "title": "FabricAOT · IPA 构建工作台",
+        "width": 1100,
+        "height": 760,
         "minWidth": 800,
         "minHeight": 640,
-        "backgroundColor": "#101311",
-        "theme": "Dark"
+        "center": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": { "x": 20, "y": 18 },
+        "backgroundColor": "#F5F5F7",
+        "theme": null
       }
     ],
     "security": {
@@ -29,8 +33,10 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "shortDescription": "FabricAOT 本地整合包工作台（实验版）",
-    "resources": { "../../tools/preflight.py": "tools/preflight.py" },
+    "shortDescription": "FabricAOT 本地 IPA 构建工作台（实验版）",
+    "resources": {
+      "../../tools/preflight.py": "tools/preflight.py"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -38,6 +44,8 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "macOS": { "minimumSystemVersion": "11.0" }
+    "macOS": {
+      "minimumSystemVersion": "11.0"
+    }
   }
 }

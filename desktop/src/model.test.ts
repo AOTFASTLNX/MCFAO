@@ -21,6 +21,40 @@ const report = {
 };
 
 describe("preflight report boundary", () => {
+  it("rejects resource path traversal, duplicate IDs, and false availability", () => {
+    const resource = {
+      id: "local:mods/one.jar",
+      path: "mods/one.jar",
+      origin: "local",
+      category: "mods",
+      status: "available",
+      optional: false,
+      selectable: true,
+      default_selected: true,
+      bytes: 5,
+      file_count: 1,
+    };
+    const r = {
+      ...report,
+      resources: [resource],
+      resources_fingerprint: "b".repeat(64),
+    };
+    expect(parseReport(r).resources?.[0].selectable).toBe(true);
+    expect(() =>
+      parseReport({ ...r, resources: [resource, resource] }),
+    ).toThrow();
+    expect(() =>
+      parseReport({
+        ...r,
+        resources: [{ ...resource, id: "local:../secret", path: "../secret" }],
+      }),
+    ).toThrow();
+    expect(() => parseReport({ ...r, resources_fingerprint: "bad" })).toThrow();
+    expect(
+      parseReport({ ...r, resources: [{ ...resource, status: "unsafe" }] })
+        .resources?.[0].selectable,
+    ).toBe(false);
+  });
   it("accepts the actual metadata-only schema", () => {
     expect(parseReport(report).source).toBe(report.source);
   });

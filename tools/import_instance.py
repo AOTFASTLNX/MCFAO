@@ -2,16 +2,14 @@
 from __future__ import annotations
 import argparse
 import hashlib
-import http.client
-import ipaddress
 import json
 from pathlib import Path
-import socket
-import ssl
 import unicodedata
+import urllib.parse
+import urllib.request
 from urllib.parse import urljoin, urlsplit
 from zipfile import ZipFile
-from preflight import scan_pack, scan_mod_bytes, read_json_limited, validate_zip_members, safe_archive_path
+from preflight import scan_pack, scan_mod_bytes, read_json_limited, validate_zip_members, safe_archive_path, tls_context
 
 MAX_FILE = 96 * 1024**2
 MAX_TOTAL = 2 * 1024**3
@@ -23,33 +21,25 @@ def public_endpoint(url):
     parsed = urlsplit(url)
     if (parsed.scheme != "https" or parsed.hostname not in HOSTS or parsed.username or parsed.password
             or parsed.port not in (None,443) or parsed.fragment or any(ord(c)<33 for c in url)):
-        raise ValueError("Only public HTTPS Modrinth CDN downloads are supported; import other licensed files locally")
-    addresses = {row[4][0] for row in socket.getaddrinfo(parsed.hostname,443,type=socket.SOCK_STREAM)}
-    if not addresses or any(not ipaddress.ip_address(address).is_global for address in addresses):
-        raise ValueError("Download DNS resolved to a non-public address")
-    return parsed, sorted(addresses)[0]
+        raise ValueError("Only HTTPS Modrinth CDN downloads are supported; import other licensed files locally")
+    if urllib.parse.quote(parsed.path, safe="/%:@!$&'()*+,;=-._~") != parsed.path:
+        raise ValueError("Download path contains unsupported characters")
+    return parsed
+
+class SafeRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return super().redirect_request(req, fp, code, msg, headers, public_endpoint(urljoin(req.full_url, newurl)).geturl())
 
 def download(url, limit=MAX_FILE):
-    for _ in range(6):
-        parsed, address = public_endpoint(url)
-        ca = Path("/etc/ssl/cert.pem")
-        context = ssl.create_default_context(cafile=str(ca) if ca.is_file() else None)
-        connection = http.client.HTTPSConnection(parsed.hostname,timeout=30,context=context)
-        # Connect to the checked IP, verify TLS against the original hostname; no second DNS lookup.
-        connection.sock = context.wrap_socket(socket.create_connection((address,443),timeout=30),server_hostname=parsed.hostname)
-        try:
-            connection.request("GET",parsed.path+("?"+parsed.query if parsed.query else ""),headers={"User-Agent":"MCFAO-local-import/1"})
-            response = connection.getresponse()
-            if response.status in (301,302,303,307,308):
-                location=response.getheader("Location")
-                if not location: raise ValueError("Redirect without Location")
-                url=urljoin(url,location); continue
-            if response.status != 200: raise ValueError(f"Download HTTP {response.status}")
-            data=response.read(limit+1)
-            if len(data)>limit: raise ValueError("Download exceeds file/total budget")
-            return data
-        finally: connection.close()
-    raise ValueError("Too many download redirects")
+    # urllib uses the macOS system proxy and the standard *_proxy environment variables, so a
+    # local proxy's fake-IP or loopback DNS answer is not rejected. The host allowlist and TLS
+    # certificate/hostname verification still apply, including after redirects.
+    request = urllib.request.Request(public_endpoint(url).geturl(), headers={"User-Agent": "MCFAO-local-import/1"})
+    with urllib.request.build_opener(SafeRedirect(), urllib.request.HTTPSHandler(context=tls_context())).open(request, timeout=30) as response:
+        if response.status != 200: raise ValueError(f"Download HTTP {response.status}")
+        data = response.read(limit + 1)
+    if len(data) > limit: raise ValueError("Download exceeds file/total budget")
+    return data
 
 def import_instance(source: Path, output: Path, fetch=download):
     if source.is_symlink(): raise ValueError("Instance source cannot be a symlink")

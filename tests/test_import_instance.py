@@ -8,6 +8,7 @@ from unittest.mock import patch
 from zipfile import ZipFile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
+import import_instance as module
 from import_instance import import_instance, public_endpoint
 from mcfao import instance_files, loader_client
 from prepare_fabric_aot import mod_files
@@ -66,11 +67,35 @@ class ImportTests(unittest.TestCase):
         (base/'config/link').symlink_to(base/'accounts.json')
         with self.assertRaisesRegex(ValueError,'Symlink'):import_instance(source,self.root/'blocked')
 
-    def test_download_rejects_local_network_and_non_cdn_endpoints(self):
+    def test_download_rejects_non_cdn_endpoints_but_allows_proxy_dns(self):
         for url in ['http://cdn.modrinth.com/a','https://localhost/a','https://cdn.modrinth.com@localhost/a']:
             with self.assertRaises(ValueError): public_endpoint(url)
-        with patch('import_instance.socket.getaddrinfo',return_value=[(2,1,6,'',('127.0.0.1',443))]):
-            with self.assertRaisesRegex(ValueError,'non-public'):public_endpoint('https://cdn.modrinth.com/a')
+        self.assertEqual(public_endpoint('https://cdn.modrinth.com/a').hostname, 'cdn.modrinth.com')
+
+    def test_download_follows_the_environment_proxy(self):
+        body = b'proxied'
+        class Response:
+            status = 200
+            def read(self, _): return body
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+        class Opener:
+            def open(self, request, timeout):
+                self.url = request.full_url
+                return Response()
+        opener = Opener()
+        with patch.object(module.urllib.request, 'build_opener', return_value=opener) as build:
+            self.assertEqual(module.download('https://cdn.modrinth.com/a'), body)
+        self.assertEqual(opener.url, 'https://cdn.modrinth.com/a')
+        context = build.call_args.args[1]._context
+        self.assertEqual(context.verify_mode.name, 'CERT_REQUIRED')
+        self.assertGreater(context.cert_store_stats().get('x509_ca', 0), 0)
+
+    def test_redirects_are_rechecked_against_the_cdn(self):
+        handler = module.SafeRedirect()
+        request = module.urllib.request.Request('https://cdn.modrinth.com/a')
+        with self.assertRaisesRegex(ValueError, 'Modrinth'):
+            handler.redirect_request(request, None, 302, 'Found', {}, 'https://evil.invalid/a')
 
     def test_uppercase_mod_jars_are_never_silently_omitted(self):
         path=self.root/'SAMPLE.JAR';path.write_bytes(b'fixture')

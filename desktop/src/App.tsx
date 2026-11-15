@@ -1,40 +1,31 @@
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useRef,
   useState,
-  type DragEvent,
   type ReactNode,
 } from "react";
-import { BuildPanel } from "./BuildPanel";
 import {
-  ArrowDownToLine,
   ArrowRight,
   ArrowUpRight,
   Box,
   Check,
   CheckCircle2,
+  ChevronLeft,
   ChevronRight,
-  Circle,
   CircleAlert,
   Clock3,
-  Code2,
-  Copy,
   Cpu,
+  Download,
   FileCheck2,
   FileJson2,
-  FileUp,
-  Folder,
   FolderOpen,
-  HardDrive,
-  HelpCircle,
-  Import,
+  Hammer,
+  History,
   Layers3,
-  LayoutDashboard,
-  ListFilter,
   LoaderCircle,
   Monitor,
+  Moon,
   Package,
   Plus,
   RefreshCw,
@@ -42,1886 +33,2148 @@ import {
   Settings2,
   ShieldCheck,
   Smartphone,
+  Square,
+  Sun,
   Terminal,
-  Trash2,
   TriangleAlert,
+  Trash2,
   X,
 } from "lucide-react";
 import {
   DEFAULT_SETTINGS,
   STORAGE_KEY,
-  findingLabels,
   makeInstance,
   parseReport,
   parseSavedState,
-  prepareCommand,
   upsertInstance,
-  type Environment,
   type Instance,
   type Report,
-  type Task,
 } from "./model";
 import {
-  buildInstructions,
+  choosePath,
   defaultWorkspace,
-  detectPlatform,
-  getEnvironment,
   inspectSource,
   native,
   pickSource,
-  pickWorkspace,
   saveDocument,
+  workbench,
 } from "./bridge";
+import {
+  FORM_KEY,
+  buildProblems,
+  configurationFields,
+  defaultForm,
+  isActive,
+  mergeJob,
+  restoreForm,
+  stageName,
+  stages,
+  stateNames,
+  type Bootstrap,
+  type BuildForm,
+  type BuildJob,
+  type Checks,
+} from "./workflow";
+import ModList from "./ModList";
+import ResourceManager from "./ResourceManager";
+import { LogView } from "./LogView";
+import {
+  ACCENT_KEY,
+  accentOptions,
+  applyAccent,
+  applyTheme,
+  getSystemAccent,
+  readAccentPreference,
+  readThemePreference,
+  resolveTheme,
+  syncWindowTheme,
+  systemPrefersDark,
+  THEME_KEY,
+  themeLabels,
+  toggleTheme,
+  type ResolvedTheme,
+  type ThemePreference,
+} from "./theme";
+type Page = "builder" | "history" | "environment" | "settings";
 
-type Page =
-  "home" | "instances" | "reports" | "builds" | "environment" | "settings";
-const pages = [
-  { id: "home", label: "工作台", icon: LayoutDashboard },
-  { id: "instances", label: "实例库", icon: Layers3 },
-  { id: "reports", label: "兼容性报告", icon: ShieldCheck },
-  { id: "builds", label: "构建与日志", icon: Terminal },
-  { id: "environment", label: "工作环境", icon: Cpu },
-] as const;
-const date = (value: string) =>
-  new Date(value).toLocaleString("zh-CN", {
+const date = (s: string) =>
+  new Date(s).toLocaleString("zh-CN", {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
   });
-function initialState() {
+const basename = (s: string) =>
+  s.replaceAll(String.fromCharCode(92), "/").split("/").filter(Boolean).pop() ||
+  s;
+function initial() {
   try {
-    return { ...parseSavedState(localStorage.getItem(STORAGE_KEY)), error: "" };
+    const old = parseSavedState(localStorage.getItem(STORAGE_KEY));
+    return {
+      form: localStorage.getItem(FORM_KEY)
+        ? restoreForm(localStorage.getItem(FORM_KEY))
+        : {
+            ...defaultForm,
+            workspace: old.settings.workspace,
+            python: old.settings.python,
+          },
+      instances: old.instances,
+      error: "",
+    };
   } catch {
     return {
+      form: { ...defaultForm },
       instances: [] as Instance[],
-      settings: DEFAULT_SETTINGS,
-      error:
-        "无法读取本地记录。为保留原始数据，已暂停自动保存；可在设置中导出并重置。",
+      error: "本地记录无法读取，自动保存已暂停。请先在设置中导出原始记录。",
     };
   }
 }
-function Badge({
-  children,
-  tone = "neutral",
-}: {
-  children: ReactNode;
-  tone?: "green" | "amber" | "red" | "neutral";
-}) {
+function Pill({ children, tone = "" }: { children: ReactNode; tone?: string }) {
   return (
-    <span className={"badge " + tone}>
-      <span className="status-dot" />
+    <span className={"pill " + tone}>
+      <span className="dot" />
       {children}
     </span>
   );
 }
-function Empty({
-  title,
+function Note({
   children,
-  action,
-  icon = <Package size={27} />,
+  error = false,
 }: {
-  title: string;
   children: ReactNode;
-  action?: ReactNode;
-  icon?: ReactNode;
+  error?: boolean;
 }) {
   return (
-    <div className="empty-state">
-      <div className="empty-icon">{icon}</div>
-      <h3>{title}</h3>
-      <p>{children}</p>
-      {action}
+    <div className={"note " + (error ? "error" : "")}>
+      <CircleAlert size={17} aria-hidden="true" />
+      <div>{children}</div>
     </div>
   );
 }
-function Modal({
-  title,
-  children,
-  onClose,
-  wide = false,
+function PathField({
+  label,
+  value,
+  onChange,
+  directory = false,
+  hint,
 }: {
-  title: string;
-  children: ReactNode;
-  onClose: () => void;
-  wide?: boolean;
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  directory?: boolean;
+  hint?: string;
+}) {
+  const [error, setError] = useState("");
+  return (
+    <div className="field">
+      <label>
+        <span>{label}</span>
+        <span className="path-input">
+          <input
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            spellCheck={false}
+            placeholder={directory ? "选择文件夹" : "选择文件"}
+          />
+          <button
+            className="path-picker"
+            disabled={!native}
+            aria-label={"选择" + label}
+            onClick={async () => {
+              try {
+                const p = await choosePath("选择" + label, directory);
+                if (p) onChange(p);
+                setError("");
+              } catch (e) {
+                setError(String(e));
+              }
+            }}
+          >
+            <FolderOpen size={17} />
+          </button>
+        </span>
+      </label>
+      {hint && <small>{hint}</small>}
+      {error && <small className="red">{error}</small>}
+    </div>
+  );
+}
+function CheckList({ checks }: { checks: Checks }) {
+  return (
+    <div className="check-list">
+      {checks.checks.map((c) => (
+        <div className={"check-row " + c.status} key={c.name}>
+          {c.status === "ready" ? (
+            <CheckCircle2 size={19} />
+          ) : c.status === "warning" ? (
+            <TriangleAlert size={19} />
+          ) : (
+            <CircleAlert size={19} />
+          )}
+          <div>
+            <strong>{c.name}</strong>
+            <p>{c.detail}</p>
+          </div>
+          <span>
+            {c.status === "ready"
+              ? "就绪"
+              : c.status === "warning"
+                ? "警告"
+                : "需处理"}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+function ExclusionDialog({
+  challenge,
+  busy,
+  onResolve,
+}: {
+  challenge: NonNullable<BuildJob["exclusionChallenge"]> | null;
+  busy: boolean;
+  onResolve: (accepted: boolean) => void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
-  useLayoutEffect(() => {
-    const dialog = ref.current!;
-    const previous = document.activeElement;
-    dialog.showModal();
-    return () => {
-      dialog.close();
-      if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
-    };
-  }, []);
+  useEffect(() => {
+    const dialog = ref.current;
+    if (!dialog) return;
+    if (challenge && !dialog.open) dialog.showModal();
+    if (!challenge && dialog.open) dialog.close();
+  }, [challenge]);
+  if (!challenge) return null;
   return (
     <dialog
       ref={ref}
-      className={"modal " + (wide ? "wide" : "")}
-      aria-labelledby="modal-title"
-      onCancel={(e) => {
-        e.preventDefault();
-        onClose();
-      }}
-      onClick={(e) => {
-        if (e.target === ref.current) onClose();
-      }}
+      className="confirm-dialog exclusion-dialog"
+      aria-labelledby="exclusion-title"
+      aria-describedby="exclusion-summary"
+      onCancel={(event) => event.preventDefault()}
     >
-      <div className="modal-head">
-        <div>
-          <span className="eyebrow">FABRICAOT WORKSPACE</span>
-          <h2 id="modal-title">{title}</h2>
-        </div>
+      <span className="eyebrow">FABRIC · 静态 AOT 检查</span>
+      <h2 id="exclusion-title">发现无法静态转换的 Mod</h2>
+      <p id="exclusion-summary">
+        {challenge.summary} 这些项目的功能不会进入本次构建；原整合包保持不变。
+      </p>
+      <div className="exclusion-list" aria-label="将排除的 Mod">
+        {challenge.mods.map((mod) => (
+          <article className="exclusion-item" key={mod.file}>
+            <div className="exclusion-item-heading">
+              <strong>{mod.name}</strong>
+              {mod.version && <span>{mod.version}</span>}
+            </div>
+            <code>{mod.file}</code>
+            <ul>
+              {mod.reasons.map((reason, index) => (
+                <li key={index}>{reason}</li>
+              ))}
+            </ul>
+          </article>
+        ))}
+      </div>
+      <p className="exclusion-note">
+        确认后将从独立的暂存副本移除上述文件和依赖它们的 Mod，再重新执行转换。若剩余项目仍有阻断项，会再次提示。
+      </p>
+      <div className="button-line">
         <button
-          className="icon-button"
-          onClick={onClose}
-          aria-label="关闭对话框"
+          className="secondary"
+          disabled={busy}
+          onClick={() => onResolve(false)}
         >
-          <X size={20} />
+          停止构建
+        </button>
+        <button
+          className="primary"
+          disabled={busy}
+          onClick={() => onResolve(true)}
+        >
+          {busy ? "正在处理…" : "排除并继续"}
         </button>
       </div>
-      {children}
     </dialog>
   );
 }
 
 export default function App() {
-  const [initial] = useState(initialState);
-  const [instances, setInstances] = useState(initial.instances);
-  const [settings, setSettings] = useState(initial.settings);
-  const [storageIssue, setStorageIssue] = useState(initial.error);
-  const [page, setPage] = useState<Page>("home");
-  const [selectedId, setSelectedId] = useState(initial.instances[0]?.id ?? "");
-  const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState("all");
-  const [modal, setModal] = useState<
-    "import" | "help" | "delete" | "reset" | null
-  >(null);
-  const [toast, setToast] = useState<{
-    message: string;
-    error?: boolean;
-  } | null>(null);
-  const [busy, setBusy] = useState(false);
-  const importLock = useRef(false);
-  const [environment, setEnvironment] = useState<Environment | null>(null);
-  const [checking, setChecking] = useState(false);
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [activeTask, setActiveTask] = useState("");
-  const [modsPath, setModsPath] = useState("");
-  const [command, setCommand] = useState("");
-  const [formError, setFormError] = useState("");
-  const [importError, setImportError] = useState("");
-  const fileInput = useRef<HTMLInputElement>(null);
-  const selected = instances.find((i) => i.id === selectedId) ?? instances[0];
-  const selectedTask = tasks.find((t) => t.id === activeTask) ?? tasks[0];
-  useEffect(() => {
-    setCommand("");
-    setModsPath("");
-    setFormError("");
-  }, [selectedId]);
-  const notify = useCallback(
-    (message: string, error = false) => setToast({ message, error }),
-    [],
+  const [saved] = useState(initial);
+  const [theme, setTheme] = useState<ThemePreference>(readThemePreference);
+  const [accent, setAccent] = useState(readAccentPreference);
+  const [systemAccent, setSystemAccent] = useState<string | null>(null);
+  const [systemDark, setSystemDark] = useState(() =>
+    systemPrefersDark(
+      typeof window === "undefined"
+        ? null
+        : window.matchMedia("(prefers-color-scheme: dark)"),
+    ),
   );
+  const resolvedTheme: ResolvedTheme = resolveTheme(theme, systemDark);
+  const [form, setForm] = useState(saved.form);
+  const [instances, setInstances] = useState(saved.instances);
+  const [storageIssue, setStorageIssue] = useState(saved.error);
+  const [page, setPage] = useState<Page>("builder");
+  const [step, setStep] = useState(0);
+  const [report, setReport] = useState<Report | null>(null);
+  const [checks, setChecks] = useState<Checks | null>(null);
+  const [fields, setFields] = useState<Record<string, string>>({});
+  const [jobs, setJobs] = useState<BuildJob[]>([]);
+  const [selected, setSelected] = useState("");
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [details, setDetails] = useState(false);
+  const [search, setSearch] = useState("");
+  const [follow, setFollow] = useState(true);
+  const [pollError, setPollError] = useState("");
+  const [refresh, setRefresh] = useState(0);
+  const [reset, setReset] = useState(false);
+  const pendingExclusionJob = jobs.find(
+    (item) => item.state === "awaiting-exclusions" && item.exclusionChallenge,
+  );
+  const lock = useRef(false);
+  const formRef = useRef(form);
+  formRef.current = form;
+  const end = useRef<HTMLDivElement>(null);
+  const dialog = useRef<HTMLDialogElement>(null);
+  const active = jobs.find((j) => isActive(j));
+  const job = jobs.find((j) => j.id === selected) ?? active ?? jobs[0];
+  const currentReport = report?.source === form.source ? report : null;
+  const steps =
+    form.loader === "fabric"
+      ? ["游戏内容", "资源管理", "构建环境", "开发签名", "确认构建"]
+      : ["游戏内容", "构建环境", "开发签名", "确认构建"];
+  const environmentStep = form.loader === "fabric" ? 2 : 1;
+  const reviewStep = steps.length - 1;
+  const resourceReady =
+    !!currentReport?.resources &&
+    form.resourceSelection?.source === form.source &&
+    form.resourceSelection?.fingerprint === currentReport.resources_fingerprint;
+  const problems = buildProblems(form, report, native);
   useEffect(() => {
-    if (toast) {
-      const id = setTimeout(() => setToast(null), 5000);
-      return () => clearTimeout(id);
+    applyTheme(resolvedTheme);
+    void syncWindowTheme(resolvedTheme);
+  }, [resolvedTheme]);
+  useEffect(() => {
+    void getSystemAccent().then(setSystemAccent);
+  }, []);
+  useEffect(() => {
+    applyAccent(accent, systemAccent, resolvedTheme);
+  }, [accent, systemAccent, resolvedTheme]);
+  useEffect(() => {
+    const query = window.matchMedia("(prefers-color-scheme: dark)");
+    const update = () => setSystemDark(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  function chooseTheme(next: ThemePreference) {
+    setTheme(next);
+    try {
+      localStorage.setItem(THEME_KEY, next);
+    } catch {
+      // A blocked storage must not prevent the current session from switching.
     }
-  }, [toast]);
+  }
+  function chooseAccent(next: string) {
+    setAccent(next);
+    try {
+      localStorage.setItem(ACCENT_KEY, next);
+    } catch {
+      // A blocked storage must not prevent the current session from switching.
+    }
+  }
+  function update(patch: Partial<BuildForm>) {
+    setForm((f) => ({
+      ...f,
+      ...patch,
+      ...(patch.resourceSelection !== undefined ? { audited: false } : {}),
+      ...(patch.source !== undefined || patch.loader !== undefined
+        ? {
+            audited: false,
+            forceCompile: false,
+            resourceSelection:
+              (patch.source !== undefined && patch.source !== f.source) ||
+              (patch.loader !== undefined && patch.loader !== f.loader)
+                ? null
+                : f.resourceSelection,
+          }
+        : {}),
+    }));
+    if (
+      ["workspace", "python", "config", "team", "exportOptions"].some(
+        (k) => k in patch,
+      )
+    )
+      setChecks(null);
+    setError("");
+  }
+  async function attempt<T>(
+    label: string,
+    fn: () => Promise<T>,
+  ): Promise<T | undefined> {
+    if (lock.current) return;
+    lock.current = true;
+    setBusy(label);
+    setError("");
+    setNotice("");
+    try {
+      return await fn();
+    } catch (e) {
+      setError(String(e).replace(/^Error: /, ""));
+    } finally {
+      lock.current = false;
+      setBusy("");
+    }
+  }
+  const remember = useCallback((value: unknown) => {
+    const r = parseReport(value);
+    setReport(r);
+    setForm((f) => ({
+      ...f,
+      audited: false,
+      resourceSelection:
+        r.resources && r.resources_fingerprint
+          ? f.resourceSelection?.source === r.source &&
+            f.resourceSelection.fingerprint === r.resources_fingerprint
+            ? f.resourceSelection
+            : {
+                source: r.source,
+                fingerprint: r.resources_fingerprint,
+                included: r.resources
+                  .filter((item) => item.default_selected)
+                  .map((item) => item.id),
+              }
+          : null,
+    }));
+    setInstances((old) =>
+      upsertInstance(
+        old,
+        makeInstance(
+          r,
+          old.find((i) => i.report.source === r.source),
+        ),
+      ),
+    );
+    return r;
+  }, []);
+  async function inspect(source: string) {
+    await attempt("正在检查游戏内容", async () => {
+      const r = await inspectSource(source, formRef.current.python);
+      return remember(r.report);
+    });
+  }
+  const load = useCallback(async (path: string) => {
+    if (!native || !path) return;
+    const b = await workbench<Bootstrap>(
+      { ...formRef.current, workspace: path },
+      "bootstrap",
+    );
+    setForm((f) => ({
+      ...f,
+      workspace: path,
+      config: f.workspace !== path ? b.config : f.config || b.config,
+      exportOptions:
+        f.workspace !== path
+          ? b.exportOptions
+          : f.exportOptions || b.exportOptions,
+      output: f.workspace !== path ? b.output : f.output || b.output,
+    }));
+    setFields(b.configFields);
+    setJobs(b.jobs);
+    setSelected(b.jobs.find((j) => isActive(j))?.id ?? b.jobs[0]?.id ?? "");
+  }, []);
+  useEffect(() => {
+    if (!native) return;
+    let disposed = false;
+    (async () => {
+      const p = (await defaultWorkspace()) || formRef.current.workspace;
+      if (p && !disposed) await load(p);
+    })().catch((e) => {
+      if (!disposed) setError(String(e));
+    });
+    return () => {
+      disposed = true;
+    };
+  }, [load]);
   useEffect(() => {
     if (storageIssue) return;
     try {
       localStorage.setItem(
+        FORM_KEY,
+        JSON.stringify({ ...form, audited: false, forceCompile: false }),
+      );
+      const old = parseSavedState(localStorage.getItem(STORAGE_KEY));
+      localStorage.setItem(
         STORAGE_KEY,
-        JSON.stringify({ instances, settings }),
+        JSON.stringify({
+          instances,
+          settings: {
+            ...DEFAULT_SETTINGS,
+            ...old.settings,
+            workspace: form.workspace,
+            python: form.python,
+          },
+        }),
       );
     } catch {
-      setStorageIssue(
-        "本地存储空间不足或不可用。当前更改尚未保存，请导出重要报告。",
-      );
+      setStorageIssue("无法保存本地记录，已暂停自动保存。");
     }
-  }, [instances, settings, storageIssue]);
+  }, [form, instances, storageIssue]);
   useEffect(() => {
-    if (native && !initial.settings.workspace)
-      void defaultWorkspace()
-        .then((path) => {
-          if (path)
-            setSettings((s) => ({ ...s, workspace: s.workspace || path }));
-        })
-        .catch(() => {});
-  }, [initial.settings.workspace]);
-  const refreshEnvironment = useCallback(async () => {
-    if (!native) {
-      notify("环境检测需要桌面应用。浏览器可查看界面和导入预检报告。");
-      return;
-    }
-    setChecking(true);
-    try {
-      setEnvironment(await getEnvironment(settings.python));
-    } catch (error) {
-      notify(String(error), true);
-    } finally {
-      setChecking(false);
-    }
-  }, [settings.python, notify]);
-  const addReport = useCallback((report: Report) => {
-    const item = makeInstance(report);
-    setInstances((previous) => upsertInstance(previous, item));
-    setSelectedId(item.id);
-  }, []);
-  const importFile = useCallback(
-    async (file: File) => {
-      if (!file.name.toLowerCase().endsWith(".json"))
-        throw new Error(
-          "浏览器中请选择预检 JSON 报告；.mrpack 和 Prism 目录请用桌面应用导入。",
-        );
-      if (file.size > 8 * 1024 * 1024)
-        throw new Error("报告超过 8 MiB，请使用较小的预检报告。");
-      const report = parseReport(JSON.parse(await file.text()));
-      addReport(report);
-      setModal(null);
-      setPage("reports");
-      notify(
-        report.fatal
-          ? "报告已导入，发现需要处理的阻断项。"
-          : "预检报告已导入。",
-      );
-    },
-    [addReport, notify],
-  );
-  const scanSource = useCallback(
-    async (source: string) => {
-      if (importLock.current) return;
-      importLock.current = true;
-      setBusy(true);
-      setImportError("");
-      const id = crypto.randomUUID();
-      const startedAt = new Date().toISOString();
-      setTasks((t) =>
-        [
-          {
-            id,
-            name: "整合包静态预检",
-            startedAt,
-            state: "running" as const,
-            lines: [
-              "开始读取整合包元数据",
-              "源路径：" + source,
-              "仅扫描元数据，不执行 Mod。",
-            ],
-          },
-          ...t,
-        ].slice(0, 30),
-      );
-      setActiveTask(id);
+    if (!native || !job) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    async function poll() {
       try {
-        const result = await inspectSource(source, settings.python);
-        const report = parseReport(result.report);
-        addReport(report);
-        setTasks((t) =>
-          t.map((task) =>
-            task.id === id
-              ? {
-                  ...task,
-                  state: report.fatal ? "blocked" : "done",
-                  lines: [
-                    ...task.lines,
-                    ...report.findings.map(
-                      (f) =>
-                        "[" +
-                        f.severity.toUpperCase() +
-                        "] " +
-                        f.code +
-                        ": " +
-                        f.message,
-                    ),
-                    "预检结束，用时 " +
-                      (result.elapsedMs / 1000).toFixed(2) +
-                      " 秒。",
-                    "AOT / iOS 行为验证：NOT TESTED",
-                  ],
-                }
-              : task,
-          ),
+        const next = await workbench<BuildJob>(
+          formRef.current,
+          "status",
+          job.id,
         );
-        setModal(null);
-        setPage("reports");
-        notify(
-          report.fatal
-            ? "预检结束，发现阻断项。"
-            : "静态预检完成，报告已保存。",
-        );
-      } catch (error) {
-        const message = String(error);
-        setImportError(message);
-        notify(message, true);
-        setTasks((t) =>
-          t.map((task) =>
-            task.id === id
-              ? {
-                  ...task,
-                  state: "failed",
-                  lines: [...task.lines, "[ERROR] " + message],
-                }
-              : task,
-          ),
-        );
-      } finally {
-        importLock.current = false;
-        setBusy(false);
+        if (!stopped) {
+          setJobs((old) => mergeJob(old, next));
+          setPollError("");
+          if (isActive(next)) timer = setTimeout(poll, 1400);
+        }
+      } catch (e) {
+        if (!stopped) {
+          setPollError("任务状态暂时无法读取：" + String(e));
+          timer = setTimeout(poll, 4000);
+        }
       }
-    },
-    [settings.python, addReport, notify],
-  );
+    }
+    void poll();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [job?.id, refresh]);
+  useEffect(() => {
+    if (!native || !active || active.id === job?.id) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    async function pollBackground() {
+      try {
+        const next = await workbench<BuildJob>(
+          formRef.current,
+          "status",
+          active!.id,
+        );
+        if (!stopped) {
+          setJobs((old) => mergeJob(old, next));
+          if (isActive(next)) timer = setTimeout(pollBackground, 1800);
+        }
+      } catch {
+        if (!stopped) timer = setTimeout(pollBackground, 4000);
+      }
+    }
+    void pollBackground();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [active?.id, job?.id]);
+  useEffect(() => {
+    if (follow) end.current?.scrollIntoView({ block: "nearest" });
+  }, [job?.log, follow]);
+  useEffect(() => {
+    if (!reset) return;
+    const d = dialog.current!;
+    const previous = document.activeElement;
+    d.showModal();
+    return () => {
+      d.close();
+      if (previous instanceof HTMLElement) previous.focus();
+    };
+  }, [reset]);
   useEffect(() => {
     if (!native) return;
+    let off: (() => void) | undefined;
     let disposed = false;
-    let cleanup: (() => void) | undefined;
     void import("@tauri-apps/api/webview")
       .then(({ getCurrentWebview }) =>
-        getCurrentWebview().onDragDropEvent((event) => {
-          if (
-            !disposed &&
-            event.payload.type === "drop" &&
-            event.payload.paths.length
-          )
-            void scanSource(event.payload.paths[0]);
+        getCurrentWebview().onDragDropEvent(async (e) => {
+          if (e.payload.type !== "drop" || active) return;
+          const source = e.payload.paths[0];
+          if (source) {
+            update({ source, loader: "fabric" });
+            setStep(0);
+            setPage("builder");
+            await inspect(source);
+          }
         }),
       )
-      .then((unlisten) => {
-        if (disposed) unlisten();
-        else cleanup = unlisten;
+      .then((fn) => {
+        if (disposed) fn();
+        else off = fn;
       })
-      .catch((error) => notify(String(error), true));
+      .catch((e) => setError(String(e)));
     return () => {
       disposed = true;
-      cleanup?.();
+      off?.();
     };
-  }, [scanSource, notify]);
+  }, [active?.id]);
   async function chooseSource(directory: boolean) {
     try {
-      const source = await pickSource(directory);
-      if (source) await scanSource(source);
-    } catch (error) {
-      setImportError(String(error));
-    }
-  }
-  async function download(name: string, content: string) {
-    try {
-      if (await saveDocument(name, content)) notify("文件已导出。");
-    } catch (error) {
-      notify("导出失败：" + String(error), true);
-    }
-  }
-  async function copy(text: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-      notify("已复制。");
-    } catch {
-      notify("无法访问剪贴板，请使用导出按钮。", true);
-    }
-  }
-  function navigate(next: Page) {
-    setPage(next);
-    setSearch("");
-    setFilter("all");
-  }
-  function openImport() {
-    setImportError("");
-    setModal("import");
-  }
-  async function drop(event: DragEvent) {
-    event.preventDefault();
-    if (native) return;
-    const file = event.dataTransfer.files[0];
-    if (file)
-      try {
-        await importFile(file);
-      } catch (error) {
-        notify(String(error), true);
+      const p = await pickSource(directory);
+      if (p) {
+        update({ source: p, loader: "fabric" });
+        await inspect(p);
       }
+    } catch (e) {
+      setError(String(e));
+    }
   }
-  const importButton = (
-    <button className="button primary" onClick={openImport} disabled={busy}>
-      <Plus size={17} />
-      导入整合包
-    </button>
-  );
-  const filteredInstances = instances.filter(
-    (i) =>
-      i.name.toLowerCase().includes(search.toLowerCase()) &&
-      (filter === "all" ||
-        (filter === "blocked" ? i.report.fatal : !i.report.fatal)),
-  );
-  const checks = environment?.checks ?? [
-    { name: "Python", status: "unavailable", detail: "静态预检运行环境" },
-    { name: "Java 25", status: "unavailable", detail: "Java 与 Native Image" },
-    { name: "Xcode", status: "unavailable", detail: "iOS 编译与签名" },
-  ];
-  const readyChecks =
-    environment?.checks.filter((c) => c.status === "ready").length ?? 0;
-  function environmentPanel(compact = false) {
-    return (
-      <section
-        className={"panel environment-panel " + (compact ? "compact" : "")}
+  async function detect() {
+    await attempt("正在检查构建环境", async () => {
+      setChecks(await workbench<Checks>(form, "check"));
+    });
+  }
+  async function begin() {
+    if (problems.length || active) return;
+    await attempt("正在创建构建任务", async () => {
+      const j = await workbench<BuildJob>(form, "start");
+      setJobs((old) => mergeJob(old, j));
+      setSelected(j.id);
+      setPage("history");
+      setRefresh((v) => v + 1);
+    });
+  }
+  async function resolveStaticExclusions(accepted: boolean) {
+    const target = pendingExclusionJob;
+    if (!target?.exclusionChallenge) return;
+    await attempt(accepted ? "正在应用 Mod 排除方案" : "正在停止构建", async () => {
+      const next = await workbench<BuildJob>(form, "resolve-exclusions", target.id, {
+        challengeId: target.exclusionChallenge!.id,
+        accepted,
+      });
+      setJobs((old) => mergeJob(old, next));
+      setSelected(target.id);
+    });
+  }
+  function nav(p: Page) {
+    setPage(p);
+    setError("");
+    setNotice("");
+  }
+  const nextAllowed =
+    step === 0
+      ? form.loader === "vanilla" || (!!currentReport && !currentReport.fatal)
+      : form.loader === "fabric" && step === 1
+        ? resourceReady &&
+          !!currentReport?.resources?.some(
+            (r) =>
+              r.category === "mods" &&
+              r.path.toLowerCase().endsWith(".jar") &&
+              form.resourceSelection?.included.includes(r.id),
+          )
+        : step === environmentStep
+          ? !!form.workspace && !!form.config && !!form.output
+          : true;
+  const paths = (
+    <>
+      <PathField
+        label="FabricAOT 项目目录"
+        value={form.workspace}
+        directory
+        onChange={(v) =>
+          update({ workspace: v, config: "", exportOptions: "", output: "" })
+        }
+        hint="选择包含 tools、compiler 和 ios 的完整源码目录。"
+      />
+      <button
+        className="text-button"
+        disabled={!native || !!busy || !form.workspace}
+        onClick={() =>
+          void attempt("正在识别本地配置", () => load(form.workspace))
+        }
       >
-        <div className="section-heading">
-          <h2>
-            <Cpu size={17} />
-            本机构建环境
-          </h2>
-          <button
-            className="icon-button"
-            aria-label="检测环境"
-            onClick={() => void refreshEnvironment()}
-            disabled={checking}
-          >
-            <RefreshCw size={16} className={checking ? "spin" : ""} />
-          </button>
-        </div>
-        <p className="section-description">
-          {environment
-            ? environment.os + " / " + environment.arch
-            : "连接本地工具，开始构建前的检查。"}
-        </p>
-        <div className="environment-list">
-          {checks.map((check) => (
-            <div className="environment-row" key={check.name}>
-              <div className="tool-icon">
-                {check.name.includes("Xcode") ? (
-                  <Code2 size={18} />
-                ) : check.name.includes("Java") ? (
-                  <Box size={18} />
-                ) : (
-                  <Terminal size={18} />
-                )}
-              </div>
-              <div className="tool-info">
-                <strong>{check.name}</strong>
-                <span title={check.detail}>{check.detail}</span>
-              </div>
-              {check.status === "ready" ? (
-                <CheckCircle2
-                  size={16}
-                  className="green-text"
-                  aria-label="可用"
-                />
-              ) : (
-                <span className="muted small">
-                  {environment
-                    ? check.status === "missing"
-                      ? "缺失"
-                      : "不可用"
-                    : "未检测"}
-                </span>
-              )}
-            </div>
-          ))}
-        </div>
-        <button
-          className="button subtle full"
-          onClick={() => void refreshEnvironment()}
-          disabled={checking}
-        >
-          {checking ? (
-            <LoaderCircle size={16} className="spin" />
-          ) : (
-            <RefreshCw size={15} />
-          )}
-          {checking ? "正在检测…" : "检测本机环境"}
-        </button>
-        {!compact && (
-          <div className="inline-note">
-            <CircleAlert size={16} />
-            <span>
-              iOS AOT 编译与签名需要 macOS Apple
-              Silicon。工具可用性检测不代表完整 iOS 工具链已验证。
-            </span>
-          </div>
-        )}
-      </section>
-    );
-  }
-  function instanceCard(instance: Instance) {
-    return (
-      <article className="instance-card" key={instance.id}>
-        <button
-          className="instance-open"
-          onClick={() => {
-            setSelectedId(instance.id);
-            navigate("reports");
-          }}
-          aria-label={"查看 " + instance.name + " 的报告"}
-        >
-          <div className="instance-art">
-            <img src="/landscape.svg" alt="" />
-            <span className="instance-art-icon">
-              <Package size={22} />
-            </span>
-            <Badge tone={instance.report.fatal ? "red" : "amber"}>
-              {instance.report.fatal ? "存在阻断" : "待验证"}
-            </Badge>
-          </div>
-          <div className="instance-body">
-            <h3>
-              {instance.name}
-              <ArrowUpRight size={15} />
-            </h3>
-            <p>
-              Fabric {instance.report.fabric_loader_version ?? "版本待核验"}
-              <span>·</span>
-              {instance.report.target_minecraft}
-            </p>
-            <div className="instance-meta">
-              <span>
-                <Box size={13} />
-                {instance.report.mods.length} 个已扫描 Mod
-              </span>
-              <span>{date(instance.importedAt)}</span>
-            </div>
-          </div>
-        </button>
-      </article>
-    );
-  }
+        <RefreshCw size={15} />
+        识别本地配置
+      </button>
+      <PathField
+        label="构建配置"
+        value={form.config}
+        onChange={(v) => update({ config: v })}
+        hint="包含客户端、AOT 工具链和原生后端路径。"
+      />
+      <PathField
+        label="构建产物目录"
+        value={form.output}
+        directory
+        onChange={(v) => update({ output: v })}
+        hint="每次构建建立独立目录，保留完整日志和阶段检查点。"
+      />
+    </>
+  );
   return (
     <div
       className="app-shell"
-      onDragOver={(e) => e.preventDefault()}
-      onDrop={(e) => void drop(e)}
+      data-window-chrome={
+        native && /Mac/.test(navigator.platform) ? "overlay" : undefined
+      }
     >
       <aside className="sidebar">
-        <button
+        <div
+          className="sidebar-titlebar"
+          data-tauri-drag-region
+          aria-hidden="true"
+        />
+        <a
           className="brand"
-          onClick={() => navigate("home")}
-          aria-label="FabricAOT 工作台"
+          href="#"
+          onClick={(e) => {
+            e.preventDefault();
+            nav("builder");
+          }}
         >
           <img src="/mark.svg" alt="" />
-          <div>
-            <strong>
-              FabricAOT<span>实验版</span>
-            </strong>
-            <small>YOUR WORLD. COMPILED.</small>
-          </div>
-        </button>
+          <span>
+            FabricAOT<small>LOCAL BUILD STUDIO</small>
+          </span>
+        </a>
         <div className="workspace-label">
-          个人工作空间<span>LOCAL</span>
+          本地工作空间<span>EXPERIMENTAL</span>
         </div>
         <nav aria-label="主导航">
-          {pages.map((item) => (
+          {(
+            [
+              ["builder", "构建 IPA", Hammer],
+              ["history", "构建记录", History],
+              ["environment", "环境与资源", Cpu],
+              ["settings", "设置", Settings2],
+            ] as const
+          ).map(([id, label, Icon]) => (
             <button
-              className={"nav-item " + (page === item.id ? "active" : "")}
-              aria-label={item.label}
-              key={item.id}
-              onClick={() => navigate(item.id)}
-              aria-current={page === item.id ? "page" : undefined}
+              key={id}
+              className={"nav-item " + (page === id ? "selected" : "")}
+              aria-current={page === id ? "page" : undefined}
+              onClick={() => nav(id)}
             >
-              <item.icon size={18} />
-              <span>{item.label}</span>
-              {item.id === "instances" && instances.length > 0 && (
-                <small>{instances.length}</small>
-              )}
-              {item.id === "builds" && busy && (
-                <span className="status-dot green" />
+              <Icon size={19} aria-hidden="true" />
+              {label}
+              {id === "history" && jobs.length > 0 && (
+                <span className="nav-count">{jobs.length}</span>
               )}
             </button>
           ))}
         </nav>
-        <div className="sidebar-note">
-          <div className="tiny-cube">
-            <Box size={18} />
-          </div>
-          <strong>从桌面，到口袋。</strong>
-          <p>
-            为 iPhone 构建你的
-            <br />
-            Fabric 世界。
-          </p>
-          <span>
-            26.1.2 <span className="dot-separator">/</span> Java 25
-          </span>
-        </div>
         <div className="sidebar-bottom">
-          <button
-            className={"nav-item " + (page === "settings" ? "active" : "")}
-            aria-label="设置"
-            onClick={() => navigate("settings")}
-          >
-            <Settings2 size={18} />
-            <span>设置</span>
-          </button>
-          <button className="nav-item" aria-label="使用指南" onClick={() => setModal("help")}>
-            <HelpCircle size={18} />
-            <span>使用指南</span>
-            <ArrowUpRight size={14} />
-          </button>
-          <div className="local-status">
-            <span className="status-dot green" />
-            <div>
-              <strong>本地工作区</strong>
-              <small>
-                {native ? "桌面应用 · 0.1.0" : "浏览器预览 · 0.1.0"}
-              </small>
-            </div>
-            <HardDrive size={16} />
+          <div className="platform-mark">
+            <Smartphone size={23} />
+            <span>
+              为 iPhone 构建<small>Minecraft Java 26.1.2</small>
+            </span>
+          </div>
+          <p>Java 25 · Fabric · iOS ARM64</p>
+          <div className="local-state">
+            <span className={"dot " + (native ? "live" : "")} />
+            {native ? "本机桌面工作台" : "浏览器预览"}
           </div>
         </div>
       </aside>
-      <div className="main-shell">
-        <header className="topbar">
-          <div className="breadcrumb">
-            工作空间
+      <main>
+        <header className="topbar" data-tauri-drag-region>
+          <div className="window-breadcrumb">
+            <span>工作空间</span>
             <ChevronRight size={14} />
             <strong>
-              {page === "settings"
-                ? "设置"
-                : pages.find((p) => p.id === page)?.label}
+              {
+                {
+                  builder: "构建 IPA",
+                  history: "构建记录",
+                  environment: "环境与资源",
+                  settings: "设置",
+                }[page]
+              }
             </strong>
           </div>
           <div className="topbar-right">
-            <span className="platform">
-              <Monitor size={14} />
-              {detectPlatform(environment)}
+            <span className="local-label">
+              <span className="dot live" />
+              所有构建在本机完成
             </span>
-            <span className="top-divider" />
             <button
-              className="icon-button"
-              aria-label="打开使用指南"
-              onClick={() => setModal("help")}
+              className="theme-toggle"
+              aria-label={
+                "切换为" +
+                themeLabels[resolvedTheme === "dark" ? "light" : "dark"] +
+                "模式"
+              }
+              aria-pressed={resolvedTheme === "light"}
+              title={"当前：" + themeLabels[theme]}
+              onClick={() => chooseTheme(toggleTheme(theme, systemDark))}
             >
-              <HelpCircle size={18} />
+              {resolvedTheme === "dark" ? (
+                <Sun size={17} aria-hidden="true" />
+              ) : (
+                <Moon size={17} aria-hidden="true" />
+              )}
+              <span>{themeLabels[theme]}</span>
             </button>
+            <span className="version">v0.2 · 实验版</span>
           </div>
         </header>
-        <main id="main-content">
-          {storageIssue && (
-            <div role="alert" className="notice warning">
-              <TriangleAlert size={18} />
-              <span>{storageIssue}</span>
-              <button onClick={() => navigate("settings")}>
-                打开设置
-                <ArrowRight size={14} />
+        <div className="main-content">
+          {storageIssue && <Note error>{storageIssue}</Note>}
+          {error && (
+            <div className="error-banner" role="alert">
+              <CircleAlert size={19} />
+              <span>{error}</span>
+              <button aria-label="关闭错误" onClick={() => setError("")}>
+                <X size={17} />
               </button>
             </div>
           )}
-          <div className="page-heading">
-            <div>
-              <div className="eyebrow">
-                {page === "home"
-                  ? "MAKE ROOM FOR YOUR NEXT WORLD"
-                  : "FABRICAOT / LOCAL WORKSPACE"}
-              </div>
-              <h1>
-                {page === "home"
-                  ? "你的世界，由你构建。"
-                  : page === "settings"
-                    ? "工作台设置"
-                    : pages.find((p) => p.id === page)?.label}
-              </h1>
-              <p>
-                {page === "home"
-                  ? "管理整合包，了解兼容性，开启下一次本地构建。"
-                  : page === "instances"
-                    ? "你的整合包和预检记录，都保存在本机。"
-                    : page === "reports"
-                      ? "从真实元数据出发，逐项了解整合包的适配要求。"
-                      : page === "builds"
-                        ? "准备构建配置，查看真实任务记录。"
-                        : page === "environment"
-                          ? "查看本机工具状态与平台支持范围。"
-                          : "配置本地工具和项目路径。"}
-              </p>
+          {notice && (
+            <div className="success-banner" role="status">
+              <CheckCircle2 size={18} />
+              {notice}
             </div>
-            {page === "home" || page === "instances" ? (
-              importButton
-            ) : page === "reports" && selected ? (
-              <button
-                className="button secondary"
-                onClick={() =>
-                  void download(
-                    "fabricaot-preflight.json",
-                    JSON.stringify(selected.report, null, 2),
-                  )
-                }
-              >
-                <ArrowDownToLine size={16} />
-                导出报告
-              </button>
-            ) : null}
-          </div>
-
-          {page === "home" && (
+          )}
+          {!native && (
+            <div className="preview-banner">
+              <Cpu size={17} />
+              <span>
+                当前为浏览器预览。请启动桌面应用，使用本地文件选择、真实编译和开发签名。
+              </span>
+            </div>
+          )}
+          {page === "builder" && (
             <>
-              <section className="hero">
-                <img
-                  src="/landscape.svg"
-                  alt="原创方块山林插画"
-                  className="hero-art"
-                />
-                <div className="hero-shade" />
-                <div className="hero-content">
-                  <span className="hero-label">
-                    <span className="status-dot" />
-                    BUILT LOCALLY. MADE FOR YOUR IPHONE.
-                  </span>
-                  <h2>
-                    下一段冒险，
-                    <br />
-                    从这里构建<span>。</span>
-                  </h2>
-                  <p>
-                    从熟悉的整合包开始，
-                    <br />
-                    探索 Fabric 世界的更多可能。
-                  </p>
-                  <button
-                    className="button hero-button"
-                    onClick={openImport}
-                    disabled={busy}
-                  >
-                    <Import size={17} />
-                    导入你的第一个整合包
-                    <ArrowRight size={17} />
-                  </button>
-                  <div className="hero-tags">
-                    <span>
-                      <Box size={13} />
-                      Minecraft 26.1.2
-                    </span>
-                    <span>
-                      <Layers3 size={13} />
-                      Fabric Only
-                    </span>
-                    <span>
-                      <Smartphone size={13} />
-                      iOS ARM64
-                    </span>
-                  </div>
+              <section className="page-intro">
+                <div>
+                  <span className="eyebrow">FROM YOUR MAC TO YOUR IPHONE</span>
+                  <h1>把你的世界，装进 iPhone。</h1>
+                  <p>从整合包到签名 IPA，在一个工作台里完成。</p>
                 </div>
-                <div className="hero-caption">
-                  <span className="status-dot" />
-                  THE OVERWORLD, REIMAGINED<span>01 / 01</span>
+                <div className="target-card">
+                  <div className="target-icon">
+                    <Package size={26} />
+                  </div>
+                  <div>
+                    <span>构建目标</span>
+                    <strong>iOS · ARM64</strong>
+                    <small>本地原生执行 · 无 Java JIT</small>
+                  </div>
                 </div>
               </section>
-              <div className="home-grid">
-                <div className="home-main">
-                  <div className="section-heading library-heading">
-                    <h2>
-                      我的实例
-                      <span className="count">
-                        {instances.length.toString().padStart(2, "0")}
-                      </span>
-                    </h2>
+              <div className="workflow-layout">
+                <section className="builder-panel">
+                  <div className="stepper" aria-label="构建步骤">
+                    {steps.map((s, i) => (
+                      <button
+                        key={s}
+                        className={
+                          "step " +
+                          (step === i ? "current" : i < step ? "complete" : "")
+                        }
+                        aria-current={step === i ? "step" : undefined}
+                        onClick={() => setStep(i)}
+                      >
+                        <span className="step-number">
+                          {i < step ? <Check size={15} /> : i + 1}
+                        </span>
+                        <span>{s}</span>
+                        {i < steps.length - 1 && (
+                          <ChevronRight className="step-chevron" size={14} />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="step-content">
+                    <div className="section-heading">
+                      <span className="eyebrow">STEP 0{step + 1}</span>
+                      <h2>
+                        {
+                          [
+                            "选择要构建的游戏内容",
+                            ...(form.loader === "fabric"
+                              ? ["管理整合包资源"]
+                              : []),
+                            "准备你的构建环境",
+                            "设置开发签名",
+                            "准备好，开始构建。",
+                          ][step]
+                        }
+                      </h2>
+                      <p>
+                        {
+                          [
+                            "导入 Fabric 整合包或本地 Prism 实例，也可以先构建原版。",
+                            ...(form.loader === "fabric"
+                              ? ["查看原包资源，勾选本次构建需要保留的内容。"]
+                              : []),
+                            "复用本机已经准备好的客户端、编译工具链和图形资源。",
+                            "使用本机 Xcode 的开发证书和描述文件完成签名。",
+                            "核对输入后，自动完成原生编译、签名和 IPA 导出。",
+                          ][step]
+                        }
+                      </p>
+                    </div>
+                    {step === 0 && (
+                      <>
+                        <div className="segmented" aria-label="游戏类型">
+                          <button
+                            className={
+                              form.loader === "fabric" ? "selected" : ""
+                            }
+                            aria-pressed={form.loader === "fabric"}
+                            onClick={() => update({ loader: "fabric" })}
+                          >
+                            <Layers3 size={17} />
+                            Fabric 整合包
+                          </button>
+                          <button
+                            className={
+                              form.loader === "vanilla" ? "selected" : ""
+                            }
+                            aria-pressed={form.loader === "vanilla"}
+                            onClick={() => update({ loader: "vanilla" })}
+                          >
+                            <Box size={17} />
+                            原版 26.1.2
+                          </button>
+                        </div>
+                        {form.loader === "fabric" ? (
+                          <>
+                            <div className="source-drop">
+                              <div className="source-glyph">
+                                <Package size={31} strokeWidth={1.5} />
+                              </div>
+                              <h3>
+                                {form.source
+                                  ? basename(form.source)
+                                  : "从你的整合包开始"}
+                              </h3>
+                              <p>
+                                {form.source
+                                  ? "重新选择来源，或检查当前本地内容。"
+                                  : "拖入 .mrpack 或 Prism 实例目录，也可以点击选择。"}
+                              </p>
+                              <div className="button-line center">
+                                <button
+                                  className="primary"
+                                  disabled={!native || !!busy || !!active}
+                                  onClick={() => void chooseSource(false)}
+                                >
+                                  <Plus size={17} />
+                                  选择 .mrpack
+                                </button>
+                                <button
+                                  className="secondary"
+                                  disabled={!native || !!busy || !!active}
+                                  onClick={() => void chooseSource(true)}
+                                >
+                                  <FolderOpen size={17} />
+                                  Prism 实例
+                                </button>
+                              </div>
+                              <span className="source-caption">
+                                Minecraft 26.1.2 · Fabric Loader 0.19.3
+                              </span>
+                              <p className="import-note">
+                                .mrpack
+                                仅自动获取客户端必需文件；可选文件可在资源管理中勾选。自动下载限
+                                Modrinth CDN，其他来源可先通过 Prism 准备。
+                              </p>
+                            </div>
+                            <div className="source-manual">
+                              <label>
+                                来源路径
+                                <input
+                                  value={form.source}
+                                  onChange={(e) =>
+                                    update({ source: e.target.value })
+                                  }
+                                  placeholder="也可粘贴本地整合包或实例路径"
+                                  spellCheck={false}
+                                />
+                              </label>
+                              <button
+                                className="secondary"
+                                disabled={!native || !!busy || !form.source}
+                                onClick={() => void inspect(form.source)}
+                              >
+                                <Search size={16} />
+                                检查来源
+                              </button>
+                            </div>
+                            {instances.length > 0 && (
+                              <label className="recent-source">
+                                最近导入
+                                <select
+                                  value={
+                                    instances.some(
+                                      (i) => i.report.source === form.source,
+                                    )
+                                      ? form.source
+                                      : ""
+                                  }
+                                  onChange={async (e) => {
+                                    const v = e.target.value;
+                                    if (v) {
+                                      update({ source: v });
+                                      if (native) await inspect(v);
+                                      else
+                                        remember(
+                                          instances.find(
+                                            (i) => i.report.source === v,
+                                          )!.report,
+                                        );
+                                    }
+                                  }}
+                                >
+                                  <option value="">选择最近的来源</option>
+                                  {instances.map((i) => (
+                                    <option key={i.id} value={i.report.source}>
+                                      {i.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                            )}
+                            {currentReport && (
+                              <div className="source-report">
+                                <div className="report-top">
+                                  <span>
+                                    <FileCheck2 size={18} />
+                                    {currentReport.pack_name ||
+                                      basename(form.source)}
+                                  </span>
+                                  <Pill
+                                    tone={currentReport.fatal ? "red" : "green"}
+                                  >
+                                    {currentReport.fatal
+                                      ? "需要处理"
+                                      : "静态检查通过"}
+                                  </Pill>
+                                </div>
+                                <div className="report-metrics">
+                                  <span>
+                                    <strong>{currentReport.mods.length}</strong>
+                                    已读取的 Mod
+                                  </span>
+                                  <span>
+                                    <strong>
+                                      {currentReport.manifest_files ?? "—"}
+                                    </strong>
+                                    清单文件
+                                  </span>
+                                  <span>
+                                    <strong>
+                                      {
+                                        currentReport.findings.filter(
+                                          (f) => f.severity === "error",
+                                        ).length
+                                      }
+                                    </strong>
+                                    阻断项
+                                  </span>
+                                </div>
+                                {currentReport.fabric_loader_version !==
+                                  "0.19.3" && (
+                                  <Note>
+                                    当前来源 Loader 为{" "}
+                                    {currentReport.fabric_loader_version ||
+                                      "未知"}
+                                    ，本次将使用构建器内置的
+                                    0.19.3。差异会记录在任务里，构建可以继续。
+                                  </Note>
+                                )}
+                                <label className="audit-check">
+                                  <input
+                                    type="checkbox"
+                                    checked={form.forceCompile}
+                                    onChange={(e) =>
+                                      update({ forceCompile: e.target.checked })
+                                    }
+                                  />
+                                  <span>
+                                    <strong>
+                                      强制编译（忽略 Loader 版本差异）
+                                    </strong>
+                                    <small>
+                                      使用 Fabric Loader 0.19.3
+                                      尝试构建；差异会写入任务记录，实际转换或编译失败时保留错误日志。
+                                    </small>
+                                  </span>
+                                </label>
+                                <ModList
+                                  key={currentReport.source}
+                                  report={currentReport}
+                                />
+                                <button
+                                  className="text-button"
+                                  onClick={() => setDetails(!details)}
+                                >
+                                  {details
+                                    ? "收起诊断详情"
+                                    : "查看兼容性与诊断详情"}
+                                  <ChevronRight size={15} />
+                                </button>
+                                {details && (
+                                  <div className="diagnostics">
+                                    {currentReport.findings.map((f, i) => (
+                                      <div
+                                        className={"finding " + f.severity}
+                                        key={i}
+                                      >
+                                        <span>
+                                          {f.severity === "error"
+                                            ? "阻断"
+                                            : f.severity === "warning"
+                                              ? "注意"
+                                              : "信息"}
+                                        </span>
+                                        <p>
+                                          <strong>{f.code}</strong>
+                                          {f.message}
+                                        </p>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            <div className="tertiary-row">
+                              <label className="text-button">
+                                <FileJson2 size={15} />
+                                导入检查报告
+                                <input
+                                  className="visually-hidden"
+                                  type="file"
+                                  accept=".json,application/json"
+                                  onChange={(e) => {
+                                    const f = e.target.files?.[0];
+                                    e.target.value = "";
+                                    if (f)
+                                      void attempt("正在读取报告", async () => {
+                                        if (f.size > 8 * 1024 * 1024)
+                                          throw new Error("报告不能超过 8 MiB");
+                                        const r = parseReport(
+                                          JSON.parse(await f.text()),
+                                        );
+                                        update({ source: r.source });
+                                        remember(r);
+                                      });
+                                  }}
+                                />
+                              </label>
+                              {currentReport && (
+                                <button
+                                  className="text-button"
+                                  onClick={() =>
+                                    void attempt("正在导出报告", () =>
+                                      saveDocument(
+                                        "fabricaot-preflight.json",
+                                        JSON.stringify(currentReport, null, 2),
+                                      ),
+                                    )
+                                  }
+                                >
+                                  导出报告
+                                  <ArrowUpRight size={14} />
+                                </button>
+                              )}
+                            </div>
+                          </>
+                        ) : (
+                          <div className="vanilla-card">
+                            <Box size={44} strokeWidth={1.25} />
+                            <h3>Minecraft Java 26.1.2</h3>
+                            <p>
+                              使用构建配置中已校验的本地正版客户端和资源，无需导入额外
+                              Mod。
+                            </p>
+                            <Pill tone="green">原版构建路径</Pill>
+                          </div>
+                        )}
+                      </>
+                    )}
+                    {step === 1 && form.loader === "fabric" && (
+                      <ResourceManager
+                        key={form.source}
+                        report={currentReport}
+                        selection={form.resourceSelection}
+                        onChange={(resourceSelection) =>
+                          update({ resourceSelection })
+                        }
+                      />
+                    )}
+                    {step === environmentStep && (
+                      <>
+                        {paths}
+                        <details className="advanced">
+                          <summary>
+                            <Settings2 size={16} />
+                            高级配置 · 工具链和资源路径
+                          </summary>
+                          <p>识别现有配置，或为本机创建独立的构建配置。</p>
+                          {configurationFields.map(([key, label, type]) => (
+                            <PathField
+                              key={key}
+                              label={label}
+                              value={fields[key] ?? ""}
+                              directory={type === "folder"}
+                              onChange={(v) =>
+                                setFields((old) => ({ ...old, [key]: v }))
+                              }
+                            />
+                          ))}
+                          <button
+                            className="secondary"
+                            disabled={!native || !!busy || !form.workspace}
+                            onClick={() =>
+                              void attempt("正在保存构建配置", async () => {
+                                const r = await workbench<{ path: string }>(
+                                  form,
+                                  "save-config",
+                                  undefined,
+                                  fields,
+                                );
+                                update({ config: r.path });
+                                setNotice("已创建独立构建配置。");
+                              })
+                            }
+                          >
+                            <Check size={16} />
+                            保存为新配置
+                          </button>
+                        </details>
+                        <div className="check-toolbar">
+                          <span>环境状态</span>
+                          <button
+                            className="secondary"
+                            disabled={!native || !!busy || !form.config}
+                            onClick={() => void detect()}
+                          >
+                            <RefreshCw size={16} />
+                            检测环境
+                          </button>
+                        </div>
+                        {checks ? (
+                          <CheckList checks={checks} />
+                        ) : (
+                          <Note>
+                            下一步还可配置签名。构建时会再次核验全部输入和资源哈希。
+                          </Note>
+                        )}
+                      </>
+                    )}
+                    {step === environmentStep + 1 && (
+                      <>
+                        <div className="signing-visual">
+                          <div className="signing-icon">
+                            <ShieldCheck size={30} />
+                          </div>
+                          <div>
+                            <h3>使用你的本机开发签名</h3>
+                            <p>证书与私钥由钥匙串和 Xcode 管理。</p>
+                          </div>
+                          <Pill>Development</Pill>
+                        </div>
+                        <div className="field">
+                          <label>
+                            <span>
+                              Apple Team ID <small>可选</small>
+                            </span>
+                            <input
+                              value={form.team}
+                              maxLength={10}
+                              placeholder="自动使用本机有效描述文件对应的团队"
+                              onChange={(e) =>
+                                update({
+                                  team: e.target.value.trim().toUpperCase(),
+                                })
+                              }
+                              spellCheck={false}
+                            />
+                          </label>
+                          <small>
+                            填写 10 位 Team
+                            ID，或留空自动选择。证书与描述文件需先在 Xcode
+                            中准备。
+                          </small>
+                        </div>
+                        <PathField
+                          label="IPA 导出配置"
+                          value={form.exportOptions}
+                          onChange={(v) => update({ exportOptions: v })}
+                          hint="使用 debugging 开发导出方式，默认复用项目内 ExportOptions.plist。"
+                        />
+                        <div className="signing-facts">
+                          <div>
+                            <span>应用标识</span>
+                            <code>org.fabricaot.research.c0.kexin</code>
+                          </div>
+                          <div>
+                            <span>安装方式</span>
+                            <strong>导出后由你安装到设备</strong>
+                          </div>
+                          <div>
+                            <span>Personal Team</span>
+                            <strong>免费描述文件通常 7 天到期</strong>
+                          </div>
+                        </div>
+                        <Note>
+                          保持同一应用标识以延续现有数据。安装、更新及存档保留需在真机独立验证。
+                        </Note>
+                      </>
+                    )}
+                    {step === reviewStep && (
+                      <>
+                        <div className="review-grid">
+                          {[
+                            [
+                              "游戏内容",
+                              form.loader === "fabric"
+                                ? "Fabric · " +
+                                  (currentReport?.pack_name ||
+                                    basename(form.source) ||
+                                    "尚未选择")
+                                : "原版 Minecraft 26.1.2",
+                            ],
+                            ...(form.loader === "fabric"
+                              ? [
+                                  [
+                                    "资源选择",
+                                    resourceReady
+                                      ? "保留 " +
+                                        form.resourceSelection!.included
+                                          .length +
+                                        " / " +
+                                        currentReport!.resources!.length +
+                                        " 项资源"
+                                      : "请先确认资源",
+                                  ],
+                                ]
+                              : []),
+                            ["构建目标", "iOS ARM64 · Java 25 AOT"],
+                            [
+                              "渲染后端",
+                              "OpenGL 兼容 · GL41 / Zink / MoltenVK",
+                            ],
+                            [
+                              "编译方式",
+                              form.loader === "fabric" && form.forceCompile
+                                ? "强制编译 · Fabric Loader 0.19.3"
+                                : "标准检查",
+                            ],
+                            ["签名团队", form.team || "自动选择本机有效团队"],
+                            ["最终产物", "开发签名 IPA + SHA-256"],
+                          ].map(([k, v]) => (
+                            <div className="review-item" key={k}>
+                              <span>{k}</span>
+                              <strong>{v}</strong>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="review-path">
+                          <span>输出位置</span>
+                          <code>{form.output || "尚未选择"}</code>
+                        </div>
+                        {form.loader === "fabric" && (
+                          <label className="audit-check">
+                            <input
+                              type="checkbox"
+                              checked={form.audited}
+                              onChange={(e) =>
+                                update({ audited: e.target.checked })
+                              }
+                            />
+                            <span>
+                              <strong>
+                                此来源中的 Mod 已完成构建期代码审计
+                              </strong>
+                              <small>
+                                允许既有隔离流程执行这些 Mod 的 Mixin /
+                                构建期转换。静态检查不代表 iOS 兼容性验证。
+                              </small>
+                            </span>
+                          </label>
+                        )}
+                        <div className="check-toolbar">
+                          <span>构建前检查</span>
+                          <button
+                            className="text-button"
+                            disabled={!native || !!busy || !form.config}
+                            onClick={() => void detect()}
+                          >
+                            <RefreshCw size={15} />
+                            重新检测
+                          </button>
+                        </div>
+                        {checks && <CheckList checks={checks} />}{" "}
+                        {problems.length > 0 && (
+                          <div className="block-list" role="status">
+                            <strong>开始前还需要</strong>
+                            {problems.map((s) => (
+                              <p key={s}>· {s}</p>
+                            ))}
+                          </div>
+                        )}
+                        <div className="build-explainer">
+                          <Clock3 size={18} />
+                          <p>
+                            原生编译可能需要较长时间。日志与检查点实时保存，关闭工作台后任务会继续运行。
+                          </p>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  <footer className="wizard-footer">
                     <button
                       className="text-button"
-                      onClick={() => navigate("instances")}
+                      disabled={step === 0 || !!busy}
+                      onClick={() => setStep((s) => s - 1)}
                     >
-                      查看全部
-                      <ArrowRight size={14} />
+                      <ChevronLeft size={16} />
+                      上一步
                     </button>
-                  </div>
-                  {instances.length ? (
-                    <div className="instance-grid home-instances">
-                      {instances.slice(0, 2).map(instanceCard)}
-                    </div>
-                  ) : (
-                    <button
-                      className="import-zone"
-                      onClick={openImport}
-                      disabled={busy}
-                    >
-                      <span className="import-zone-icon">
-                        <Plus size={23} />
+                    <span>
+                      {step + 1} / {steps.length}
+                    </span>
+                    {step < reviewStep ? (
+                      <button
+                        className="primary"
+                        disabled={!nextAllowed || !!busy}
+                        onClick={() => setStep((s) => s + 1)}
+                      >
+                        下一步
+                        <ArrowRight size={17} />
+                      </button>
+                    ) : (
+                      <button
+                        className="primary"
+                        disabled={
+                          problems.length > 0 ||
+                          !!busy ||
+                          !!active ||
+                          checks?.ready === false
+                        }
+                        onClick={() => void begin()}
+                      >
+                        <Hammer size={17} />
+                        构建 IPA
+                      </button>
+                    )}
+                  </footer>
+                </section>
+                <aside className="build-aside">
+                  <div className="world-card">
+                    <img src="/landscape.svg" alt="" />
+                    <div>
+                      <span className="eyebrow">
+                        BUILT LOCALLY. PLAYED LOCALLY.
                       </span>
-                      <strong>给下一个世界留个位置</strong>
-                      <span>导入 .mrpack 或 Prism 实例，开始静态预检</span>
-                      <small>也可以拖入预检 JSON 报告</small>
+                      <h3>
+                        从本地出发。
+                        <br />
+                        在掌心继续。
+                      </h3>
+                      <p>
+                        你的游戏内容，在 Mac 上编译，
+                        <br />在 iPhone 上原生运行。
+                      </p>
+                    </div>
+                  </div>
+                  <div className="aside-checklist">
+                    <h3>这次构建会完成</h3>
+                    {[
+                      ["验证输入", "版本、资源和依赖指纹"],
+                      ["原生编译", "Fabric 静态转换与 Java 25 AOT"],
+                      ["签名打包", "Xcode 归档和开发签名"],
+                      ["校验导出", "IPA 签名、平台和 SHA-256"],
+                    ].map(([title, detail], i) => (
+                      <div key={title}>
+                        <span>{i + 1}</span>
+                        <p>
+                          <strong>{title}</strong>
+                          <small>{detail}</small>
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                  {active && (
+                    <button
+                      className="active-callout"
+                      onClick={() => {
+                        setSelected(active.id);
+                        nav("history");
+                      }}
+                    >
+                      <LoaderCircle size={18} className="spin" />
+                      <span>
+                        有构建正在进行<small>{stageName(active.stage)}</small>
+                      </span>
+                      <ArrowRight size={16} />
                     </button>
                   )}
-                  <section className="workflow">
-                    <div className="section-heading">
-                      <h2>从整合包到本地构建</h2>
-                      <span className="small muted">一步一步，清晰可见</span>
-                    </div>
-                    <div className="workflow-steps">
-                      {[
-                        {
-                          icon: FolderOpen,
-                          title: "导入实例",
-                          subtitle: "读取本地整合包",
-                          action: openImport,
-                        },
-                        {
-                          icon: ShieldCheck,
-                          title: "检查兼容性",
-                          subtitle: "了解风险与阻断项",
-                          action: () => navigate("reports"),
-                        },
-                        {
-                          icon: Smartphone,
-                          title: "准备构建",
-                          subtitle: "在 Mac 上编译与签名",
-                          action: () => navigate("builds"),
-                        },
-                      ].map((s, i) => (
-                        <button key={s.title} onClick={s.action}>
-                          <span className="step-icon">
-                            <s.icon size={18} />
-                            <small>0{i + 1}</small>
-                          </span>
-                          <strong>{s.title}</strong>
-                          <span>{s.subtitle}</span>
-                          {i < 2 && (
-                            <ChevronRight className="step-arrow" size={14} />
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  </section>
-                </div>
-                <div className="home-side">
-                  {environmentPanel(true)}
-                  <button
-                    className="guide-card"
-                    onClick={() => setModal("help")}
-                  >
-                    <div>
-                      <span className="eyebrow">A LITTLE HELP</span>
-                      <h3>第一次使用？</h3>
-                      <p>从导入到构建，了解完整流程。</p>
-                      <span className="guide-link">
-                        查看入门指南
-                        <ArrowUpRight size={14} />
-                      </span>
-                    </div>
-                    <div className="guide-icon">
-                      <FileCheck2 size={30} />
-                    </div>
-                  </button>
-                </div>
+                  <p className="aside-footnote">
+                    独立、非官方的本地构建工具。仅使用你合法拥有的游戏内容；Mod
+                    兼容性与真机游玩按项目验收标准分别验证。
+                  </p>
+                </aside>
               </div>
-              <footer className="page-footer">
-                <span>
-                  <ShieldCheck size={13} />
-                  文件与报告保存在本机
-                </span>
-                <span>独立非官方项目 · 静态预检不代表真机兼容性</span>
-              </footer>
             </>
           )}
-
-          {page === "instances" && (
+          {page === "history" && (
             <>
-              <div className="toolbar">
-                <label className="search-field">
-                  <Search size={16} />
-                  <input
-                    aria-label="搜索实例"
-                    placeholder="搜索你的实例…"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                  />
-                </label>
-                <label className="filter-field">
-                  <ListFilter size={15} />
-                  <select
-                    aria-label="筛选实例"
-                    value={filter}
-                    onChange={(e) => setFilter(e.target.value)}
+              <section className="page-intro compact">
+                <div>
+                  <span className="eyebrow">BUILD HISTORY</span>
+                  <h1>每一次构建，都有迹可循。</h1>
+                  <p>查看真实阶段、保留的日志和已验证的 IPA。</p>
+                </div>
+                <div className="page-intro-actions">
+                  <button
+                    className="primary"
+                    onClick={() => {
+                      nav("builder");
+                      setStep(0);
+                    }}
                   >
-                    <option value="all">全部实例</option>
-                    <option value="clear">无静态阻断</option>
-                    <option value="blocked">存在阻断</option>
-                  </select>
-                </label>
-                <span className="small muted">
-                  {filteredInstances.length} 个实例
-                </span>
-              </div>
-              {filteredInstances.length ? (
-                <div className="instance-grid">
-                  {filteredInstances.map(instanceCard)}
-                  <button className="add-instance" onClick={openImport}>
-                    <Plus size={24} />
-                    <span>导入更多整合包</span>
+                    <Plus size={17} />
+                    新建构建
+                  </button>
+                  <button
+                    className="secondary"
+                  disabled={
+                    !native || !!busy || !!active || !form.exportOptions
+                  }
+                  onClick={() =>
+                    void attempt("正在导出现有构建", async () => {
+                      const path = await choosePath(
+                        "选择已完成的构建目录（含 result.json）",
+                        true,
+                      );
+                      if (!path) return;
+                      const next = await workbench<BuildJob>(
+                        { ...form, existingBuild: path },
+                        "start",
+                      );
+                      setJobs((old) => mergeJob(old, next));
+                      setSelected(next.id);
+                      setRefresh((v) => v + 1);
+                    })
+                  }
+                  >
+                    <Download size={16} />
+                    从已有构建导出 IPA
                   </button>
                 </div>
-              ) : (
-                <section className="panel">
-                  <Empty
-                    title={
-                      instances.length
-                        ? "没有找到匹配的实例"
-                        : "你的实例库还是空的"
-                    }
-                    action={
-                      instances.length ? (
-                        <button
-                          className="button secondary"
-                          onClick={() => {
-                            setSearch("");
-                            setFilter("all");
-                          }}
-                        >
-                          清除筛选
-                        </button>
-                      ) : (
-                        importButton
+              </section>
+              <div className="history-layout">
+                <section className="job-list-panel">
+                  <div className="list-heading">
+                    <h2>
+                      构建任务 <span>{jobs.length}</span>
+                    </h2>
+                    <button
+                      className="icon-button"
+                      aria-label="刷新构建记录"
+                      disabled={!native || !!busy}
+                      onClick={() =>
+                        void attempt("正在刷新记录", async () => {
+                          setJobs(await workbench<BuildJob[]>(form, "history"));
+                          setRefresh((v) => v + 1);
+                        })
+                      }
+                    >
+                      <RefreshCw size={16} />
+                    </button>
+                  </div>
+                  <label className="search-field">
+                    <Search size={16} />
+                    <input
+                      aria-label="搜索构建"
+                      value={search}
+                      placeholder="搜索任务"
+                      onChange={(e) => setSearch(e.target.value)}
+                    />
+                  </label>
+                  {jobs.length === 0 ? (
+                    <div className="small-empty">
+                      <History size={25} />
+                      <p>还没有构建任务</p>
+                      <small>开始构建后，进度与产物会出现在这里。</small>
+                    </div>
+                  ) : (
+                    jobs
+                      .filter((j) =>
+                        (j.name + " " + j.id)
+                          .toLowerCase()
+                          .includes(search.toLowerCase()),
                       )
-                    }
-                  >
-                    {instances.length
-                      ? "试试其他关键词，或调整筛选条件。"
-                      : "选择本地整合包，或导入一份已有的预检报告。"}
-                  </Empty>
+                      .map((j) => (
+                        <button
+                          className={
+                            "job-list-item " +
+                            (job?.id === j.id ? "selected" : "")
+                          }
+                          key={j.id}
+                          onClick={() => setSelected(j.id)}
+                        >
+                          <div className={"job-icon " + j.state}>
+                            {isActive(j) ? (
+                              <LoaderCircle size={19} className="spin" />
+                            ) : j.state === "succeeded" ? (
+                              <CheckCircle2 size={19} />
+                            ) : (
+                              <Package size={19} />
+                            )}
+                          </div>
+                          <div>
+                            <strong>{j.name}</strong>
+                            <small>{date(j.startedAt)}</small>
+                            <span>{stateNames[j.state]}</span>
+                          </div>
+                          <ChevronRight size={15} />
+                        </button>
+                      ))
+                  )}
                 </section>
-              )}
+                <section className="job-detail">
+                  {!job ? (
+                    <div className="history-empty">
+                      <div className="empty-art">
+                        <Package size={45} strokeWidth={1.3} />
+                      </div>
+                      <h2>准备好你的第一个 IPA。</h2>
+                      <p>从选择游戏内容开始，工作台会完成后续编译与打包。</p>
+                      <button
+                        className="primary"
+                        onClick={() => nav("builder")}
+                      >
+                        前往构建
+                        <ArrowRight size={16} />
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="job-detail-head">
+                        <div>
+                          <span className="eyebrow">
+                            BUILD {job.id.slice(0, 8).toUpperCase()}
+                          </span>
+                          <h2>{job.name}</h2>
+                          <p>
+                            {date(job.startedAt)} 开始
+                            {job.finishedAt
+                              ? " · " + date(job.finishedAt) + " 结束"
+                              : ""}
+                          </p>
+                        </div>
+                        <Pill
+                          tone={
+                            job.state === "succeeded"
+                              ? "green"
+                              : ["failed", "interrupted"].includes(job.state)
+                                ? "red"
+                                : ""
+                          }
+                        >
+                          {stateNames[job.state]}
+                        </Pill>
+                      </div>
+                      {job.request.forceCompile &&
+                        !job.request.existingBuild && (
+                          <Note>
+                            此任务启用了强制编译。
+                            {job.compatibilityOverrides
+                              ?.map((override) => override.message)
+                              .join("；") ||
+                              "使用构建器内置的 Fabric Loader 0.19.3。"}
+                          </Note>
+                        )}
+                      {!!job.acceptedExclusions?.length && (
+                        <Note>
+                          <strong>本次构建已按确认排除静态 AOT 不支持项。</strong>
+                          <p>排除项仅对本次构建副本生效，不代表其余 Mod 已通过真机功能验证。</p>
+                          <details>
+                            <summary>查看排除的 Mod 文件</summary>
+                            <ul>
+                              {job.acceptedExclusions.flatMap((challenge) =>
+                                challenge?.mods.map((mod) => (
+                                  <li key={challenge.id + mod.file}>
+                                    {mod.name} · {mod.file}
+                                  </li>
+                                )) ?? [],
+                              )}
+                            </ul>
+                          </details>
+                        </Note>
+                      )}
+                      {pollError && <Note error>{pollError}</Note>}
+                      {job.error && (
+                        <div className="job-error" role="alert">
+                          <CircleAlert size={20} />
+                          <div>
+                            <strong>
+                              {job.state === "cancelled"
+                                ? "任务已停止"
+                                : "构建需要处理"}
+                            </strong>
+                            <pre>{job.error}</pre>
+                            <small>
+                              完整诊断保存在任务文件夹。修复后可重试，输入指纹一致的阶段会复用。
+                            </small>
+                          </div>
+                        </div>
+                      )}
+                      {job.state === "succeeded" && (
+                        <div className="ipa-result">
+                          <div className="ipa-icon">
+                            <FileCheck2 size={35} />
+                          </div>
+                          <div>
+                            <h3>IPA 已导出并通过校验</h3>
+                            <p>
+                              {basename(job.ipa || "")} ·{" "}
+                              {((job.bytes ?? 0) / 1024 / 1024).toFixed(1)} MiB
+                            </p>
+                            <small>安装与游戏行为仍需在你的设备上验证。</small>
+                          </div>
+                          <button
+                            className="primary"
+                            disabled={!native || !!busy}
+                            onClick={() =>
+                              void attempt("正在显示 IPA", () =>
+                                workbench(form, "reveal", job.id),
+                              )
+                            }
+                          >
+                            <FolderOpen size={16} />在 Finder 中显示
+                          </button>
+                          <code>SHA-256 {job.sha256}</code>
+                        </div>
+                      )}
+                      <div className="pipeline-heading">
+                        <h3>
+                          {isActive(job) ? stageName(job.stage) : "构建流水线"}
+                        </h3>
+                        <span>阶段状态来自实际构建输出</span>
+                      </div>
+                      <div className="pipeline">
+                        {stages
+                          .filter(([id]) =>
+                            job.request.existingBuild
+                              ? [
+                                  "validate",
+                                  "archive",
+                                  "export-log",
+                                  "verify",
+                                ].includes(id)
+                              : job.request.loader === "fabric" ||
+                                !["source", "fabric"].includes(id),
+                          )
+                          .map(([id, label]) => {
+                            const i = stages.findIndex((s) => s[0] === id);
+                            const current = stages.findIndex(
+                              (s) => s[0] === job.stage,
+                            );
+                            const done =
+                              job.state === "succeeded" || i < current;
+                            const running = id === job.stage && isActive(job);
+                            return (
+                              <div
+                                key={id}
+                                className={
+                                  done ? "done" : running ? "running" : ""
+                                }
+                              >
+                                <span>
+                                  {done ? (
+                                    <Check size={13} />
+                                  ) : running ? (
+                                    <LoaderCircle size={13} className="spin" />
+                                  ) : (
+                                    <span className="tiny-dot" />
+                                  )}
+                                </span>
+                                {label}
+                              </div>
+                            );
+                          })}
+                      </div>
+                      <div className="log-panel">
+                        <div className="log-heading">
+                          <span>
+                            <Terminal size={16} />
+                            构建日志
+                          </span>
+                          <label>
+                            <input
+                              type="checkbox"
+                              checked={follow}
+                              onChange={(e) => setFollow(e.target.checked)}
+                            />
+                            自动跟随
+                          </label>
+                        </div>
+                        <div
+                          className="log-scroll"
+                          tabIndex={0}
+                          aria-label="构建日志"
+                        >
+                          <LogView
+                            text={job.log ?? ""}
+                            label="构建日志内容"
+                          />
+                          <div ref={end} />
+                        </div>
+                      </div>
+                      <div className="job-actions">
+                        <button
+                          className="secondary"
+                          disabled={!native || !!busy}
+                          onClick={() =>
+                            void attempt("正在打开任务目录", () =>
+                              workbench(form, "reveal-folder", job.id),
+                            )
+                          }
+                        >
+                          <FolderOpen size={16} />
+                          任务文件夹
+                        </button>
+                        <button
+                          className="secondary"
+                          disabled={!!busy}
+                          onClick={() =>
+                            void attempt("正在导出日志", () =>
+                              saveDocument(
+                                "fabricaot-build-" +
+                                  job.id.slice(0, 8) +
+                                  ".txt",
+                                [
+                                  job.name,
+                                  stateNames[job.state],
+                                  job.build,
+                                  job.error,
+                                  job.log ?? "",
+                                ].join(String.fromCharCode(10)),
+                              ),
+                            )
+                          }
+                        >
+                          <Download size={16} />
+                          导出日志
+                        </button>
+                        <div className="spacer" />
+                        {isActive(job) ? (
+                          <button
+                            className="danger"
+                            disabled={
+                              !native || !!busy || job.state === "cancelling"
+                            }
+                            onClick={() =>
+                              void attempt("正在取消任务", async () => {
+                                const next = await workbench<BuildJob>(
+                                  form,
+                                  "cancel",
+                                  job.id,
+                                );
+                                setJobs((old) => mergeJob(old, next));
+                                setRefresh((v) => v + 1);
+                              })
+                            }
+                          >
+                            <Square size={14} />
+                            {job.state === "cancelling"
+                              ? "正在停止…"
+                              : "取消构建"}
+                          </button>
+                        ) : (
+                          job.state !== "succeeded" && (
+                            <button
+                              className="primary"
+                              disabled={!native || !!busy || !!active}
+                              onClick={() =>
+                                void attempt("正在恢复构建", async () => {
+                                  const next = await workbench<BuildJob>(
+                                    form,
+                                    "retry",
+                                    job.id,
+                                  );
+                                  setJobs((old) => mergeJob(old, next));
+                                  setSelected(next.id);
+                                  setRefresh((v) => v + 1);
+                                })
+                              }
+                            >
+                              <RefreshCw size={16} />
+                              重试构建
+                            </button>
+                          )
+                        )}
+                      </div>
+                    </>
+                  )}
+                </section>
+              </div>
             </>
           )}
-
-          {page === "reports" &&
-            (selected ? (
-              <>
-                <div className="report-selector">
-                  <label>
-                    当前实例
-                    <select
-                      aria-label="当前实例"
-                      value={selected.id}
-                      onChange={(e) => setSelectedId(e.target.value)}
+          {page === "environment" && (
+            <>
+              <section className="page-intro compact">
+                <div>
+                  <span className="eyebrow">ENVIRONMENT & RESOURCES</span>
+                  <h1>所有构建条件，一目了然。</h1>
+                  <p>本地客户端、编译工具链和原生后端是实际构建输入。</p>
+                </div>
+                <button
+                  className="primary"
+                  disabled={!native || !!busy || !form.config}
+                  onClick={() => void detect()}
+                >
+                  <RefreshCw size={17} />
+                  检测环境
+                </button>
+              </section>
+              <div className="settings-layout">
+                <section className="panel">
+                  <h2>构建资源</h2>
+                  <p className="section-description">
+                    自动识别已经准备好的本地配置。
+                  </p>
+                  {paths}
+                  <button
+                    className="secondary"
+                    onClick={() => {
+                      nav("builder");
+                      setStep(environmentStep);
+                    }}
+                  >
+                    <Settings2 size={16} />
+                    编辑高级资源配置
+                  </button>
+                </section>
+                <section className="panel">
+                  <h2>环境检查</h2>
+                  <p className="section-description">
+                    检查主机、SDK、AOT 输入和签名准备情况。
+                  </p>
+                  {checks ? (
+                    <CheckList checks={checks} />
+                  ) : (
+                    <div className="small-empty">
+                      <Cpu size={31} />
+                      <h3>等待环境检查</h3>
+                      <p>选择构建配置后点击「检测环境」。</p>
+                    </div>
+                  )}
+                  <Note>
+                    版本检查通过后，构建还会逐个核验客户端、运行库、资源、着色器和阶段产物指纹。
+                  </Note>
+                </section>
+              </div>
+            </>
+          )}
+          {page === "settings" && (
+            <>
+              <section className="page-intro compact">
+                <div>
+                  <span className="eyebrow">WORKSPACE SETTINGS</span>
+                  <h1>让工作台适合你的习惯。</h1>
+                  <p>设置仅保存在本机，不保存账户密码和签名私钥。</p>
+                </div>
+              </section>
+              <section className="panel narrow">
+                <h2>外观</h2>
+                <p className="section-description">
+                  深色与浅色配色都适配工作台的全部页面；选择会保存在本机。
+                </p>
+                <div
+                  className="theme-options"
+                  role="group"
+                  aria-label="外观主题"
+                >
+                  {(
+                    [
+                      ["system", "跟随系统", Monitor],
+                      ["light", "浅色", Sun],
+                      ["dark", "深色", Moon],
+                    ] as const
+                  ).map(([value, label, Icon]) => (
+                    <button
+                      key={value}
+                      className={
+                        "theme-option " + (theme === value ? "selected" : "")
+                      }
+                      aria-label={label}
+                      aria-pressed={theme === value}
+                      onClick={() => chooseTheme(value)}
                     >
-                      {instances.map((i) => (
-                        <option key={i.id} value={i.id}>
-                          {i.name}
+                      <Icon size={19} aria-hidden="true" />
+                      <strong>{label}</strong>
+                      <small>
+                        {value === "system"
+                          ? systemDark
+                            ? "当前跟随为深色"
+                            : "当前跟随为浅色"
+                          : value === "light"
+                            ? "明亮背景，适合白天"
+                            : "深色背景，减少眩光"}
+                      </small>
+                    </button>
+                  ))}
+                </div>
+                <div className="field accent-setting">
+                  <label>
+                    <span>交互强调色</span>
+                    <select
+                      aria-label="交互强调色"
+                      value={accent}
+                      onChange={(e) => chooseAccent(e.target.value)}
+                    >
+                      {accentOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
                         </option>
                       ))}
                     </select>
                   </label>
-                  <div className="report-actions">
-                    {native && (
-                      <button
-                        className="button secondary"
-                        onClick={() => void scanSource(selected.report.source)}
-                        disabled={busy}
-                      >
-                        <RefreshCw size={15} className={busy ? "spin" : ""} />
-                        重新预检
-                      </button>
-                    )}
-                    <button
-                      className="icon-button danger"
-                      aria-label="移除实例记录"
-                      onClick={() => setModal("delete")}
-                    >
-                      <Trash2 size={17} />
-                    </button>
-                  </div>
+                  <small>
+                    选中、焦点和主要操作使用此颜色；成功、警告与错误状态保持不变。
+                  </small>
                 </div>
-                <div
-                  className={
-                    "notice " + (selected.report.fatal ? "error" : "info")
-                  }
-                >
-                  <CircleAlert size={19} />
-                  <div>
-                    <strong>
-                      {selected.report.fatal
-                        ? "发现静态阻断项，请先处理后再构建。"
-                        : "元数据预检结束，实际兼容性仍待验证。"}
-                    </strong>
-                    <p>
-                      此报告仅静态读取元数据。Mod 的 iOS / AOT
-                      行为尚未测试，不能标记为 VERIFIED。
-                    </p>
-                  </div>
+                <div className="divider" />
+                <h2>本地执行</h2>
+                <div className="field">
+                  <label>
+                    <span>Python 解释器</span>
+                    <input
+                      placeholder="python3 · 自动从系统环境查找"
+                      value={form.python}
+                      onChange={(e) => update({ python: e.target.value })}
+                      spellCheck={false}
+                    />
+                  </label>
+                  <small>完整构建需要原生 ARM64 Python 3.11 或更高版本。</small>
                 </div>
-                <section className="report-summary">
-                  <div>
-                    <span>已扫描 Mod</span>
-                    <strong>
-                      {selected.report.mods.length}
-                      <small>个</small>
-                    </strong>
-                  </div>
-                  <div>
-                    <span>阻断问题</span>
-                    <strong
-                      className={
-                        selected.report.findings.some(
-                          (f) => f.severity === "error",
-                        )
-                          ? "red-text"
-                          : ""
-                      }
-                    >
-                      {
-                        selected.report.findings.filter(
-                          (f) => f.severity === "error",
-                        ).length
-                      }
-                      <small>项</small>
-                    </strong>
-                  </div>
-                  <div>
-                    <span>待关注事项</span>
-                    <strong className="amber-text">
-                      {
-                        selected.report.findings.filter(
-                          (f) => f.severity === "warning",
-                        ).length
-                      }
-                      <small>项</small>
-                    </strong>
-                  </div>
-                  <div>
-                    <span>真机行为验证</span>
-                    <strong className="unverified">未测试</strong>
-                  </div>
-                </section>
-                <section className="panel findings-panel">
-                  <div className="section-heading">
-                    <h2>诊断事项</h2>
-                    <Badge>
-                      {selected.report.source_type === "mrpack"
-                        ? "Modrinth"
-                        : selected.report.source_type === "prism_or_folder"
-                          ? "Prism / 本地目录"
-                          : "未知来源"}
-                    </Badge>
-                  </div>
-                  <div className="source-path">
-                    <Folder size={14} />
-                    <span title={selected.report.source}>
-                      {selected.report.source}
+                <PathField
+                  label="FabricAOT 项目目录"
+                  value={form.workspace}
+                  directory
+                  onChange={(v) => update({ workspace: v })}
+                />
+                <div className="divider" />
+                <h2>来源记录</h2>
+                <p className="section-description">
+                  移除记录只影响工作台列表，原始文件与产物仍保留。
+                </p>
+                {instances.map((i) => (
+                  <div className="instance-setting" key={i.id}>
+                    <Package size={18} />
+                    <span>
+                      {i.name}
+                      <small>{i.report.source}</small>
                     </span>
-                  </div>
-                  <div className="filter-tabs" aria-label="诊断筛选">
-                    {[
-                      { key: "all", label: "全部" },
-                      { key: "error", label: "阻断" },
-                      { key: "warning", label: "待关注" },
-                      { key: "info", label: "信息" },
-                    ].map((f) => (
-                      <button
-                        key={f.key}
-                        className={filter === f.key ? "active" : ""}
-                        onClick={() => setFilter(f.key)}
-                        aria-pressed={filter === f.key}
-                      >
-                        {f.label}
-                        <span>
-                          {
-                            selected.report.findings.filter(
-                              (item) =>
-                                f.key === "all" || item.severity === f.key,
-                            ).length
-                          }
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                  {selected.report.findings.filter(
-                    (f) => filter === "all" || f.severity === filter,
-                  ).length ? (
-                    <div className="findings">
-                      {selected.report.findings
-                        .filter(
-                          (f) => filter === "all" || f.severity === filter,
-                        )
-                        .map((f, i) => (
-                          <div className={"finding " + f.severity} key={i}>
-                            {f.severity === "error" ? (
-                              <CircleAlert size={18} />
-                            ) : f.severity === "warning" ? (
-                              <TriangleAlert size={18} />
-                            ) : (
-                              <Circle size={16} />
-                            )}
-                            <div>
-                              <strong>{findingLabels[f.code] ?? f.code}</strong>
-                              <p>{f.message}</p>
-                              <code>{f.code}</code>
-                            </div>
-                            <span className="small">
-                              {f.severity === "error"
-                                ? "阻断"
-                                : f.severity === "warning"
-                                  ? "待关注"
-                                  : "信息"}
-                            </span>
-                          </div>
-                        ))}
-                    </div>
-                  ) : (
-                    <div className="quiet-empty">当前筛选下没有诊断事项。</div>
-                  )}
-                </section>
-                <section className="panel mods-panel">
-                  <div className="section-heading">
-                    <h2>
-                      Mod 元数据
-                      <span className="count">
-                        {selected.report.mods.length}
-                      </span>
-                    </h2>
-                    <span className="small muted">
-                      远程清单中的 JAR 可能尚未下载
-                    </span>
-                  </div>
-                  {selected.report.mods.length ? (
-                    <div className="table-wrap">
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>Mod / 版本</th>
-                            <th>构建期机制</th>
-                            <th>环境</th>
-                            <th>iOS / AOT 状态</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {selected.report.mods.map((m, i) => (
-                            <tr key={m.id + i}>
-                              <td>
-                                <strong>{m.id}</strong>
-                                <span className="table-sub">{m.version}</span>
-                              </td>
-                              <td>
-                                <div className="mechanisms">
-                                  {m.has_mixins && <span>Mixin</span>}
-                                  {m.has_class_tweaker && (
-                                    <span>Class Tweaker</span>
-                                  )}
-                                  {m.has_entrypoints && <span>Entrypoint</span>}
-                                  {m.nested_jar_count > 0 && (
-                                    <span>嵌套 JAR ×{m.nested_jar_count}</span>
-                                  )}
-                                  {m.has_language_adapters && (
-                                    <span>Language Adapter</span>
-                                  )}
-                                  {m.bundled_native_count > 0 && (
-                                    <span>
-                                      原生库 ×{m.bundled_native_count}
-                                    </span>
-                                  )}
-                                  {!m.has_mixins &&
-                                    !m.has_entrypoints &&
-                                    !m.has_class_tweaker &&
-                                    !m.nested_jar_count &&
-                                    !m.has_language_adapters &&
-                                    !m.bundled_native_count &&
-                                    "—"}
-                                </div>
-                              </td>
-                              <td>
-                                {m.environment === "*"
-                                  ? "通用"
-                                  : m.environment === "client"
-                                    ? "客户端"
-                                    : m.environment === "server"
-                                      ? "服务端"
-                                      : m.environment}
-                              </td>
-                              <td>
-                                <Badge tone="amber">未测试</Badge>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <div className="quiet-empty">
-                      报告没有可读取的本地 Mod 元数据。
-                    </div>
-                  )}
-                </section>
-              </>
-            ) : (
-              <section className="panel">
-                <Empty
-                  title="还没有兼容性报告"
-                  icon={<ShieldCheck size={28} />}
-                  action={importButton}
-                >
-                  导入整合包或预检 JSON，查看具体的适配要求。
-                </Empty>
-              </section>
-            ))}
-
-          {page === "builds" && (
-            <>
-              <BuildPanel settings={settings} setSettings={setSettings} modsPath={modsPath} setModsPath={setModsPath} source={selected?.report.source} />
-              <div className="notice info">
-                <CircleAlert size={18} />
-                <div>
-                  <strong>
-                    上方执行完整本地 AOT 编译、链接与 IPA 校验。
-                  </strong>
-                  <p>
-                    下方保留高级构建准备命令。准备成功与真机可玩验收分别记录。
-                  </p>
-                </div>
-              </div>
-              <div className="build-grid">
-                <section className="panel build-config">
-                  <div className="section-heading">
-                    <h2>
-                      <Settings2 size={17} />
-                      构建准备
-                    </h2>
-                    <Badge>iOS ARM64</Badge>
-                  </div>
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      setFormError("");
-                      try {
-                        setCommand(prepareCommand(settings, modsPath));
-                      } catch (error) {
-                        setFormError(String(error));
-                      }
-                    }}
-                  >
-                    <label className="field">
-                      构建配置文件
-                      <input
-                        value={settings.config}
-                        onChange={(e) => {
-                          setSettings({ ...settings, config: e.target.value });
-                          setCommand("");
-                        }}
-                        placeholder="mcfao.local.json"
-                        required
-                      />
-                      <small>相对于项目目录；沿用现有构建配置。</small>
-                    </label>
-                    <label className="field">
-                      已导入实例
-                      <select
-                        value={selected?.id ?? ""}
-                        onChange={(e) => {
-                          setSelectedId(e.target.value);
-                          setModsPath("");
-                          setCommand("");
-                        }}
-                      >
-                        <option value="" disabled>
-                          先导入整合包
-                        </option>
-                        {instances.map((i) => (
-                          <option value={i.id} key={i.id}>
-                            {i.name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="field">
-                      本地 Mod 目录
-                      <input
-                        aria-label="本地 Mod 目录"
-                        value={modsPath}
-                        onChange={(e) => {
-                          setModsPath(e.target.value);
-                          setCommand("");
-                        }}
-                        placeholder="/path/to/instance/.minecraft/mods"
-                        required
-                      />
-                      <small>.mrpack 需先取得并验证实际 Mod 文件。</small>
-                    </label>
-                    <label className="field">
-                      输出目录
-                      <input
-                        value={settings.output}
-                        onChange={(e) => {
-                          setSettings({ ...settings, output: e.target.value });
-                          setCommand("");
-                        }}
-                        required
-                      />
-                      <small>建议为每轮构建设置独立目录。</small>
-                    </label>
-                    {formError && (
-                      <p className="form-error" role="alert">
-                        {formError}
-                      </p>
-                    )}
                     <button
-                      className="button primary full"
-                      type="submit"
-                      disabled={!selected || selected.report.fatal}
-                    >
-                      <Terminal size={16} />
-                      生成准备命令
-                      <ArrowRight size={16} />
-                    </button>
-                    {!settings.workspace && (
-                      <button
-                        className="text-button setup-link"
-                        type="button"
-                        onClick={() => navigate("settings")}
-                      >
-                        先设置项目目录
-                        <ArrowRight size={14} />
-                      </button>
-                    )}
-                  </form>
-                </section>
-                <section className="panel command-panel">
-                  <div className="section-heading">
-                    <h2>
-                      <Terminal size={17} />
-                      执行预览
-                    </h2>
-                    <span className="small muted">macOS / zsh</span>
-                  </div>
-                  {command ? (
-                    <>
-                      <div className="command-label">
-                        <span className="status-dot green" />
-                        元数据准备 · --prepare-only
-                      </div>
-                      <pre className="command-text">{command}</pre>
-                      <div className="command-actions">
-                        <button
-                          className="button secondary"
-                          onClick={() => void copy(command)}
-                        >
-                          <Copy size={15} />
-                          复制命令
-                        </button>
-                        <button
-                          className="button secondary"
-                          onClick={() =>
-                            void download(
-                              "fabricaot-build-preparation.txt",
-                              buildInstructions(settings, command),
-                            )
-                          }
-                        >
-                          <ArrowDownToLine size={15} />
-                          导出说明
-                        </button>
-                      </div>
-                      <p className="small muted">
-                        在终端进入项目目录后执行。此操作只准备元数据，不会执行未审计的
-                        Mod。
-                      </p>
-                    </>
-                  ) : (
-                    <Empty title="准备好再出发" icon={<Terminal size={25} />}>
-                      填写左侧配置，生成可检查、可复制的准备命令。
-                    </Empty>
-                  )}
-                  <div className="build-stages">
-                    <span>
-                      <FileCheck2 size={16} />
-                      静态预检<b>已接入</b>
-                    </span>
-                    <span>
-                      <Cpu size={16} />
-                      AOT 编译<b>使用命令行</b>
-                    </span>
-                    <span>
-                      <Smartphone size={16} />
-                      签名 / IPA<b>使用命令行</b>
-                    </span>
-                  </div>
-                </section>
-              </div>
-              <section className="panel logs-panel">
-                <div className="section-heading">
-                  <h2>
-                    <Terminal size={17} />
-                    本次会话任务
-                  </h2>
-                  {selectedTask && (
-                    <button
-                      className="text-button"
+                      className="icon-button"
+                      aria-label={"移除来源记录 " + i.name}
                       onClick={() =>
-                        void download(
-                          "fabricaot-task-log.txt",
-                          selectedTask.startedAt +
-                            "\n" +
-                            selectedTask.lines.join("\n"),
-                        )
+                        setInstances((old) => old.filter((x) => x.id !== i.id))
                       }
                     >
-                      <ArrowDownToLine size={14} />
-                      导出日志
+                      <Trash2 size={16} />
                     </button>
-                  )}
-                </div>
-                {tasks.length ? (
-                  <div className="logs-layout">
-                    <div className="task-list">
-                      {tasks.map((task) => (
-                        <button
-                          className={
-                            task.id === selectedTask?.id ? "active" : ""
-                          }
-                          key={task.id}
-                          onClick={() => setActiveTask(task.id)}
-                        >
-                          {task.state === "running" ? (
-                            <LoaderCircle size={16} className="spin" />
-                          ) : task.state === "done" ? (
-                            <CheckCircle2 size={16} className="green-text" />
-                          ) : (
-                            <TriangleAlert size={16} className="amber-text" />
-                          )}
-                          <div>
-                            <strong>{task.name}</strong>
-                            <span>{date(task.startedAt)}</span>
-                          </div>
-                          <small>
-                            {task.state === "running"
-                              ? "运行中"
-                              : task.state === "done"
-                                ? "已结束"
-                                : task.state === "blocked"
-                                  ? "有阻断"
-                                  : "失败"}
-                          </small>
-                        </button>
-                      ))}
-                    </div>
-                    <pre className="log-output" aria-label="任务日志">
-                      {selectedTask?.lines.join("\n")}
-                    </pre>
                   </div>
-                ) : (
-                  <div className="quiet-empty">
-                    <Clock3 size={18} />
-                    <span>
-                      还没有运行任务。桌面应用中导入整合包后，预检日志会显示在这里。
-                    </span>
-                  </div>
+                ))}
+                {!instances.length && (
+                  <p className="muted">还没有导入的来源。</p>
                 )}
+                <div className="divider" />
+                <h2>本地记录</h2>
+                <div className="button-line">
+                  <button
+                    className="secondary"
+                    onClick={() =>
+                      void attempt("正在导出本地记录", () =>
+                        saveDocument(
+                          "fabricaot-workspace.json",
+                          JSON.stringify(
+                            {
+                              builder: localStorage.getItem(FORM_KEY),
+                              legacy: localStorage.getItem(STORAGE_KEY),
+                            },
+                            null,
+                            2,
+                          ),
+                        ),
+                      )
+                    }
+                  >
+                    <Download size={16} />
+                    导出原始记录
+                  </button>
+                  <button
+                    className="danger subtle"
+                    onClick={() => setReset(true)}
+                  >
+                    重置界面记录
+                  </button>
+                </div>
+                <small className="muted">
+                  任务历史保存在项目
+                  artifacts/desktop-jobs，重置界面不会删除构建文件。
+                </small>
               </section>
             </>
           )}
-
-          {page === "environment" && (
-            <div className="environment-grid">
-              {environmentPanel()}
-              <section className="panel platform-panel">
-                <div className="section-heading">
-                  <h2>
-                    <Monitor size={17} />
-                    平台能力
-                  </h2>
-                  <Badge tone="green">跨平台界面</Badge>
-                </div>
-                <div className="table-wrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>功能</th>
-                        <th>macOS</th>
-                        <th>Windows</th>
-                        <th>Linux</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr>
-                        <td>实例 / 报告管理</td>
-                        <td>支持</td>
-                        <td>支持¹</td>
-                        <td>支持¹</td>
-                      </tr>
-                      <tr>
-                        <td>静态预检</td>
-                        <td>Python 3</td>
-                        <td>Python 3¹</td>
-                        <td>Python 3¹</td>
-                      </tr>
-                      <tr>
-                        <td>iOS AOT / 签名</td>
-                        <td>Apple Silicon</td>
-                        <td>需 Mac</td>
-                        <td>需 Mac</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-                <p className="small muted">
-                  ¹ 已提供平台适配代码；Windows / Linux
-                  原生打包与运行仍需在对应系统验收。
-                </p>
-                <div className="platform-summary">
-                  <div>
-                    <Monitor size={20} />
-                    <span>本机已就绪检查</span>
-                    <strong>
-                      {environment
-                        ? readyChecks + " / " + environment.checks.length
-                        : "待检测"}
-                    </strong>
-                  </div>
-                  <div>
-                    <Smartphone size={20} />
-                    <span>远程 Mac 构建</span>
-                    <strong>后续接入</strong>
-                  </div>
-                </div>
-              </section>
-            </div>
-          )}
-
-          {page === "settings" && (
-            <div className="settings-layout">
-              <section className="panel settings-panel">
-                <div className="section-heading">
-                  <h2>
-                    <FolderOpen size={18} />
-                    本地路径
-                  </h2>
-                  <span className="small muted">更改自动保存</span>
-                </div>
-                <label className="field">
-                  FabricAOT 项目目录
-                  <div className="input-with-button">
-                    <input
-                      value={settings.workspace}
-                      onChange={(e) => {
-                        setSettings({ ...settings, workspace: e.target.value });
-                        setCommand("");
-                      }}
-                      placeholder="选择 MCFAO 仓库根目录"
-                    />
-                    {native && (
-                      <button
-                        className="icon-button"
-                        aria-label="选择项目目录"
-                        onClick={() =>
-                          void pickWorkspace()
-                            .then((path) => {
-                              if (path) {
-                                setSettings((s) => ({ ...s, workspace: path }));
-                                setCommand("");
-                              }
-                            })
-                            .catch((error) => notify(String(error), true))
-                        }
-                      >
-                        <FolderOpen size={18} />
-                      </button>
-                    )}
-                  </div>
-                  <small>
-                    用于生成构建命令。静态预检使用应用内附带的预检脚本。
-                  </small>
-                </label>
-                <label className="field">
-                  Python 可执行文件
-                  <input
-                    value={settings.python}
-                    onChange={(e) => {
-                      setSettings({ ...settings, python: e.target.value });
-                      setCommand("");
-                      setEnvironment(null);
-                    }}
-                    placeholder="留空使用系统 python3（Windows 为 python）"
-                  />
-                  <small>只填写程序名或完整路径，不附加命令行参数。</small>
-                </label>
-                <div className="inline-note">
-                  <HardDrive size={17} />
-                  <span>
-                    实例、报告和设置保存在本机应用存储中。任务日志保留于本次会话，可单独导出。
-                  </span>
-                </div>
-              </section>
-              <section className="panel about-panel">
-                <img src="/mark.svg" alt="" width="52" height="52" />
-                <h2>FabricAOT</h2>
-                <span className="version">Desktop 0.1.0 · Experimental</span>
-                <p>你的世界，由你构建。</p>
-                <div className="about-spec">
-                  <span>
-                    Minecraft<strong>26.1.2</strong>
-                  </span>
-                  <span>
-                    运行时<strong>Java 25 · AOT</strong>
-                  </span>
-                  <span>
-                    目标平台<strong>iOS ARM64</strong>
-                  </span>
-                </div>
-                <p className="small muted">
-                  独立非官方项目，与 Mojang / Microsoft
-                  无关联。游戏资产由用户本地合法提供。
-                </p>
-              </section>
-              {storageIssue && (
-                <section className="panel recovery-panel">
-                  <h2>本地记录恢复</h2>
-                  <p>{storageIssue}</p>
-                  <div className="command-actions">
-                    <button
-                      className="button secondary"
-                      onClick={() => {
-                        try {
-                          void download(
-                            "fabricaot-storage-backup.json",
-                            localStorage.getItem(STORAGE_KEY) ?? "{}",
-                          );
-                        } catch (error) {
-                          notify(String(error), true);
-                        }
-                      }}
-                    >
-                      导出原始记录
-                    </button>
-                    <button
-                      className="button secondary"
-                      onClick={() => setModal("reset")}
-                    >
-                      重置本地记录
-                    </button>
-                  </div>
-                </section>
-              )}
-            </div>
-          )}
-        </main>
-        <div className="statusbar">
-          <span>
-            <span className="status-dot green" />
-            {busy ? "正在进行静态预检…" : "工作区就绪"}
-            {busy && <LoaderCircle size={12} className="spin" />}
-          </span>
-          <span>
-            Fabric Only<span className="dot-separator">·</span>26.1.2
-            <span className="dot-separator">·</span>Experimental
-          </span>
+          <footer className="page-footer">
+            <span>FabricAOT · 本地构建，内容由你掌控。</span>
+            <span>Minecraft 26.1.2 / Java 25 / Fabric Only</span>
+          </footer>
         </div>
-      </div>
-      <input
-        type="file"
-        ref={fileInput}
-        hidden
-        accept="application/json,.json"
-        aria-label="导入预检 JSON 报告"
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file)
-            void importFile(file).catch((error) => {
-              setImportError(String(error));
-              notify(String(error), true);
-            });
-          e.target.value = "";
-        }}
+      </main>
+      {busy && (
+        <div className="busy-toast" role="status">
+          <LoaderCircle size={18} className="spin" />
+          {busy}
+        </div>
+      )}
+      <ExclusionDialog
+        challenge={pendingExclusionJob?.exclusionChallenge ?? null}
+        busy={!!busy}
+        onResolve={(accepted) => void resolveStaticExclusions(accepted)}
       />
-      {modal === "import" && (
-        <Modal title="导入你的整合包" onClose={() => setModal(null)}>
-          <p className="modal-description">
-            选择本地来源，创建实例并读取静态元数据。
-          </p>
-          <div className="import-options">
-            <button
-              onClick={() => void chooseSource(false)}
-              disabled={busy || !native}
-            >
-              <span className="option-icon">
-                <FileUp size={24} />
-              </span>
-              <div>
-                <strong>Modrinth 整合包</strong>
-                <span>选择 .mrpack 文件</span>
-              </div>
-              <ChevronRight size={18} />
-            </button>
-            <button
-              onClick={() => void chooseSource(true)}
-              disabled={busy || !native}
-            >
-              <span className="option-icon">
-                <FolderOpen size={24} />
-              </span>
-              <div>
-                <strong>Prism Launcher 实例</strong>
-                <span>选择含 mmc-pack.json 的实例目录</span>
-              </div>
-              <ChevronRight size={18} />
-            </button>
-            <button onClick={() => fileInput.current?.click()} disabled={busy}>
-              <span className="option-icon">
-                <FileJson2 size={24} />
-              </span>
-              <div>
-                <strong>已有预检报告</strong>
-                <span>导入 tools/preflight.py 生成的 JSON</span>
-              </div>
-              <ChevronRight size={18} />
-            </button>
-          </div>
-          {!native && (
-            <div className="inline-note">
-              <Monitor size={17} />
-              <span>
-                当前为浏览器预览，可导入 JSON
-                报告。原始整合包和目录导入请启动桌面应用。
-              </span>
-            </div>
-          )}
-          {busy && (
-            <p className="import-progress" role="status">
-              <LoaderCircle className="spin" size={18} />
-              正在扫描元数据，结果将自动保存…
-            </p>
-          )}
-          {importError && (
-            <p className="form-error" role="alert">
-              {importError}
-            </p>
-          )}
-          <div className="modal-footnote">
-            <ShieldCheck size={15} />
-            仅读取元数据，不执行 Mod 或构建脚本。
-          </div>
-        </Modal>
-      )}
-      {modal === "help" && (
-        <Modal title="从这里开始" onClose={() => setModal(null)} wide>
-          <p className="modal-description">
-            把复杂的构建过程，拆成清晰的每一步。
-          </p>
-          <ol className="help-steps">
-            <li>
-              <span>01</span>
-              <div>
-                <h3>导入与预检</h3>
-                <p>
-                  在桌面应用中选择 .mrpack 或 Prism
-                  实例。也可先运行预检脚本，再导入 JSON 报告。
-                </p>
-                <code>
-                  python3 tools/preflight.py /path/to/pack.mrpack &gt;
-                  report.json
-                </code>
-              </div>
-            </li>
-            <li>
-              <span>02</span>
-              <div>
-                <h3>读懂兼容性报告</h3>
-                <p>
-                  先处理版本、加载器和路径等阻断项，再评估
-                  Mixin、嵌套依赖与原生库。静态扫描不会授予 VERIFIED 状态。
-                </p>
-              </div>
-            </li>
-            <li>
-              <span>03</span>
-              <div>
-                <h3>在 Mac 上准备构建</h3>
-                <p>
-                  在设置中指定项目目录，再到“构建与日志”填写配置和 Mod
-                  目录。生成的命令只进行元数据准备。
-                </p>
-              </div>
-            </li>
-            <li>
-              <span>04</span>
-              <div>
-                <h3>编译、签名与设备验收</h3>
-                <p>
-                  完整流程见仓库 docs/BUILDING.md。设备可玩性与 Mod 行为按
-                  docs/ACCEPTANCE.md 单独验收。
-                </p>
-              </div>
-            </li>
-          </ol>
-          <button
-            className="button primary full"
-            onClick={() => {
-              setModal(null);
-              openImport();
-            }}
-          >
-            开始导入
-            <ArrowRight size={17} />
-          </button>
-        </Modal>
-      )}
-      {modal === "delete" && (
-        <Modal title="移除实例记录" onClose={() => setModal(null)}>
-          <p className="modal-description">
-            移除“{selected?.name}”在工作台中的记录。源整合包和本地存档会保留。
-          </p>
-          <div className="modal-buttons">
-            <button className="button secondary" onClick={() => setModal(null)}>
-              取消
-            </button>
-            <button
-              className="button destructive"
-              onClick={() => {
-                setInstances((i) =>
-                  i.filter((item) => item.id !== selected?.id),
-                );
-                setSelectedId("");
-                setModal(null);
-                notify("实例记录已移除。");
-              }}
-            >
-              移除记录
-            </button>
-          </div>
-        </Modal>
-      )}
-      {modal === "reset" && (
-        <Modal title="重置本地记录" onClose={() => setModal(null)}>
-          <p className="modal-description">
-            此操作将替换工作台保存的实例和设置。请先导出原始记录；源整合包和存档会保留。
-          </p>
-          <div className="modal-buttons">
-            <button className="button secondary" onClick={() => setModal(null)}>
-              取消
-            </button>
-            <button
-              className="button destructive"
-              onClick={() => {
-                try {
-                  localStorage.removeItem(STORAGE_KEY);
-                  setInstances([]);
-                  setSettings(DEFAULT_SETTINGS);
-                  setSelectedId("");
-                  setCommand("");
-                  setStorageIssue("");
-                  setModal(null);
-                  notify("本地记录已重置。");
-                } catch (error) {
-                  notify(String(error), true);
-                }
-              }}
-            >
-              确认重置
-            </button>
-          </div>
-        </Modal>
-      )}
-      {toast && (
-        <div
-          className={"toast " + (toast.error ? "error" : "")}
-          role={toast.error ? "alert" : "status"}
+      {reset && (
+        <dialog
+          ref={dialog}
+          className="confirm-dialog"
+          aria-labelledby="reset-title"
+          onCancel={(e) => {
+            e.preventDefault();
+            setReset(false);
+          }}
         >
-          {toast.error ? <CircleAlert size={18} /> : <Check size={18} />}
-          <span>{toast.message}</span>
-          <button
-            className="icon-button"
-            aria-label="关闭提示"
-            onClick={() => setToast(null)}
-          >
-            <X size={15} />
-          </button>
-        </div>
+          <h2 id="reset-title">重置界面记录？</h2>
+          <p>
+            来源列表和表单设置会被重置，构建任务、IPA、游戏内容和存档仍保留。
+          </p>
+          <div className="button-line">
+            <button className="secondary" onClick={() => setReset(false)}>
+              保留记录
+            </button>
+            <button
+              className="danger"
+              onClick={() => {
+                localStorage.removeItem(FORM_KEY);
+                localStorage.removeItem(STORAGE_KEY);
+                setInstances([]);
+                setForm({ ...defaultForm });
+                setReport(null);
+                setStorageIssue("");
+                setReset(false);
+              }}
+            >
+              重置记录
+            </button>
+          </div>
+        </dialog>
       )}
     </div>
   );

@@ -6,12 +6,12 @@ The desktop workbench targets Apple Silicon macOS. It requires a local MCFAO che
 
 1. Set the MCFAO checkout in Settings. Choose a verified local toolchain JSON as described in `docs/BUILDING.md` and the CLI documentation.
 2. Import a `.mrpack` or Prism instance for static preflight. In Builds, use “导入此实例的本地构建文件” to materialize client files into a new task directory. Downloads currently support the public Modrinth CDN with manifest SHA-1/SHA-512 and size checks. Other hosts fail with an explicit reason; use a local Prism instance for those files.
-3. Choose Vanilla or Fabric, then GL41/Zink/MoltenVK or the optional native Metal backend. Renderer choice remains explicit pending this integrated build's device acceptance.
+3. Choose Vanilla or Fabric. The desktop workbench uses OpenGL compatibility (GL41/Zink/MoltenVK) by default and offers this single renderer entry.
 4. Choose a fresh output directory and independent test Bundle ID. Fabric requires audited inputs and retains the default-deny transformation sandbox.
 5. Start the full build. Actual stage messages, stdout/stderr and failure details come from `tools/mcfao.py build`; this path never uses `--prepare-only`. Cancel stops only the owned process tree, including nested sandbox sessions. Retry preserves verified caches; changed inputs require a fresh output directory.
 6. After completion, inspect IPA path, bytes, SHA-256, renderer, loader, source SHA, signature and evidence paths. Open the output directory or export the complete log. An unsigned IPA cannot be installed directly.
 
-Imported Mod names, versions, dependencies and static findings remain metadata evidence. The Fabric/MDAF report button reads the actual current build's conversion, reflection/resource, tracing, semantic and unsupported-mechanism records. No static report or AOT result grants `FUNCTION_PASS`. A full build rejects implicit Mod exclusions and retains the diagnostic report.
+Imported Mod names, versions, dependencies and static findings remain metadata evidence. The Fabric/MDAF report button reads the actual current build's conversion, reflection/resource, tracing, semantic and unsupported-mechanism records. No static report or AOT result grants `FUNCTION_PASS`. If Fabric conversion reports unsupported classes, the job pauses for an explicit decision. Approval removes the affected root Mod JARs and their dependents from a new verified staging copy, then reruns the conversion in a fresh build directory; cancellation retains the original diagnostic output. Any further exclusions require another confirmation.
 
 Imported configuration, resource packs and options are packaged as a first-launch seed. Device files already present take precedence; accounts and saves are never imported. Ambiguous override path collisions fail rather than silently choosing content. The source instance is not modified.
 

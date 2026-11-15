@@ -2,7 +2,9 @@
 
 ## 构建输入不可信
 
-`.mrpack`、Prism 实例、jar、fabric.mod.json、Gradle build scripts、Mixin plugins、远程资源都可能不可信。静态扫描应限制 ZIP 成员数量/路径/总展开量、禁止 symlink 和目录穿越，检测大小写路径冲突、下载指向本地网络/HTTP、损坏/缺失 SHA-1 与 SHA-512。下载器还应验证 DNS 解析、HTTPS 重定向、host allowlist、总下载量和最终实际 hash；**仅有 URL 字符串检查不够**。
+`.mrpack`、Prism 实例、jar、fabric.mod.json、Gradle build scripts、Mixin plugins、远程资源都可能不可信。静态扫描应限制 ZIP 成员数量/路径/总展开量、禁止 symlink 和目录穿越，检测大小写路径冲突、下载指向本地网络/HTTP、损坏/缺失 SHA-1 与 SHA-512。下载器还应校验 HTTPS 重定向、host allowlist、TLS 证书与主机名、总下载量和最终实际 hash；**仅有 URL 字符串检查不够**。
+
+本地代理允许使用 fake-IP 或本机映射，因此下载器不再要求 DNS 解析结果全部是公网地址。信任边界改为固定 CDN 主机名加 TLS 校验：代理能转发内容，但无法伪造证书；清单中的大小与 SHA-1 / SHA-512 仍是最终完整性依据。
 
 不得直接执行未经隔离的 Gradle、Mod 类/插件、build-time initializer。先定义受控的独立构建用户/沙盒、最小目录权限、离线默认、只读工具链、禁用敏感主目录访问和进程资源上限。Mac 的各类“沙盒”对 Java/Gradle 是否适用须实测；无安全隔离则采用阻断/手动审计，不能声称安全。
 

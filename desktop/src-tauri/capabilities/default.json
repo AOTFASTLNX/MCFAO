@@ -3,5 +3,10 @@
   "identifier": "main-capability",
   "description": "Local desktop dialogs only; no shell or unrestricted filesystem plugin.",
   "windows": ["main"],
-  "permissions": ["core:default", "dialog:allow-open"]
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-set-theme",
+    "dialog:allow-open"
+  ]
 }
