@@ -27,8 +27,8 @@ jobs:
             MCFAO_TOKEN="$MCFAO_TOKEN" HEAP_GIB=8 JOBS=6 AOT_PAR=4 SLIM_ASSETS=1 \
               UPSTREAM="$UPSTREAM" SOURCE_REF="$SOURCE_REF" bash build_mac.sh
       - store_artifacts:
-          path: ~/mcfao-build/FabricAOT-game.ipa
-          destination: FabricAOT-game.ipa
+          path: ~/mcfao-build/NCL-game.ipa
+          destination: NCL-game.ipa
       - store_artifacts:
           path: ~/mcfao-build/build.log
           destination: build.log

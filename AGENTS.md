@@ -1,4 +1,4 @@
-# FabricAOT — 编码 Agent 根指令
+# Native Craft Launcher — 编码 Agent 根指令
 
 > 2026-11-15 集成决策：本次主要渲染路线按 docs/evidence/ADR-009.md：Blaze3D OpenGL → LWJGL JNI → OSMesa/Zink → MoltenVK → Metal/CAMetalLayer；保留 compiler/metal-backend 为可选 Metal 构建。所有开发位于 integration/gl41-gui-ipa-20261115 或子分支，禁止推送/合并 main 或删除备份分支。桌面构建器继续 desktop/ 的 Tauri 2 + React + TypeScript + Rust，仅验收 Apple Silicon macOS。
 > 2026-11-15 本地存储：重物已移到外接盘 /Volumes/K/MCFAO-data/，项目内为符号链接（清单见 external-storage.json 与 docs/EXTERNAL_STORAGE.md）。任何本地构建前必须确认外接盘已挂载；tools/external_storage.py 会在挂载缺失或链接损坏时暂停构建（退出码 3）。Agent 不得绕过、跳过或伪造该检查，也不要在断盘时删除或重建这些链接。

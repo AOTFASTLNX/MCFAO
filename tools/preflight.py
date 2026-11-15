@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline, fail-closed *metadata preflight* for FabricAOT Minecraft 26.1.2.
+"""Offline, fail-closed *metadata preflight* for Native Craft Launcher Minecraft 26.1.2.
 
 This deliberately does not download files, execute Java, unpack modpacks, resolve
 Fabric dependencies or certify that a mod can run on iOS/AOT. Treat all inputs
@@ -511,7 +511,7 @@ def scan_pack(path: Path) -> dict:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Offline FabricAOT 26.1.2 metadata preflight (not AOT compatibility certification)")
+    parser = argparse.ArgumentParser(description="Offline NCL 26.1.2 metadata preflight (not AOT compatibility certification)")
     parser.add_argument("path", type=Path)
     args = parser.parse_args()
     report = scan_pack(args.path)

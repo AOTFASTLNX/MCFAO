@@ -1,4 +1,4 @@
-# MCFAO 整合包 AOT 兼容性矩阵
+# NCL 整合包 AOT 兼容性矩阵
 
 > 本文件由 `tools/generate_mod_matrix.py` 从验证包自身的 `result.json` 生成，请勿手改表格；人工判定的状态升级写在 `docs/MOD_MATRIX_EVIDENCE.json`。`BLOCKED` 不能被证据表升级——必须先重新进入验证包、重新取得 `BUILD_PASS`。
 > 生成命令：`python3 -B tools/generate_mod_matrix.py --build artifacts/mcfao/fabric-pack-92`

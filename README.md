@@ -1,4 +1,4 @@
-# FabricAOT
+# Native Craft Launcher
 
 > 2026-11-15 集成决策：主要研发路线采用 [ADR-009](docs/evidence/ADR-009.md)：Minecraft 26.1.2 原生 OpenGL → OSMesa/Zink → MoltenVK → Metal/CAMetalLayer；保留原生 Metal 模式。Apple Silicon macOS 的 desktop/ GUI 与真实 IPA 按 [集成审计](docs/integration/GL41_BRANCH_AUDIT.md) 推进，真机验收前维持 experimental。
 
@@ -9,7 +9,7 @@
 
 > 本地构建前必须接上卷标 K 的外接盘：重物通过符号链接放在 /Volumes/K/MCFAO-data/，未挂载时构建命令会暂停并报错。见 docs/EXTERNAL_STORAGE.md 与 python3 -B tools/external_storage.py --json。
 
-FabricAOT（仓库代号 MCFAO）的目标是让用户在 Mac 上导入 `.mrpack` 或 Prism Launcher 实例，经过依赖解析、构建期 Fabric 转换、Java AOT 编译和 iOS 签名后，得到一份可以在普通 iPhone 上本地游玩的 IPA。游戏逻辑、渲染和存档都在手机上执行，不需要 Java JIT、越狱或电脑串流。
+Native Craft Launcher（简称 NCL，仓库代号 MCFAO）的目标是让用户在 Mac 上导入 `.mrpack` 或 Prism Launcher 实例，经过依赖解析、构建期 Fabric 转换、Java AOT 编译和 iOS 签名后，得到一份可以在普通 iPhone 上本地游玩的 IPA。游戏逻辑、渲染和存档都在手机上执行，不需要 Java JIT、越狱或电脑串流。
 
 > **项目状态：实验性研发阶段。** 工具链和 Fabric 静态化门槛已经打通，原版单人玩法在 iOS 模拟器上通过，但完整真机可玩、整合包功能覆盖和性能验收仍未完成。当前产物不能称为 v1 正式版。
 
@@ -73,7 +73,7 @@ flowchart LR
 | [ci](ci) | GitHub Actions、CircleCI 和云端构建脚本 |
 | `artifacts/` | 本地构建产物与实验证据，体积很大，不属于源码 |
 
-Mac 端提供 [`desktop/`](desktop) 的四步 Tauri 工作台（游戏内容 → 资源管理 → 构建环境 → 开发签名 → 确认构建），底层仍调用 [`./mcfao`](mcfao) 命令行与 `tools/` 下的 Python 编排。工作台可执行真实 AOT、开发签名、IPA 导出与校验；真机安装、游玩和存档保留按 [验收标准](docs/ACCEPTANCE.md) 独立验证。
+Mac 端提供 [`desktop/`](desktop) 的 NCL Builder（Tauri 工作台）（游戏内容 → 资源管理 → 构建环境 → 开发签名 → 确认构建），底层仍调用 [`./mcfao`](mcfao) 命令行与 `tools/` 下的 Python 编排。工作台可执行真实 AOT、开发签名、IPA 导出与校验；真机安装、游玩和存档保留按 [验收标准](docs/ACCEPTANCE.md) 独立验证。
 
 ## 快速开始
 
@@ -168,4 +168,4 @@ python3 -B -m unittest discover -s tests -v
 
 ## English overview
 
-FabricAOT is an experimental build pipeline and iOS runtime for Minecraft Java Edition 26.1.2 with Fabric. It performs Fabric class transformation at build time, compiles the client ahead of time to iOS arm64, replaces the desktop graphics/audio stack with native iOS adapters and a Metal backend, and produces a locally signed app. It does not use JIT, jailbreak, cloud streaming, or a desktop game server. The project is under active research: toolchain and Fabric gates A0/A1/B0/B1 pass, vanilla single-player works in the iOS Simulator, but full device gameplay, modpack functional coverage, and performance acceptance remain incomplete.
+Native Craft Launcher (NCL) is an experimental build pipeline and iOS runtime for Minecraft Java Edition 26.1.2 with Fabric. It performs Fabric class transformation at build time, compiles the client ahead of time to iOS arm64, replaces the desktop graphics/audio stack with native iOS adapters and a Metal backend, and produces a locally signed app. It does not use JIT, jailbreak, cloud streaming, or a desktop game server. The project is under active research: toolchain and Fabric gates A0/A1/B0/B1 pass, vanilla single-player works in the iOS Simulator, but full device gameplay, modpack functional coverage, and performance acceptance remain incomplete.

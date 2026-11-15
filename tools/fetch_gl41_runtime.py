@@ -31,7 +31,7 @@ APACHE = ("https://www.apache.org/licenses/LICENSE-2.0.txt",
 
 
 def download(url: str, destination: Path, expected_bytes: int, expected_sha: str) -> str:
-    request = urllib.request.Request(url, headers={"User-Agent": "FabricAOT-renderer/0.1"})
+    request = urllib.request.Request(url, headers={"User-Agent": "NCL-renderer/0.1"})
     with urllib.request.urlopen(request, timeout=120) as response:
         chunks = []
         remaining = expected_bytes + 1
@@ -92,7 +92,7 @@ def main(argv=None):
         records[entry["name"]] = digest
     license_bytes = download(APACHE[0], out / "LICENSE-Apache-2.0.txt", 11358, APACHE[1])
     notice = (
-        "FabricAOT experimental OpenGL 4.1 runtime\n\n"
+        "Native Craft Launcher experimental OpenGL 4.1 runtime\n\n"
         f"Source repository: https://github.com/Taylen27/Amethyst-iOS\nCommit: {COMMIT}\n"
         f"Path: Natives/resources/Frameworks/\n\n"
         "libOSMesa.8.dylib: Mesa 3D Graphics Library, MIT License.\n"

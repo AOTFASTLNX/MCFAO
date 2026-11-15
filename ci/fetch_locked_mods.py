@@ -35,7 +35,7 @@ def fetch(lock, output):
         names.add(name.casefold())
         if not isinstance(size,int) or not 0<size<=MAX_BYTES or len(expected)!=128 or any(c not in "0123456789abcdef" for c in expected):
             raise ValueError("Invalid size or SHA-512")
-        req=urllib.request.Request(check_url(item["url"]),headers={"User-Agent":"FabricAOT-build/1.0"})
+        req=urllib.request.Request(check_url(item["url"]),headers={"User-Agent":"NCL-build/1.0"})
         temp=output/(name+".part"); target=output/name; total=0; digest=hashlib.sha512()
         try:
             with opener.open(req,timeout=90) as src,temp.open("xb") as dst:

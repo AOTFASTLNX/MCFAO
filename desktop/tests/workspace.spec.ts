@@ -185,7 +185,7 @@ test("resource management is a real fifth step with persisted per-file choices",
   await expect(optional).toBeChecked();
   const saved = await page.evaluate(
     () =>
-      JSON.parse(localStorage.getItem("fabricaot.builder.v2")!)
+      JSON.parse(localStorage.getItem("ncl.builder.v2")!)
         .resourceSelection,
   );
   expect(saved.included).toContain("manifest:mods/optional.jar");
@@ -244,7 +244,7 @@ test("imports a real report, shows diagnostics and persists sources", async ({
   await expect(page.getByText("未测试", { exact: true }).first()).toBeVisible();
   const download = page.waitForEvent("download");
   await page.getByRole("button", { name: "导出报告", exact: true }).click();
-  expect((await download).suggestedFilename()).toBe("fabricaot-preflight.json");
+  expect((await download).suggestedFilename()).toBe("ncl-preflight.json");
   await page.reload();
   await page.getByRole("button", { name: "最近导入", exact: true }).click();
   await expect(
@@ -420,7 +420,7 @@ test("vanilla form reaches review, validates team and never generates shell comm
   await page.getByRole("button", { name: "原版 26.1.2", exact: true }).click();
   await page.getByRole("button", { name: "下一步", exact: true }).click();
   await page
-    .getByLabel("FabricAOT 项目目录", { exact: true })
+    .getByLabel("NCL 项目目录", { exact: true })
     .fill("/local/repo");
   await page.getByLabel("构建配置", { exact: true }).fill("/local/config.json");
   await page.getByLabel("构建产物目录", { exact: true }).fill("/local/builds");
@@ -434,7 +434,7 @@ test("vanilla form reaches review, validates team and never generates shell comm
     page.getByText("Team ID 需要 10 位大写字母或数字。"),
   ).toBeVisible();
   await expect(
-    page.getByText("请在 FabricAOT 桌面应用中执行构建。"),
+    page.getByText("请在 NCL Builder 桌面应用中执行构建。"),
   ).toBeVisible();
   await expect(page.getByText("--prepare-only")).toHaveCount(0);
   await page.reload();
@@ -539,7 +539,7 @@ test("light theme keeps narrow layouts free of horizontal overflow", async ({
   page,
 }) => {
   await page.addInitScript(() =>
-    localStorage.setItem("fabricaot.theme.v1", "light"),
+    localStorage.setItem("ncl.theme.v1", "light"),
   );
   for (const width of [375, 768, 1440]) {
     await page.setViewportSize({ width, height: 1000 });
@@ -564,7 +564,7 @@ test("system accent setting reaches interactive tokens only", async ({
   page,
 }) => {
   await page.addInitScript(() =>
-    localStorage.setItem("fabricaot.theme.v1", "light"),
+    localStorage.setItem("ncl.theme.v1", "light"),
   );
   await page.goto("/");
   await page.getByRole("button", { name: "设置", exact: true }).click();
@@ -592,7 +592,7 @@ const layerSurfaces = {
 
 async function measureLayers(page: import("@playwright/test").Page, theme: string) {
   await page.addInitScript(
-    (value) => localStorage.setItem("fabricaot.theme.v1", value),
+    (value) => localStorage.setItem("ncl.theme.v1", value),
     theme,
   );
   await page.goto("/");
@@ -659,7 +659,7 @@ test("neutral layers step by three percent without decorative borders", async ({
 test("text keeps WCAG AA contrast on every neutral layer", async ({ page }) => {
   for (const theme of ["light", "dark"]) {
     await page.addInitScript(
-      (value) => localStorage.setItem("fabricaot.theme.v1", value),
+      (value) => localStorage.setItem("ncl.theme.v1", value),
       theme,
     );
     await page.goto("/");

@@ -94,6 +94,19 @@ import {
   type ResolvedTheme,
   type ThemePreference,
 } from "./theme";
+import {
+  BUILDER_NAME,
+  IOS_APP_NAME,
+  PRODUCT_NAME,
+  PRODUCT_SHORT_NAME,
+  PRODUCT_VERSION,
+} from "./version";
+import {
+  LEGACY_FORM_KEY,
+  LEGACY_STORAGE_KEY,
+  migrateLegacyKeys,
+  readWithLegacy,
+} from "./storage";
 type Page = "builder" | "history" | "environment" | "settings";
 
 const date = (s: string) =>
@@ -108,16 +121,21 @@ const basename = (s: string) =>
   s.replaceAll(String.fromCharCode(92), "/").split("/").filter(Boolean).pop() ||
   s;
 function initial() {
+  const store = typeof window === "undefined" ? null : window.localStorage;
+  migrateLegacyKeys(store);
   try {
-    const old = parseSavedState(localStorage.getItem(STORAGE_KEY));
+    const old = parseSavedState(
+      readWithLegacy(store, STORAGE_KEY, LEGACY_STORAGE_KEY),
+    );
+    const savedForm = readWithLegacy(store, FORM_KEY, LEGACY_FORM_KEY);
     return {
-      form: localStorage.getItem(FORM_KEY)
-        ? restoreForm(localStorage.getItem(FORM_KEY))
-        : {
-            ...defaultForm,
-            workspace: old.settings.workspace,
-            python: old.settings.python,
-          },
+      form: savedForm
+          ? restoreForm(savedForm)
+          : {
+              ...defaultForm,
+              workspace: old.settings.workspace,
+              python: old.settings.python,
+            },
       instances: old.instances,
       error: "",
     };
@@ -503,14 +521,19 @@ export default function App() {
         FORM_KEY,
         JSON.stringify({ ...form, audited: false, forceCompile: false }),
       );
-      const old = parseSavedState(localStorage.getItem(STORAGE_KEY));
       localStorage.setItem(
         STORAGE_KEY,
         JSON.stringify({
           instances,
           settings: {
             ...DEFAULT_SETTINGS,
-            ...old.settings,
+            ...parseSavedState(
+              readWithLegacy(
+                typeof window === "undefined" ? null : window.localStorage,
+                STORAGE_KEY,
+                LEGACY_STORAGE_KEY,
+              ),
+            ).settings,
             workspace: form.workspace,
             python: form.python,
           },
@@ -674,7 +697,7 @@ export default function App() {
   const paths = (
     <>
       <PathField
-        label="FabricAOT 项目目录"
+        label="NCL 项目目录"
         value={form.workspace}
         directory
         onChange={(v) =>
@@ -729,7 +752,7 @@ export default function App() {
           }}
         >
           <span>
-            FabricAOT<small>LOCAL BUILD STUDIO</small>
+            NCL Builder<small>LOCAL BUILD STUDIO</small>
           </span>
         </a>
         <div className="workspace-label">
@@ -805,7 +828,7 @@ export default function App() {
               <span className="dot live" />
               所有构建在本机完成
             </span>
-            <span className="version">v0.2 · 实验版</span>
+            <span className="version">v{PRODUCT_VERSION} · 实验版</span>
           </div>
         </header>
         <div className="main-content">
@@ -1145,7 +1168,7 @@ export default function App() {
                                   onClick={() =>
                                     void attempt("正在导出报告", () =>
                                       saveDocument(
-                                        "fabricaot-preflight.json",
+                                        "ncl-preflight.json",
                                         JSON.stringify(currentReport, null, 2),
                                       ),
                                     )
@@ -1762,7 +1785,7 @@ export default function App() {
                           onClick={() =>
                             void attempt("正在导出日志", () =>
                               saveDocument(
-                                "fabricaot-build-" +
+                                "ncl-build-" +
                                   job.id.slice(0, 8) +
                                   ".txt",
                                 [
@@ -1956,7 +1979,7 @@ export default function App() {
                   <small>完整构建需要原生 ARM64 Python 3.11 或更高版本。</small>
                 </div>
                 <PathField
-                  label="FabricAOT 项目目录"
+                  label="NCL 项目目录"
                   value={form.workspace}
                   directory
                   onChange={(v) => update({ workspace: v })}
@@ -2010,11 +2033,15 @@ export default function App() {
                       onClick={() =>
                         void attempt("正在导出本地记录", () =>
                           saveDocument(
-                            "fabricaot-workspace.json",
+                            "ncl-workspace.json",
                             JSON.stringify(
                               {
                                 builder: localStorage.getItem(FORM_KEY),
-                                legacy: localStorage.getItem(STORAGE_KEY),
+                                legacy: readWithLegacy(
+                                  window.localStorage,
+                                  STORAGE_KEY,
+                                  LEGACY_STORAGE_KEY,
+                                ),
                               },
                               null,
                               2,
@@ -2032,6 +2059,32 @@ export default function App() {
                     >
                       重置界面记录
                     </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="settings-group">
+                <h2>关于 {BUILDER_NAME}</h2>
+                <div className="setting-row">
+                  <div className="setting-label">
+                    <strong>{PRODUCT_NAME}</strong>
+                    <small>
+                      {PRODUCT_SHORT_NAME} · Mac 构建工具 {BUILDER_NAME} · iOS 应用 {IOS_APP_NAME}
+                    </small>
+                  </div>
+                  <div className="setting-control">
+                    <span className="pill">v{PRODUCT_VERSION} · 实验版</span>
+                  </div>
+                </div>
+                <div className="setting-row">
+                  <div className="setting-label">
+                    <strong>技术标识</strong>
+                    <small>
+                      Bundle ID、配置键值、AOT 与 GL41/Zink 构建链保持不变，已有项目和存档继续使用。
+                    </small>
+                  </div>
+                  <div className="setting-control">
+                    <span className="pill">GL41 / Zink</span>
                   </div>
                 </div>
               </div>
@@ -2074,6 +2127,8 @@ export default function App() {
               onClick={() => {
                 localStorage.removeItem(FORM_KEY);
                 localStorage.removeItem(STORAGE_KEY);
+                localStorage.removeItem(LEGACY_FORM_KEY);
+                localStorage.removeItem(LEGACY_STORAGE_KEY);
                 setInstances([]);
                 setForm({ ...defaultForm });
                 setReport(null);

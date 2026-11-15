@@ -1,4 +1,4 @@
-# 先证伪、再迭代：FabricAOT 可执行 Gate 计划
+# 先证伪、再迭代：Native Craft Launcher 可执行 Gate 计划
 
 > 2026-11-15 集成决策：ADR-009 supersedes ADR-008。C0a 改为真实 Minecraft 26.1.2 经 GL41/Zink/MoltenVK 在真机渲染首帧；C0b 为真实主菜单显示并响应输入。原生 MetalBackend 单独回归。新集成 SHA / IPA 的 C0a、C0b、C0c、D1、E 在取得对应证据前均为 BLOCKED；历史 v14 或模拟器结果不可自动提升。
 

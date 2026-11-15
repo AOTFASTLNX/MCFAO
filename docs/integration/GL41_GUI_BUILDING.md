@@ -1,10 +1,10 @@
 # Local GUI and GL41 builds
 
-The desktop workbench targets Apple Silicon macOS. It requires a local MCFAO checkout, Python 3.11+, Java/GraalVM 25, Xcode with iPhoneOS SDK, and verified locally acquired Minecraft 26.1.2 inputs. Proprietary inputs and generated IPAs remain local.
+The desktop workbench targets Apple Silicon macOS. It requires a local Native Craft Launcher checkout, Python 3.11+, Java/GraalVM 25, Xcode with iPhoneOS SDK, and verified locally acquired Minecraft 26.1.2 inputs. Proprietary inputs and generated IPAs remain local.
 
 ## GUI workflow
 
-1. Set the MCFAO checkout in Settings. Choose a verified local toolchain JSON as described in `docs/BUILDING.md` and the CLI documentation.
+1. Set the Native Craft Launcher checkout in Settings. Choose a verified local toolchain JSON as described in `docs/BUILDING.md` and the CLI documentation.
 2. Import a `.mrpack` or Prism instance for static preflight. In Builds, use “导入此实例的本地构建文件” to materialize client files into a new task directory. Downloads currently support the public Modrinth CDN with manifest SHA-1/SHA-512 and size checks. Other hosts fail with an explicit reason; use a local Prism instance for those files.
 3. Choose Vanilla or Fabric. The desktop workbench uses OpenGL compatibility (GL41/Zink/MoltenVK) by default and offers this single renderer entry.
 4. Choose a fresh output directory and independent test Bundle ID. Fabric requires audited inputs and retains the default-deny transformation sandbox.

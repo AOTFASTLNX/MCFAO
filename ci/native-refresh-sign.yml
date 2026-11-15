@@ -1,4 +1,4 @@
-name: native-refresh-sign
+name: ncl-native-refresh-sign
 on:
   workflow_dispatch:
     inputs:

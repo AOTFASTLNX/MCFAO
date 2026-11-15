@@ -35,7 +35,7 @@ export async function pickWorkspace(): Promise<string | null> {
   return open({
     directory: true,
     multiple: false,
-    title: "选择 FabricAOT 项目目录",
+    title: "选择 NCL 项目目录",
   });
 }
 export async function saveDocument(
@@ -59,7 +59,7 @@ export function detectPlatform(environment: Environment | null): string {
 }
 export function buildInstructions(settings: Settings, command: string): string {
   return (
-    "FabricAOT 构建准备\nMinecraft 26.1.2 / Java 25 / Fabric / iOS ARM64\n\n在 macOS Apple Silicon 的终端中，先进入项目目录：\n" +
+    "NCL Builder 构建准备\nMinecraft 26.1.2 / Java 25 / Fabric / iOS ARM64\n\n在 macOS Apple Silicon 的终端中，先进入项目目录：\n" +
     settings.workspace +
     "\n\n执行以下命令进行元数据准备：\n" +
     command +
@@ -80,7 +80,7 @@ export async function workbench<T>(
   id?: string,
   fields?: Record<string, unknown>,
 ): Promise<T> {
-  if (!native) throw new Error("请在 FabricAOT 桌面应用中执行本地构建。");
+  if (!native) throw new Error("请在 NCL Builder 桌面应用中执行本地构建。");
   return invoke("workbench_action", {
     workspace: form.workspace,
     python: form.python,

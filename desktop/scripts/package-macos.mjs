@@ -14,9 +14,9 @@ const app = path.resolve(
   process.env.CARGO_TARGET_DIR
     ? path.join(
         process.env.CARGO_TARGET_DIR,
-        "debug/bundle/macos/FabricAOT.app",
+        "debug/bundle/macos/NCL Builder.app",
       )
-    : "src-tauri/target/debug/bundle/macos/FabricAOT.app",
+    : "src-tauri/target/debug/bundle/macos/NCL Builder.app",
 );
 run("/usr/bin/codesign", [
   "--force",

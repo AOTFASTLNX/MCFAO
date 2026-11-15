@@ -1,8 +1,15 @@
 export type ThemePreference = "system" | "light" | "dark";
 export type ResolvedTheme = "light" | "dark";
 
-export const THEME_KEY = "fabricaot.theme.v1";
-export const ACCENT_KEY = "fabricaot.accent.v1";
+import {
+  ACCENT_KEY,
+  LEGACY_ACCENT_KEY,
+  LEGACY_THEME_KEY,
+  THEME_KEY,
+  readWithLegacy,
+} from "./storage";
+
+export { ACCENT_KEY, THEME_KEY };
 
 export const DEFAULT_ACCENT = "#2f6fbe";
 export const DARK_ACCENT = "#4a8fe0";
@@ -68,11 +75,9 @@ export function readAccentPreference(
     ? null
     : window.localStorage,
 ): string {
-  try {
-    return parseAccentPreference(storage?.getItem(ACCENT_KEY) ?? null);
-  } catch {
-    return "system";
-  }
+  return parseAccentPreference(
+    readWithLegacy(storage, ACCENT_KEY, LEGACY_ACCENT_KEY),
+  );
 }
 
 export function applyAccent(
@@ -118,11 +123,9 @@ export function readThemePreference(
     ? null
     : window.localStorage,
 ): ThemePreference {
-  try {
-    return parseThemePreference(storage?.getItem(THEME_KEY) ?? null);
-  } catch {
-    return "system";
-  }
+  return parseThemePreference(
+    readWithLegacy(storage, THEME_KEY, LEGACY_THEME_KEY),
+  );
 }
 
 export function systemPrefersDark(

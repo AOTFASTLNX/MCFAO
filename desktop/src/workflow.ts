@@ -76,7 +76,7 @@ export interface Bootstrap {
   configFields: Record<string, string>;
   jobs: BuildJob[];
 }
-export const FORM_KEY = "fabricaot.builder.v2";
+export { FORM_KEY, LEGACY_FORM_KEY } from "./storage";
 export const defaultForm: BuildForm = {
   resourceSelection: null,
   workspace: "",
@@ -145,8 +145,8 @@ export function buildProblems(
   desktop: boolean,
 ): string[] {
   const result: string[] = [];
-  if (!desktop) result.push("请在 FabricAOT 桌面应用中执行构建。");
-  if (!form.workspace.trim()) result.push("请选择 FabricAOT 项目目录。");
+  if (!desktop) result.push("请在 NCL Builder 桌面应用中执行构建。");
+  if (!form.workspace.trim()) result.push("请选择 NCL 项目目录。");
   if (!form.config.trim()) result.push("请选择或创建构建配置。");
   if (!form.exportOptions.trim()) result.push("请选择 IPA 开发导出配置。");
   if (!form.output.trim()) result.push("请选择构建产物目录。");

@@ -1,4 +1,4 @@
-# FabricAOT IPA 构建工作台（实验版）
+# NCL Builder IPA 构建工作台（实验版）
 
 中文本地图形工具：选择游戏内容 → 构建环境 → 开发签名 → 构建 IPA。包含真实后台任务、阶段日志、取消、失败重试、任务恢复、IPA 校验和 Finder 定位。界面提供跟随系统、浅色和深色三种外观，选择保存在本机，并同步 macOS 窗口标题栏。
 
@@ -14,7 +14,7 @@
 
 ## 本地打包
 
-在 desktop 执行 npm run build:mac。脚本运行 Tauri 开发包构建，并对 FabricAOT.app 执行临时签名及严格验签。产物在 src-tauri/target/debug/bundle/macos/FabricAOT.app。工作台不包含游戏文件；运行时选择完整 FabricAOT 源码目录。正式分发签名和公证尚未验收。
+在 desktop 执行 npm run build:mac。脚本运行 Tauri 开发包构建，并对 NCL Builder.app 执行临时签名及严格验签。产物在 src-tauri/target/debug/bundle/macos/NCL Builder.app。工作台不包含游戏文件；运行时选择完整 NCL 源码目录。正式分发签名和公证尚未验收。
 
 ## 使用
 
