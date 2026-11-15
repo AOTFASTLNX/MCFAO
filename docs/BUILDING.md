@@ -2,6 +2,8 @@
 
 最后复核于 2026-11-10。状态见 [STATUS](STATUS.md)，实验结论见 [ADR-001](evidence/ADR-001.md)。以下均在项目根执行，日志输出目录要求新建。
 
+> 前置条件：先接上并挂载外接盘 K。大体积产物与工具链缓存位于 /Volumes/K/MCFAO-data/，项目内是符号链接；断盘时 mcfao 会在创建输出前暂停（退出码 3），GUI 工作台显示「暂停」。检查与恢复见 EXTERNAL_STORAGE.md。
+
 ## 统一 CLI
 
 在 Apple Silicon Mac 上用 Python 3.11+ 执行 `./mcfao`。配置文件中的相对路径以该配置文件所在目录为准。下面是放在仓库根目录的本机配置示例。将版本 JSON 指向本地启动器提供的 26.1.2 元数据。

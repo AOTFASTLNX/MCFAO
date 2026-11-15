@@ -23,6 +23,7 @@ from uuid import uuid4
 import zipfile
 from preflight import scan_pack, validate_zip_members, read_json_limited, MAX_MANIFEST, resource_unit, tls_context
 from mcfao import instance_files
+from external_storage import ExternalStorageUnavailable, require_mount
 
 ROOT = Path(__file__).resolve().parents[1]
 KEYS = ('prepared', 'caps', 'bootstrapRuntime', 'splitter', 'versionMetadata', 'assets',
@@ -699,6 +700,8 @@ def main():
         if args.action == 'run-job': run_job(args.job); return 0
         workspace = workspace_path(args.workspace)
         request = json.loads(args.request)
+        if args.action in ('start', 'retry'):
+            require_mount(f'desktop workbench {args.action}')
         if args.action == 'bootstrap': result = bootstrap(workspace)
         elif args.action == 'check': result = check(request)
         elif args.action == 'save-config': result = save_config(request)
@@ -709,6 +712,8 @@ def main():
         elif args.action == 'cancel': result = cancel(workspace, args.id)
         else: result = history(workspace)
         print(json.dumps(result, ensure_ascii=False)); return 0
+    except ExternalStorageUnavailable as e:
+        print(json.dumps({'error': str(e), 'paused': True}, ensure_ascii=False)); return 3
     except (OSError, ValueError, KeyError, subprocess.SubprocessError) as e:
         print(json.dumps({'error': str(e)}, ensure_ascii=False)); return 2
 

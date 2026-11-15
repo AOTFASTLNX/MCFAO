@@ -7,6 +7,8 @@
 
 **在未越狱 iPhone 上本地运行 Minecraft Java Edition 26.1.2 + Fabric 的实验性工程。**
 
+> 本地构建前必须接上卷标 K 的外接盘：重物通过符号链接放在 /Volumes/K/MCFAO-data/，未挂载时构建命令会暂停并报错。见 docs/EXTERNAL_STORAGE.md 与 python3 -B tools/external_storage.py --json。
+
 FabricAOT（仓库代号 MCFAO）的目标是让用户在 Mac 上导入 `.mrpack` 或 Prism Launcher 实例，经过依赖解析、构建期 Fabric 转换、Java AOT 编译和 iOS 签名后，得到一份可以在普通 iPhone 上本地游玩的 IPA。游戏逻辑、渲染和存档都在手机上执行，不需要 Java JIT、越狱或电脑串流。
 
 > **项目状态：实验性研发阶段。** 工具链和 Fabric 静态化门槛已经打通，原版单人玩法在 iOS 模拟器上通过，但完整真机可玩、整合包功能覆盖和性能验收仍未完成。当前产物不能称为 v1 正式版。
