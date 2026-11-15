@@ -257,14 +257,14 @@ code {
 }
 
 .app-shell[data-window-chrome="overlay"] .sidebar {
-  padding-top: 64px;
+  padding-top: 36px;
 }
 
 .app-shell[data-window-chrome="overlay"] .sidebar-titlebar {
   display: block;
   position: absolute;
   inset: 0 0 auto;
-  height: 48px;
+  height: 36px;
 }
 
 [data-tauri-drag-region] {
@@ -275,7 +275,6 @@ code {
 .brand {
   display: flex;
   align-items: center;
-  gap: 9px;
   margin: 0 4px;
   padding: 4px;
   border-radius: var(--radius-sm);
@@ -284,12 +283,6 @@ code {
 
 .brand:hover {
   background: color-mix(in srgb, var(--hover) 65%, transparent);
-}
-
-.brand img {
-  width: 27px;
-  height: 27px;
-  border-radius: 7px;
 }
 
 .brand > span {
@@ -3305,21 +3298,16 @@ button:disabled {
   }
 
   .app-shell[data-window-chrome="overlay"] .sidebar {
-    padding-top: 54px;
+    padding-top: 38px;
   }
 
   .app-shell[data-window-chrome="overlay"] .sidebar-titlebar {
-    height: 42px;
+    height: 38px;
   }
 
   .brand {
     margin: 0;
     padding: 0 2px var(--space-3);
-  }
-
-  .brand img {
-    width: 25px;
-    height: 25px;
   }
 
   .brand > span {
