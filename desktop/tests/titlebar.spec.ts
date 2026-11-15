@@ -95,3 +95,20 @@ test("traffic lights use equal top and leading inset", () => {
     windowConfig.trafficLightPosition.y,
   );
 });
+
+test("sidebar navigation keeps a comfortable row rhythm", async ({ page }) => {
+  await page.setViewportSize({ width: 1100, height: 760 });
+  await page.goto("/");
+  const rows = await page
+    .locator(".sidebar nav .nav-item")
+    .evaluateAll((items) =>
+      items.map((item) => {
+        const bounds = item.getBoundingClientRect();
+        return { top: bounds.top, bottom: bounds.bottom, height: bounds.height };
+      }),
+    );
+  expect(rows).toHaveLength(4);
+  for (const row of rows) expect(row.height).toBeGreaterThanOrEqual(34);
+  for (let i = 1; i < rows.length; i += 1)
+    expect(rows[i].top - rows[i - 1].bottom).toBeGreaterThanOrEqual(4);
+});
