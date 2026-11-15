@@ -35,7 +35,9 @@
     "targets": "all",
     "shortDescription": "NCL Builder 本地 IPA 构建工作台（实验版）",
     "resources": {
-      "../../tools/preflight.py": "tools/preflight.py"
+      "../../tools/preflight.py": "tools/preflight.py",
+      "icon-build/Assets.car": "Assets.car",
+      "icon-build/NCB.icns": "NCB.icns"
     },
     "icon": [
       "icons/32x32.png",
@@ -45,7 +47,8 @@
       "icons/icon.ico"
     ],
     "macOS": {
-      "minimumSystemVersion": "11.0"
+      "minimumSystemVersion": "11.0",
+      "infoPlist": "Info.plist"
     }
   }
 }

@@ -14,7 +14,7 @@
 
 ## 本地打包
 
-在 desktop 执行 npm run build:mac。脚本运行 Tauri 开发包构建，并对 NCL Builder.app 执行临时签名及严格验签。产物在 src-tauri/target/debug/bundle/macos/NCL Builder.app。工作台不包含游戏文件；运行时选择完整 NCL 源码目录。正式分发签名和公证尚未验收。
+在 desktop 执行 npm run build:mac。脚本会先检查外接盘挂载，再用 Xcode actool 把仓库根目录的 NCB.icon 编译为 Assets.car 与 NCB.icns，保留浅色、深色与透明图层；随后运行 Tauri 开发包构建，把这两个资源放入 Contents/Resources，并让 CFBundleIconFile 与 CFBundleIconName 指向 NCB。最终在 artifacts/desktop/ncl-builder-ncb-icon/ 生成经临时签名与严格验签的 NCL Builder.app 及同名 zip。工作台不包含游戏文件；运行时选择完整 NCL 源码目录。正式分发签名和公证尚未验收。
 
 ## 使用
 
