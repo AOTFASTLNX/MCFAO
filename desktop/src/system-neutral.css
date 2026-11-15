@@ -590,7 +590,9 @@ code {
   justify-content: space-between;
   gap: var(--space-1);
   margin-bottom: var(--space-4);
-  padding: 7px var(--space-5);
+  /* Even inset all round: each step pill sits the same distance from the
+     capsule wall, so the caps read as concentric. */
+  padding: 8px;
   border-radius: 999px;
   background: var(--raised);
   box-shadow:
@@ -598,12 +600,16 @@ code {
     0 10px 26px rgb(0 0 0 / 8%);
 }
 
+
 .step {
   display: flex;
   align-items: center;
   gap: 6px;
   min-height: 26px;
-  padding: 0;
+  /* Steps are controls inside the capsule too, so they become pills with an
+     even inset that keeps them concentric with the capsule wall. */
+  padding: 4px 10px;
+  border-radius: 999px;
   color: var(--muted);
   font-size: 11px;
   text-align: left;
@@ -611,6 +617,7 @@ code {
 }
 
 .step:hover {
+  background: var(--control-bg);
   color: var(--text);
 }
 
@@ -629,6 +636,7 @@ code {
 }
 
 .step.current {
+  background: var(--control-bg);
   color: var(--text);
   font-weight: 500;
 }
@@ -1482,7 +1490,12 @@ button:disabled {
   justify-content: space-between;
   gap: var(--space-3);
   margin-top: var(--space-4);
-  padding: 7px 8px 7px var(--space-5);
+  /* Even inset on the three sides that meet the filled button, so its cap
+     curves stay concentric with the capsule; the text keeps a wider lead-in. */
+  --pill-inset: 7px;
+  /* Equal inset on all four sides: the outer cap radius then equals the inner
+     radius plus the inset, which is what makes the two curves concentric. */
+  padding: var(--pill-inset);
   border-radius: 999px;
   background: var(--raised);
   box-shadow:
@@ -1498,6 +1511,21 @@ button:disabled {
 
 .wizard-footer .primary {
   min-width: 96px;
+  /* Pill geometry: the cap radius is half the button height, so its curve is
+     parallel to the capsule wall. */
+  border-radius: 999px;
+  padding-inline: 16px;
+}
+
+.wizard-footer .text-button {
+  border-radius: 999px;
+  padding: 3px 12px;
+  /* Match the filled button's height, so both caps share the same radius and
+     stay concentric with the bar. */
+  min-height: var(--control-height);
+  /* The lead-in padding of the bar is gone, so the label keeps its breathing
+     room here instead. */
+  margin-left: var(--space-3);
 }
 
 .running-callout {
@@ -2710,12 +2738,22 @@ button:disabled {
   /* Hugs the actions so the capsule is as wide as its buttons. */
   width: fit-content;
   margin: 0 0 0 auto;
-  padding: 6px 8px 6px var(--space-3);
+  --pill-inset: 6px;
+  padding: var(--pill-inset);
   border-radius: 999px;
   background: var(--raised);
   box-shadow:
     0 1px 2px rgb(0 0 0 / 8%),
     0 10px 26px rgb(0 0 0 / 8%);
+}
+
+/* Every control inside a floating capsule is a pill whose cap radius matches
+   the capsule wall, with an even inset, so the curves stay concentric. */
+.page-toolbar .primary,
+.page-toolbar .secondary,
+.page-toolbar .danger {
+  border-radius: 999px;
+  padding-inline: 16px;
 }
 
 .page-toolbar-actions {
@@ -3327,7 +3365,8 @@ button:disabled {
   }
 
   .stepper {
-    padding: var(--space-3) var(--space-4);
+    /* Keep the inset square so the step pills stay concentric at every width. */
+    padding: var(--space-2);
   }
 
   .step {
@@ -3500,7 +3539,7 @@ button:disabled {
   }
 
   .stepper {
-    padding: var(--space-2) var(--space-2);
+    padding: var(--space-2);
     gap: 1px;
   }
 

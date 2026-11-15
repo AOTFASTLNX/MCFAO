@@ -321,3 +321,57 @@ test("environment and history drop the outer card for dividers", async ({
     expect(edge.top === "1px" || edge.left === "1px").toBe(true);
   }
 });
+
+test("controls inside a capsule are pills concentric with it", async ({
+  page,
+}) => {
+  for (const theme of ["light", "dark"]) {
+    for (const width of [800, 1100, 1900]) {
+      await page.setViewportSize({ width, height: 760 });
+      await page.addInitScript(
+        (value) => localStorage.setItem("fabricaot.theme.v1", value),
+        theme,
+      );
+      await page.goto("/");
+      const capsules = await page.evaluate(() => {
+        const box = (element: Element) => {
+          const style = getComputedStyle(element);
+          const rect = element.getBoundingClientRect();
+          const pad = (side: string) => Number.parseFloat(style.getPropertyValue(side));
+          return {
+            radius: Number.parseFloat(style.borderTopLeftRadius),
+            height: rect.height,
+            padTop: pad("padding-top"),
+            padLeft: pad("padding-left"),
+            padRight: pad("padding-right"),
+            padBottom: pad("padding-bottom"),
+          };
+        };
+        return {
+          stepper: box(document.querySelector(".stepper")!),
+          step: box(document.querySelector(".step")!),
+          wizard: box(document.querySelector(".wizard-footer")!),
+          next: box(document.querySelector(".wizard-footer .primary")!),
+          back: box(document.querySelector(".wizard-footer .text-button")!),
+        };
+      });
+      for (const [name, capsule] of Object.entries(capsules)) {
+        // A pill's cap radius is half its height; anything larger is clamped.
+        expect(capsule.radius, name).toBeGreaterThanOrEqual(999);
+      }
+      // Concentric caps: outer radius = inner radius + the gap between them.
+      // Both boxes are pills, so the check reduces to the inset being equal on
+      // every side, which is what keeps the curves parallel.
+      for (const [outer, inner] of [
+        [capsules.stepper, capsules.step],
+        [capsules.wizard, capsules.next],
+        [capsules.wizard, capsules.back],
+      ] as const) {
+        expect(outer.padTop).toBe(outer.padBottom);
+        expect(outer.padTop).toBe(outer.padLeft);
+        expect(outer.padTop).toBe(outer.padRight);
+        expect(inner.height / 2 + outer.padTop).toBeCloseTo(outer.height / 2, 0);
+      }
+    }
+  }
+});

@@ -1,0 +1,21 @@
+{
+  "date": "2026-11-15",
+  "change": "Every control inside a floating capsule is now a pill, with the capsule inset equal on all sides so the two curves are concentric.",
+  "source": [
+    "desktop/src/system-neutral.css",
+    "desktop/tests/titlebar.spec.ts"
+  ],
+  "geometry": {
+    "rule": "outer cap radius = inner cap radius + inset",
+    "stepper": { "height": 46, "radius": 23, "inset": 8, "stepHeight": 30, "stepRadius": 15 },
+    "wizardFooter": { "inset": 7, "nextHeight": 30 },
+    "pageToolbar": { "inset": 6 }
+  },
+  "browser": {
+    "playwright": "37 passed",
+    "newTest": "controls inside a capsule are pills concentric with it",
+    "matrix": "light/dark x 800/1100/1900 px, no horizontal overflow"
+  },
+  "native": { "window": "1100 x 760 pt", "captures": ["builder.png", "history-toolbar.png"] },
+  "limits": "The packaged .app lives on the exFAT external disk where codesign cannot write; builds were verified from a locally signed copy."
+}
