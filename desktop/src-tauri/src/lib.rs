@@ -465,7 +465,7 @@ async fn workbench_action(
         if !root.join("tools/mcfao.py").is_file()
             || !root.join("tools/desktop_workbench.py").is_file()
         {
-            return Err("请选择完整的 FabricAOT 项目目录".into());
+            return Err("请选择完整的 NCL 项目目录".into());
         }
         let script = root.join("tools/desktop_workbench.py");
         let serialized = serde_json::to_string(&request).map_err(|e| e.to_string())?;
@@ -538,7 +538,7 @@ pub fn run() {
             save_document
         ])
         .run(tauri::generate_context!())
-        .expect("无法启动 FabricAOT 桌面工作台");
+        .expect("无法启动 NCL Builder 桌面工作台");
 }
 
 #[cfg(test)]

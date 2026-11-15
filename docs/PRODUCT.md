@@ -1,4 +1,4 @@
-# FabricAOT — 终版产品需求
+# Native Craft Launcher — 终版产品需求
 
 > 2026-11-15 集成决策：本轮交付范围是 Apple Silicon macOS 的 desktop/ Tauri 2 构建器与 GL41 测试 IPA。GUI 应提供 GL41 和可选原生 Metal，执行真实 AOT、实时日志、取消、失败重试和 IPA 清单。仅 prepare-only 不算完成。所有真机游玩与 Fabric 功能分别验收。
 

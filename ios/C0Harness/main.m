@@ -1,7 +1,7 @@
 //
 //  C0Harness/main.m
 //
-//  Minimal iOS host for the FabricAOT C0 native image of the real Minecraft 26.1.2 client.
+//  Minimal iOS host for the Native Craft C0 native image of the real Minecraft 26.1.2 client.
 //
 //  Scope: this app proves only that the AOT image can be *loaded and entered* on a physical
 //  iPhone. It can embed the first-party GLFW/JNI/Metal libraries for graphics integration probes.

@@ -90,7 +90,7 @@ def stub_source(symbols: list[str]) -> str:
              "   Reaching one must stop the process with a named message, never continue silently. */",
              "#include <stdio.h>", "#include <stdlib.h>", "",
              "static void fabricaot_unsupported(const char *name) {",
-             '    fprintf(stderr, "FabricAOT: unsupported JVM native entrypoint reached: %s\\n", name);',
+             '    fprintf(stderr, "Native Craft: unsupported JVM native entrypoint reached: %s\\n", name);',
              "    fflush(stderr);", "    abort();", "}", ""]
     for symbol in sorted(symbols):
         c_name = symbol[1:] if symbol.startswith("_") else symbol

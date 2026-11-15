@@ -94,8 +94,8 @@ jobs:
                    [ -s "$APP/assets/indexes/30.json" ]; then
                   mkdir -p build/ci/package/Payload
                   ditto "$APP" build/ci/package/Payload/C0Harness.app
-                  (cd build/ci/package && zip -qr ../MCFAO-WorldDevice-unsigned.ipa Payload)
-                  unzip -t build/ci/MCFAO-WorldDevice-unsigned.ipa > build/ci/ipa-zip-test.log
+                  (cd build/ci/package && zip -qr ../NCL-WorldDevice-unsigned.ipa Payload)
+                  unzip -t build/ci/NCL-WorldDevice-unsigned.ipa > build/ci/ipa-zip-test.log
                   echo "IPA_CREATED_UNSIGNED_REQUIRES_SIGNING" >> build/ci/ipa-status.txt
                 else
                   echo "IPA_NOT_BUILT_INCOMPLETE_APP" >> build/ci/ipa-status.txt
@@ -114,7 +114,7 @@ jobs:
             for name in arch.txt xcode.txt ios-sdk.txt pointer-tests.log \
               glfw-state-test.log iphoneos-clang.log ios-platform.txt \
               libglfw.dylib ipa-status.txt missing-inputs.txt \
-              worlddevice-build.log ipa-zip-test.log MCFAO-WorldDevice-unsigned.ipa; do
+              worlddevice-build.log ipa-zip-test.log NCL-WorldDevice-unsigned.ipa; do
               if [ -f "build/ci/$name" ]; then
                 cp "build/ci/$name" build/ci/published/
               fi
@@ -166,7 +166,7 @@ jobs:
           name: Verify actual IPA and source provenance
           command: |
             set -euo pipefail
-            IPA="$HOME/mcfao-build/FabricAOT-game.ipa"
+            IPA="$HOME/mcfao-build/NCL-game.ipa"
             test -s "$IPA"
             unzip -tq "$IPA" > "$HOME/mcfao-build/ipa-zip-test.txt"
             test "$(cat "$HOME/mcfao-build/source-sha.txt")" = "$CIRCLE_SHA1"
@@ -180,8 +180,8 @@ jobs:
             tail -100 "$HOME/mcfao-build/build.log" 2>/dev/null || true
             find "$HOME/mcfao-build/src/artifacts/ci" -maxdepth 4 -name stderr.log -print 2>/dev/null | head -25 || true
       - store_artifacts:
-          path: ~/mcfao-build/FabricAOT-game.ipa
-          destination: unsigned-private-game/FabricAOT-game.ipa
+          path: ~/mcfao-build/NCL-game.ipa
+          destination: unsigned-private-game/NCL-game.ipa
       - store_artifacts:
           path: ~/mcfao-build/build.log
           destination: diagnostics/build.log

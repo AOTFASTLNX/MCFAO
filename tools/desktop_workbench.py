@@ -50,7 +50,7 @@ def resolve(value, base=ROOT):
 def workspace_path(value):
     p = resolve(value)
     if p != ROOT or not (p / 'tools/mcfao.py').is_file():
-        raise ValueError('请选择与构建服务对应的 FabricAOT 源码目录')
+        raise ValueError('请选择与构建服务对应的 NCL 源码目录')
     return p
 
 def job_path(workspace, ident):
@@ -256,7 +256,7 @@ def download(entry, target):
             url = download_url(url)
             expected = entry['fileSize']
             if not isinstance(expected, int) or not 0 <= expected <= LIMIT: raise ValueError('单个下载超过 256 MiB')
-            request = urllib.request.Request(url, headers={'User-Agent': 'FabricAOT-local-builder/0.2'})
+            request = urllib.request.Request(url, headers={'User-Agent': 'NCL-Builder/0.2'})
             with opener.open(request, timeout=25) as response:
                 if response.status != 200: raise ValueError(f'下载失败 HTTP {response.status}')
                 data = response.read(expected + 1)

@@ -1,4 +1,4 @@
-name: iPadOS mouse/trackpad bridge and IPA attempt
+name: NCL iPadOS mouse/trackpad bridge and IPA attempt
 
 on:
   push:
@@ -66,13 +66,13 @@ jobs:
           fi
           mkdir -p out/package/Payload
           ditto "$APP" out/package/Payload/C0Harness.app
-          (cd out/package && zip -qr ../MCFAO-WorldDevice-unsigned.ipa Payload)
+          (cd out/package && zip -qr ../NCL-WorldDevice-unsigned.ipa Payload)
           echo "IPA_CREATED_UNSIGNED (not installable without signing)" | tee -a out/ipa-status.txt
 
       - name: Report IPA outcome
         if: always()
         run: |
-          if [ -f out/MCFAO-WorldDevice-unsigned.ipa ]; then
+          if [ -f out/NCL-WorldDevice-unsigned.ipa ]; then
             echo "Unsigned full WorldDevice IPA packaged successfully." >> "$GITHUB_STEP_SUMMARY"
           else
             echo "Full WorldDevice IPA NOT produced. See worlddevice-build.log: local AOT image, native graphics and licensed assets must be supplied before packaging." >> "$GITHUB_STEP_SUMMARY"
@@ -94,6 +94,6 @@ jobs:
         if: steps.world.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
-          name: MCFAO-WorldDevice-unsigned-IPA
-          path: out/MCFAO-WorldDevice-unsigned.ipa
+          name: NCL-WorldDevice-unsigned-IPA
+          path: out/NCL-WorldDevice-unsigned.ipa
           if-no-files-found: error

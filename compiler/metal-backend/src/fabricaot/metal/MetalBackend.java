@@ -8,7 +8,7 @@ import static org.lwjgl.glfw.GLFW.*;
 /** Experimental blaze3d backend using build-time compiled vanilla Metal shaders. */
 public final class MetalBackend implements GpuBackend {
     private MetalDevice device;
-    public String getName(){return "FabricAOT Metal (experimental)";}
+    public String getName(){return "Native Craft Metal (experimental)";}
     public void setWindowHints(){glfwWindowHint(GLFW_CLIENT_API,GLFW_NO_API);}
     public void handleWindowCreationErrors(GLFWErrorCapture.Error error)throws BackendCreationException{
         if(error!=null)throw new BackendCreationException("GLFW-lite: "+error);

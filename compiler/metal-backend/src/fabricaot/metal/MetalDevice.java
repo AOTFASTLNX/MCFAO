@@ -76,7 +76,7 @@ final class MetalDevice implements GpuDeviceBackend {
         ByteBuffer mapped=MemoryUtil.memByteBuffer(MetalNative.bufferAddress(buffer.handle),data.remaining());
         mapped.put(data.duplicate());return buffer;
     }
-    public String getImplementationInformation(){return "FabricAOT Metal / "+renderer;}
+    public String getImplementationInformation(){return "Native Craft Metal / "+renderer;}
     public List<String> getLastDebugMessages(){return List.of();}
     public boolean isDebuggingEnabled(){return false;}
     public String getVendor(){return "Apple";}

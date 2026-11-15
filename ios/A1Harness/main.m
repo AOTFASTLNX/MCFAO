@@ -117,7 +117,7 @@ static void FAOTRunProbe(void) {
     NSString *detail = report[@"error"] ?: (report[@"createIsolate"]
         ? [NSString stringWithFormat:@"create=%@ run=%@ teardown=%@", report[@"createIsolate"],
            report[@"runResult"] ?: @"pending", report[@"tearDownIsolate"] ?: @"pending"] : @"");
-    self.status.text = [NSString stringWithFormat:@"FabricAOT A1 · build %@\nJava 25 native probe\n\n%@\n%@\n\n本次开始：%@\n探针耗时：%@\n日志：%@\n\n每个进程运行一次。重新测试请在后台划掉 App 后打开。",
+    self.status.text = [NSString stringWithFormat:@"Native Craft A1 · build %@\nJava 25 native probe\n\n%@\n%@\n\n本次开始：%@\n探针耗时：%@\n日志：%@\n\n每个进程运行一次。重新测试请在后台划掉 App 后打开。",
                        [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleVersion"],
                        state, detail, startedText, duration, FAOTCurrentLogName ?: @"等待生成"];
 }

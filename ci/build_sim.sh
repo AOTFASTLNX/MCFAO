@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build and run the FabricAOT client in the iOS Simulator on the CI Mac.
+# Build and run the Native Craft Launcher client in the iOS Simulator on the CI Mac.
 # Same pipeline as build_mac.sh up to the AOT image; the image is then linked for
 # the simulator, wrapped in the WorldSimulator app and launched with simctl.
 set -euo pipefail

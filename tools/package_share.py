@@ -7,7 +7,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-NOTE = '''# FabricAOT 复现参考包
+NOTE = '''# Native Craft Launcher 复现参考包
 
 本包包含打包时 Git 已跟踪的项目文件（包括工作区修改）及本打包脚本。项目仍处于研发阶段：正式真机 C0 为 BLOCKED，C1/C2 未完成；模拟器结果不能代替真机验收。请先阅读 AGENTS.md、docs/WORK_HANDOFF.md、docs/BUILDING.md 和 docs/GRAPHICS_BOOTSTRAP.md。
 
@@ -28,7 +28,7 @@ def main():
     output.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(output, 'x', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
         def put(name, data, mode=0o644):
-            entry = zipfile.ZipInfo('FabricAOT-reference/' + name, (2020, 1, 1, 0, 0, 0))
+            entry = zipfile.ZipInfo('NCL-reference/' + name, (2020, 1, 1, 0, 0, 0))
             entry.compress_type = zipfile.ZIP_DEFLATED
             entry.external_attr = (0o100000 | mode) << 16
             archive.writestr(entry, data)

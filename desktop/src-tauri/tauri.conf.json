@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "FabricAOT",
+  "productName": "NCL Builder",
   "version": "0.2.6",
   "identifier": "org.fabricaot.desktop",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "FabricAOT · IPA 构建工作台",
+        "title": "NCL Builder · IPA 构建工作台",
         "width": 1100,
         "height": 760,
         "minWidth": 800,
@@ -33,7 +33,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "shortDescription": "FabricAOT 本地 IPA 构建工作台（实验版）",
+    "shortDescription": "NCL Builder 本地 IPA 构建工作台（实验版）",
     "resources": {
       "../../tools/preflight.py": "tools/preflight.py"
     },

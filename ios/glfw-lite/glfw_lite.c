@@ -101,9 +101,9 @@ int glfwGetPlatform(void) { return ready() ? FAOT_GLFW_PLATFORM_IOS : 0; }
 int glfwPlatformSupported(int platform) { return platform == FAOT_GLFW_PLATFORM_IOS; }
 const char *glfwGetVersionString(void) {
 #if defined(__ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__)
-    return "3.4.0 FabricAOT iOS UIKit Metal (experimental)";
+    return "3.4.0 Native Craft iOS UIKit Metal (experimental)";
 #else
-    return "3.4.0 FabricAOT host test surface (fixture only)";
+    return "3.4.0 Native Craft host test surface (fixture only)";
 #endif
 }
 void glfwGetVersion(int *a, int *b, int *c) { if(a)*a=3; if(b)*b=4; if(c)*c=0; }

@@ -117,7 +117,7 @@ describe("theme preference", () => {
       } as unknown as Storage),
     ).toBe("system");
     expect(readThemePreference(null)).toBe("system");
-    expect(THEME_KEY).toBe("fabricaot.theme.v1");
+    expect(THEME_KEY).toBe("ncl.theme.v1");
   });
 
   it("treats a missing media query as light", () => {

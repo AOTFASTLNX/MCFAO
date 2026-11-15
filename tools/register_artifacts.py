@@ -77,7 +77,7 @@ def main(argv=None):
                              "symlinks": [str(p) for p in escaped[:5]]})
             continue
         argv = [aar, "register", "--path", str(path), "--project", str(project), "--type", kind,
-                "--source", "FabricAOT Gate A experiments; per-step argv in command.json; docs/BUILDING.md", "--json"]
+                "--source", "Native Craft Launcher Gate A experiments; per-step argv in command.json; docs/BUILDING.md", "--json"]
         # Historical experiment logs are retained as evidence. Their original
         # timestamps/results are not reproducible, so they get no regeneration
         # or deletion flags. Downloaded pinned toolchains are reproducible.

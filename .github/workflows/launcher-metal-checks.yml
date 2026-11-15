@@ -1,4 +1,4 @@
-name: Launcher and Metal checks
+name: NCL launcher and Metal checks
 on:
   push:
 
@@ -70,15 +70,15 @@ jobs:
         run: |
           set -euo pipefail
           SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
-          APP="$PWD/build/FabricAOT.app"
+          APP="$PWD/build/NCL Builder.app"
           mkdir -p "$APP"
           cat > "$APP/Info.plist" <<'PLIST'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0"><dict>
-            <key>CFBundleExecutable</key><string>FabricAOT</string>
+            <key>CFBundleExecutable</key><string>Native Craft</string>
             <key>CFBundleIdentifier</key><string>dev.fabricaot.launcher.smoke</string>
-            <key>CFBundleName</key><string>FabricAOT</string>
+            <key>CFBundleName</key><string>Native Craft</string>
             <key>CFBundleShortVersionString</key><string>0.1</string>
             <key>CFBundleVersion</key><string>1</string>
             <key>MinimumOSVersion</key><string>17.0</string>
@@ -100,7 +100,7 @@ jobs:
             ios/C0Harness/FAOTLauncherViewController.m ios/C0Harness/FAOTControlEditorViewController.m \
             tests/launcher_smoke_main.m \
             -framework UIKit -framework Foundation -framework CoreGraphics -framework QuartzCore \
-            -o "$APP/FabricAOT"
+            -o "$APP/Native Craft"
           codesign --force --sign - "$APP"
           ls -la "$APP"
 
@@ -113,12 +113,12 @@ jobs:
 
           RUNTIME=$(guard 240 xcrun simctl list runtimes available -j | python3 -c 'import json,sys; r=[x["identifier"] for x in json.load(sys.stdin)["runtimes"] if x.get("isAvailable") and "iOS" in x["identifier"]]; print(r[-1] if r else "")')
           test -n "$RUNTIME"
-          UDID=$(guard 240 xcrun simctl create FabricAOTShot com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro "$RUNTIME")
+          UDID=$(guard 240 xcrun simctl create NCLShot com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro "$RUNTIME")
           echo "UDID=$UDID" >> "$GITHUB_ENV"
           guard 120 xcrun simctl boot "$UDID" || true
           guard 360 xcrun simctl bootstatus "$UDID" -b || true
-          xcrun simctl list devices | grep -i fabricaot || true
-          guard 120 xcrun simctl install "$UDID" "$PWD/build/FabricAOT.app"
+          xcrun simctl list devices | grep -i ncl || true
+          guard 120 xcrun simctl install "$UDID" "$PWD/build/NCL Builder.app"
 
           echo "== launcher =="
           guard 60 xcrun simctl launch "$UDID" dev.fabricaot.launcher.smoke

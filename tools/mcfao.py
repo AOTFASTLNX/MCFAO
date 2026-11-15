@@ -1,4 +1,4 @@
-"""Build and verify local MCFAO research packages."""
+"""Build and verify local Native Craft Launcher research packages."""
 from __future__ import annotations
 
 import argparse
@@ -592,7 +592,7 @@ def build(args, config):
     output = args.output.resolve()
     if output.is_dir() and any(output.iterdir()) and not (
             (output / "inputs.json").is_file() or {p.name for p in output.iterdir()} == {".lock"}):
-        raise ValueError(f"Use a new output directory or an MCFAO build workspace: {output}")
+        raise ValueError(f"Use a new output directory or an NCL build workspace: {output}")
     output.mkdir(parents=True, exist_ok=True)
     with (output / ".lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -710,7 +710,7 @@ def build(args, config):
         if seed and tree_files(seed) != tree_files(app / "instance-seed"):
             raise ValueError("Packaged instance seed changed")
         facts = app_facts(app, args.device, output / "verify" / uuid4().hex, renderer, not manifest["unsigned"])
-        ipa = output / "FabricAOT-game.ipa"
+        ipa = output / "NCL-game.ipa"
         with zipfile.ZipFile(ipa, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=1) as archive:
             for file in sorted(app.rglob("*")):
                 if file.is_file():

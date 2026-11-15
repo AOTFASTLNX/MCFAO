@@ -41,7 +41,7 @@ def main(argv=None):
     result={"centralDatabase":str(Path.home() / "Documents/Codex/monitor/registry.sqlite"),"registrations":[],"failures":[]}
     for path,kind,recursive in specs:
         command=[aar,"register","--path",str(path),"--project",str(ROOT),"--type",kind,
-                 "--source","FabricAOT graphics evidence; per-step commands in command.json; docs/GRAPHICS_BOOTSTRAP.md","--json"]
+                 "--source","Native Craft Launcher graphics evidence; per-step commands in command.json; docs/GRAPHICS_BOOTSTRAP.md","--json"]
         if recursive:command.append("--include-files")
         done=subprocess.run(command,capture_output=True,text=True,timeout=180)
         if done.returncode:result["failures"].append({"path":str(path),"error":done.stderr or done.stdout})
