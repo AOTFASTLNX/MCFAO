@@ -35,6 +35,76 @@ def pack_data(path, *, minecraft="26.1.2", loader="0.19.3", files=None, extras=N
 
 
 class PreflightTests(unittest.TestCase):
+    def test_resource_client_grades_follow_manifest_not_local_default_selection(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / 'graded.mrpack'
+            files = [dict(path='mods/' + side + '.jar', hashes=dict(sha1='a' * 40, sha512='b' * 128), downloads=['https://cdn.modrinth.com/data/example.jar'], env=dict(client=side)) for side in ('required', 'optional', 'unsupported')]
+            files.append(dict(path='resourcepacks/default.zip', hashes=dict(sha1='a' * 40, sha512='b' * 128), downloads=['https://cdn.modrinth.com/data/resources.zip']))
+            pack_data(p, files=files, extras=[('client-overrides/config/a.json', '{}')])
+            report = scan_pack(p)
+            rows = {r['id']: r for r in report['resources']}
+            for side in ('required', 'optional', 'unsupported'):
+                self.assertEqual(rows['manifest:mods/' + side + '.jar']['client_requirement'], side)
+                self.assertEqual(rows['manifest:mods/' + side + '.jar']['requirement_basis'], 'mrpack_client')
+            self.assertEqual(rows['manifest:resourcepacks/default.zip']['client_requirement'], 'required')
+            for key in ('overrides:mods/example.jar', 'client-overrides:config/a.json'):
+                self.assertEqual(rows[key]['client_requirement'], 'unknown')
+                self.assertTrue(rows[key]['default_selected'])
+            self.assertEqual(report['resources_fingerprint'], scan_pack(p)['resources_fingerprint'])
+
+    def test_resources_group_packs_keep_shader_files_and_omit_private_instance_data(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d)
+            for name in ['mods/one.jar', 'shaderpacks/folder/shaders/main.glsl', 'shaderpacks/folder/pack.mcmeta', 'resourcepacks/textures.zip', 'config/example.json', 'saves/private/level.dat', 'accounts.json']:
+                path=root/name; path.parent.mkdir(parents=True,exist_ok=True); path.write_bytes(jar_data() if name.endswith('.jar') else b'fixture')
+            report=scan_pack(root)
+            resources={r['id']:r for r in report['resources']}
+            self.assertEqual(resources['local:shaderpacks/folder']['file_count'],2)
+            self.assertEqual(resources['local:resourcepacks/textures.zip']['category'],'resourcepacks')
+            self.assertFalse(any('private' in name or 'accounts' in name for name in resources))
+            self.assertEqual(len(report['resources_fingerprint']),64)
+
+    def test_inventory_lists_remote_sides_without_downloading_resources(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "inventory.mrpack"
+            files = [dict(path="mods/" + side + ".jar", hashes=dict(sha1="a" * 40, sha512="b" * 128), downloads=["https://cdn.modrinth.com/data/example.jar"], env=dict(client=side)) for side in ("required", "optional", "unsupported")]
+            files.append(dict(path="resourcepacks/resources.zip", hashes=dict(sha1="a" * 40, sha512="b" * 128), downloads=["https://cdn.modrinth.com/data/resources.zip"]))
+            pack_data(p, files=files, extras=[("overrides/mods/disabled.jar.disabled", b"never read"), ("overrides/mods/broken.jar", b"broken")])
+            report = scan_pack(p)
+            rows = {row["path"]: row for row in report["mod_inventory"]}
+            self.assertEqual(rows["mods/required.jar"]["status"], "pending_download")
+            self.assertNotIn("mod", rows["mods/required.jar"])
+            self.assertEqual(rows["mods/optional.jar"]["status"], "skipped_optional")
+            self.assertEqual(rows["mods/unsupported.jar"]["status"], "server_only")
+            self.assertEqual(rows["overrides/mods/disabled.jar.disabled"]["status"], "disabled")
+            self.assertEqual(rows["overrides/mods/broken.jar"]["status"], "unreadable")
+            self.assertEqual([f["code"] for f in rows["overrides/mods/broken.jar"]["findings"]], ["INVALID_MOD_JAR"])
+            self.assertEqual(rows["overrides/mods/example.jar"]["mod"]["id"], "example")
+            self.assertNotIn("INVALID_MOD_JAR", [f["code"] for f in rows["overrides/mods/example.jar"]["findings"]])
+            self.assertNotIn("resourcepacks/resources.zip", rows)
+
+    def test_inventory_retains_manifest_failure_on_own_row(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "bad.mrpack"
+            pack_data(p, files=[dict(path="mods/bad.jar", hashes={}, downloads=[])])
+            row = scan_pack(p)["mod_inventory"][0]
+            self.assertEqual(row["status"], "unreadable")
+            self.assertIn("INVALID_HASH_METADATA", [f["code"] for f in row["findings"]])
+
+    def test_inventory_local_disabled_and_symlink_do_not_read_targets(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            mods = root / "mods"
+            mods.mkdir()
+            (mods / "active.jar").write_bytes(jar_data())
+            (mods / "disabled.jar.off").write_bytes(b"not a jar")
+            (mods / "linked.jar").symlink_to(root / "secret")
+            rows = {row["path"]: row for row in scan_pack(root)["mod_inventory"]}
+            self.assertEqual(rows["active.jar"]["status"], "metadata_read")
+            self.assertEqual(rows["disabled.jar.off"]["status"], "disabled")
+            self.assertEqual(rows["disabled.jar.off"]["findings"], [])
+            self.assertEqual(rows["linked.jar"]["status"], "unreadable")
+
     def test_case_sensitive_jar_members_are_reported_without_rejecting_metadata(self):
         data = io.BytesIO()
         with zipfile.ZipFile(data, "w") as z:

@@ -4,6 +4,7 @@ export interface Finding {
   message: string;
 }
 export interface Mod {
+  name?: string;
   id: string;
   version: string;
   path: string;
@@ -16,7 +17,22 @@ export interface Mod {
   bundled_native_count: number;
   aot_compatibility: "NOT_TESTED";
 }
+export interface ModInventoryEntry {
+  path: string;
+  origin: "manifest" | "embedded" | "local";
+  status:
+    | "metadata_read"
+    | "pending_download"
+    | "server_only"
+    | "skipped_optional"
+    | "disabled"
+    | "unreadable";
+  mod?: Mod;
+  findings: Finding[];
+}
 export interface Report {
+  resources?: ResourceEntry[];
+  resources_fingerprint?: string;
   source: string;
   target_minecraft: string;
   status: "STATIC_PREFLIGHT_ONLY";
@@ -26,9 +42,24 @@ export interface Report {
   fabric_loader_version?: string;
   manifest_files?: number;
   mods: Mod[];
+  mod_inventory?: ModInventoryEntry[];
   findings: Finding[];
   fatal: boolean;
   aot_ios_verified: false;
+}
+export interface ResourceEntry {
+  client_requirement?: "required" | "optional" | "unknown" | "unsupported";
+  requirement_basis?: "mrpack_client" | "mod_environment" | "undeclared";
+  id: string;
+  path: string;
+  origin: "manifest" | "overrides" | "client-overrides" | "local";
+  category: "mods" | "resourcepacks" | "shaderpacks" | "config" | "other";
+  status: "available" | "server_only" | "disabled" | "unsafe" | "unsupported";
+  optional: boolean;
+  selectable: boolean;
+  default_selected: boolean;
+  bytes: number;
+  file_count: number;
 }
 export interface Instance {
   id: string;
@@ -51,7 +82,7 @@ export interface Task {
 }
 export interface EnvironmentCheck {
   name: string;
-  status: "ready" | "missing" | "unavailable";
+  status: "ready" | "warning" | "missing" | "unavailable";
   detail: string;
 }
 export interface Environment {
@@ -106,6 +137,7 @@ export function parseReport(value: unknown): Report {
   const mods: Mod[] = value.mods.map((m: unknown) => {
     if (!object(m)) throw new Error("报告中的 Mod 元数据无效。");
     return {
+      ...(m.name !== undefined ? { name: string(m.name, 256) } : {}),
       id: string(m.id, 256),
       version: string(m.version, 256),
       path: string(m.path),
@@ -119,12 +151,62 @@ export function parseReport(value: unknown): Report {
       aot_compatibility: "NOT_TESTED",
     };
   });
+  let inventory: ModInventoryEntry[] | undefined;
+  if (value.mod_inventory !== undefined) {
+    if (
+      !Array.isArray(value.mod_inventory) ||
+      value.mod_inventory.length > 20000
+    )
+      throw new Error("报告中的 Mod 列表无效。");
+    inventory = value.mod_inventory.map((row: unknown) => {
+      if (
+        !object(row) ||
+        !["manifest", "embedded", "local"].includes(String(row.origin)) ||
+        ![
+          "metadata_read",
+          "pending_download",
+          "server_only",
+          "skipped_optional",
+          "disabled",
+          "unreadable",
+        ].includes(String(row.status)) ||
+        !Array.isArray(row.findings) ||
+        row.findings.length > 1000
+      )
+        throw new Error("报告中的 Mod 状态无效。");
+      const path = string(row.path);
+      const mod = mods.find((m) => m.path === path);
+      if (row.status === "metadata_read" && !mod)
+        throw new Error("已读取的 Mod 缺少元数据。");
+      const issues = row.findings.map((f: unknown) => {
+        if (
+          !object(f) ||
+          !["error", "warning", "info"].includes(String(f.severity))
+        )
+          throw new Error("Mod 诊断格式无效。");
+        return {
+          severity: f.severity as Finding["severity"],
+          code: string(f.code, 256),
+          message: string(f.message, 16384),
+        };
+      });
+      return {
+        path,
+        origin: row.origin as ModInventoryEntry["origin"],
+        status: row.status as ModInventoryEntry["status"],
+        findings: issues,
+        ...(mod ? { mod } : {}),
+      };
+    });
+  }
   return {
     source: string(value.source),
     target_minecraft: string(value.target_minecraft, 64),
     status: "STATIC_PREFLIGHT_ONLY",
     source_type: string(value.source_type, 64),
     mods,
+    ...(inventory ? { mod_inventory: inventory } : {}),
+    ...(value.resources !== undefined ? parseResources(value) : {}),
     findings,
     fatal: value.fatal || findings.some((f) => f.severity === "error"),
     aot_ios_verified: false,
@@ -141,6 +223,96 @@ export function parseReport(value: unknown): Report {
       ? { manifest_files: count(value.manifest_files) }
       : {}),
   };
+}
+function parseResources(value: Record<string, unknown>): {
+  resources: ResourceEntry[];
+  resources_fingerprint: string;
+} {
+  if (
+    !Array.isArray(value.resources) ||
+    value.resources.length > 20000 ||
+    typeof value.resources_fingerprint !== "string" ||
+    !/^[a-f0-9]{64}$/.test(value.resources_fingerprint)
+  )
+    throw new Error("资源清单无效，请重新检查来源。");
+  const seen = new Set<string>();
+  const resources = value.resources.map((row: unknown): ResourceEntry => {
+    if (
+      !object(row) ||
+      !["manifest", "overrides", "client-overrides", "local"].includes(
+        String(row.origin),
+      ) ||
+      !["mods", "resourcepacks", "shaderpacks", "config", "other"].includes(
+        String(row.category),
+      ) ||
+      ![
+        "available",
+        "server_only",
+        "disabled",
+        "unsafe",
+        "unsupported",
+      ].includes(String(row.status)) ||
+      ["optional", "selectable", "default_selected"].some(
+        (k) => typeof row[k] !== "boolean",
+      )
+    )
+      throw new Error("资源字段无效。");
+    const id = string(row.id),
+      path = string(row.path);
+    if (
+      seen.has(id) ||
+      id !== row.origin + ":" + path ||
+      path.startsWith("/") ||
+      path.split("/").some((p) => !p || p === "." || p === "..")
+    )
+      throw new Error("资源路径或编号无效。");
+    seen.add(id);
+    if (
+      row.client_requirement !== undefined &&
+      !["required", "optional", "unknown", "unsupported"].includes(
+        String(row.client_requirement),
+      )
+    )
+      throw new Error("客户端分级无效。");
+    if (
+      row.requirement_basis !== undefined &&
+      !["mrpack_client", "mod_environment", "undeclared"].includes(
+        String(row.requirement_basis),
+      )
+    )
+      throw new Error("客户端分级依据无效。");
+    return {
+      id,
+      path,
+      origin: row.origin as ResourceEntry["origin"],
+      category: row.category as ResourceEntry["category"],
+      status: row.status as ResourceEntry["status"],
+      optional: row.optional === true,
+      // Derive from import evidence, including older reports.
+      client_requirement:
+        row.status === "server_only"
+          ? "unsupported"
+          : row.origin === "manifest"
+            ? row.optional
+              ? "optional"
+              : "required"
+            : "unknown",
+      requirement_basis:
+        row.origin === "manifest"
+          ? "mrpack_client"
+          : row.status === "server_only"
+            ? "mod_environment"
+            : "undeclared",
+      selectable: row.selectable === true && row.status === "available",
+      default_selected:
+        row.default_selected === true &&
+        row.selectable === true &&
+        row.status === "available",
+      bytes: count(row.bytes),
+      file_count: count(row.file_count),
+    };
+  });
+  return { resources, resources_fingerprint: value.resources_fingerprint };
 }
 export function sourceName(report: Report): string {
   const filename =
@@ -259,4 +431,12 @@ export const findingLabels: Record<string, string> = {
   NESTED_JARS_REQUIRE_RESOLUTION: "嵌套依赖需要解析",
   LANGUAGE_ADAPTER_REQUIRES_SUPPORT: "语言适配器待核验",
   SERVER_MOD: "仅服务端 Mod",
+  LANGUAGE_ADAPTER_UNVERIFIED: "语言适配器待核验",
+  NESTED_JARS_NOT_SCANNED: "嵌套依赖待解析",
+  NATIVE_LIBRARIES_UNVERIFIED: "原生库待适配",
+  ENTRYPOINTS_NOT_EXECUTED: "入口点尚未执行",
+  INVALID_MOD_JAR: "Mod 文件损坏或元数据无效",
+  NO_FABRIC_META: "缺少 Fabric 元数据",
+  JAR_TOO_LARGE: "文件超出检查大小限制",
+  MOD_METADATA_NONSTANDARD_JSON: "元数据格式需关注",
 };

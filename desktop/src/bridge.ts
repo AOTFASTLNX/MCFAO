@@ -14,7 +14,9 @@ export async function pickSource(directory: boolean): Promise<string | null> {
     title: directory ? "选择 Prism 实例目录" : "选择 .mrpack 整合包",
   });
   if (source && !directory && !source.toLowerCase().endsWith(".mrpack"))
-    throw new Error("请选择 .mrpack 整合包文件。已有报告请使用“预检报告”入口。");
+    throw new Error(
+      "请选择 .mrpack 整合包文件。已有报告请使用“预检报告”入口。",
+    );
   return source;
 }
 export async function inspectSource(
@@ -63,4 +65,27 @@ export function buildInstructions(settings: Settings, command: string): string {
     command +
     "\n\n此命令使用 --prepare-only，不执行未审计的第三方 Mod。\n完整 AOT 编译、签名和 IPA 导出请按 docs/BUILDING.md 操作。\n静态预检不构成 Mod 真机兼容性证明。\n"
   );
+}
+
+export async function choosePath(
+  title: string,
+  directory = false,
+): Promise<string | null> {
+  if (!native) throw new Error("文件选择需要桌面应用。");
+  return open({ directory, multiple: false, title });
+}
+export async function workbench<T>(
+  form: import("./workflow").BuildForm,
+  action: string,
+  id?: string,
+  fields?: Record<string, unknown>,
+): Promise<T> {
+  if (!native) throw new Error("请在 FabricAOT 桌面应用中执行本地构建。");
+  return invoke("workbench_action", {
+    workspace: form.workspace,
+    python: form.python,
+    action,
+    request: fields ? { workspace: form.workspace, fields } : form,
+    id: id ?? null,
+  });
 }

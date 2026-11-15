@@ -580,7 +580,7 @@ def instance_files(root):
     if set(files) != set(declared) | {"import.json"}:
         raise ValueError("Imported instance contains undeclared files")
     for name, facts in declared.items():
-        if not safe_archive_path(name) or (name != "options.txt" and name.split("/", 1)[0] not in ("mods", "config", "resourcepacks")):
+        if not safe_archive_path(name) or (name != "options.txt" and name.split("/", 1)[0] not in ("mods", "config", "defaultconfigs", "resourcepacks", "shaderpacks", "kubejs", "scripts")):
             raise ValueError("Unsafe imported instance file")
         if files[name] != facts["sha256"] or (root / name).stat().st_size != facts["bytes"]:
             raise ValueError("Imported instance changed: " + name)
@@ -696,7 +696,7 @@ def build(args, config):
                 raise ValueError("Imported instance changed during build")
             seed = output / "instance-seed"
             seed.mkdir(exist_ok=True)
-            for directory in ("config", "resourcepacks"):
+            for directory in ("config", "defaultconfigs", "resourcepacks", "shaderpacks", "kubejs", "scripts"):
                 if (instance / directory).is_dir():
                     shutil.copytree(instance / directory, seed / directory, dirs_exist_ok=True)
             if (instance / "options.txt").is_file():
