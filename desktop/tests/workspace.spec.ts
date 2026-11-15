@@ -488,30 +488,31 @@ for (const width of [375, 768, 1280, 1440])
     ).toBe(true);
   });
 
-test("theme toggle switches every surface and survives a reload", async ({
+test("theme setting switches every surface and survives a reload", async ({
   page,
 }) => {
   await page.emulateMedia({ colorScheme: "dark" });
   await page.goto("/");
   const root = page.locator("html");
   await expect(root).toHaveAttribute("data-theme", "dark");
-  await page.getByRole("button", { name: "切换为浅色模式" }).click();
+  // The top bar no longer carries a toggle; appearance lives in settings.
+  await expect(page.locator(".theme-toggle")).toHaveCount(0);
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await page.getByRole("button", { name: "浅色", exact: true }).click();
   await expect(root).toHaveAttribute("data-theme", "light");
   await expect(
-    page.getByRole("button", { name: "切换为深色模式" }),
+    page.getByRole("button", { name: "浅色", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
   const surfaces = await page.evaluate(() => {
     const background = (selector: string) =>
       getComputedStyle(document.querySelector(selector)!).backgroundColor;
     return {
       shell: background(".sidebar"),
-      panel: background(".builder-panel"),
       colorScheme: getComputedStyle(document.documentElement).colorScheme,
     };
   });
   expect(surfaces.colorScheme).toBe("light");
   expect(surfaces.shell).toBe("rgb(231, 232, 233)");
-  expect(surfaces.panel).toBe("rgb(255, 255, 255)");
   await page.getByRole("button", { name: "构建记录", exact: true }).click();
   await expect(page.locator(".job-list-panel")).toHaveCSS(
     "background-color",
@@ -584,7 +585,7 @@ const layerSurfaces = {
   sidebar: ".sidebar",
   window: "body",
   raised: ".stepper",
-  card: ".builder-panel",
+  card: ".segmented button.selected",
 } as const;
 
 async function measureLayers(page: import("@playwright/test").Page, theme: string) {
@@ -688,7 +689,7 @@ test("text keeps WCAG AA contrast on every neutral layer", async ({ page }) => {
         ".sidebar",
         "body",
         ".stepper",
-        ".builder-panel",
+        ".segmented button.selected",
       ].map(
         (selector) =>
           getComputedStyle(document.querySelector(selector)!).backgroundColor,
@@ -714,6 +715,36 @@ test("text keeps WCAG AA contrast on every neutral layer", async ({ page }) => {
       expect(row.dim).toBeGreaterThanOrEqual(4.5);
     }
   }
+});
+
+test("builder fills the window without an aside or a card outline", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const layout = await page.evaluate(() => {
+    const panel = document.querySelector(".builder-panel")!;
+    const style = getComputedStyle(panel);
+    const content = document.querySelector(".main-content")!;
+    return {
+      aside: document.querySelectorAll(".build-aside, .aside-checklist").length,
+      targetCard: document.querySelectorAll(".target-card").length,
+      background: style.backgroundColor,
+      borders: [
+        style.borderTopWidth,
+        style.borderRightWidth,
+        style.borderBottomWidth,
+        style.borderLeftWidth,
+      ],
+      widthRatio:
+        panel.getBoundingClientRect().width /
+        content.getBoundingClientRect().width,
+    };
+  });
+  expect(layout.aside).toBe(0);
+  expect(layout.targetCard).toBe(0);
+  expect(layout.background).toBe("rgba(0, 0, 0, 0)");
+  expect(layout.borders).toEqual(["0px", "0px", "0px", "0px"]);
+  expect(layout.widthRatio).toBeGreaterThan(0.9);
 });
 
 test("settings place labels left of controls without a wrapping card", async ({

@@ -38,32 +38,8 @@ for (const theme of ["light", "dark"] as const) {
         }),
       ).toBe(true);
 
-      const toggle = page.getByRole("button", {
-        name: theme === "light" ? "切换为深色模式" : "切换为浅色模式",
-      });
-      expect(
-        await toggle.evaluate((button) => {
-          const bounds = button.getBoundingClientRect();
-          return (
-            document
-              .elementFromPoint(
-                bounds.x + bounds.width / 2,
-                bounds.y + bounds.height / 2,
-              )
-              ?.closest("button") === button
-          );
-        }),
-      ).toBe(true);
-      await toggle.click();
-      await expect(page.locator("html")).toHaveAttribute(
-        "data-theme",
-        theme === "light" ? "dark" : "light",
-      );
-      await page
-        .getByRole("button", {
-          name: theme === "light" ? "切换为浅色模式" : "切换为深色模式",
-        })
-        .click();
+      // The top bar holds no theme toggle; appearance is set in settings.
+      await expect(page.locator(".topbar .theme-toggle")).toHaveCount(0);
 
       for (const name of ["构建 IPA", "构建记录", "环境与资源", "设置"]) {
         await page.getByRole("button", { name, exact: true }).first().click();
