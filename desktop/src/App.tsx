@@ -729,7 +729,6 @@ export default function App() {
             nav("builder");
           }}
         >
-          <img src="/mark.svg" alt="" />
           <span>
             FabricAOT<small>LOCAL BUILD STUDIO</small>
           </span>

@@ -25,6 +25,7 @@ for (const theme of ["light", "dark"] as const) {
       });
       const titlebar = page.locator(".sidebar-titlebar");
       await expect(titlebar).toBeVisible();
+      await expect(page.locator(".brand img")).toHaveCount(0);
       const clearance = (await titlebar.boundingBox())!;
       const brand = (await page.locator(".brand").boundingBox())!;
       expect(brand.y).toBeGreaterThanOrEqual(clearance.y + clearance.height);
@@ -88,3 +89,9 @@ for (const theme of ["light", "dark"] as const) {
     });
   }
 }
+
+test("traffic lights use equal top and leading inset", () => {
+  expect(windowConfig.trafficLightPosition.x).toBe(
+    windowConfig.trafficLightPosition.y,
+  );
+});
