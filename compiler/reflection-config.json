@@ -118,6 +118,96 @@
     ]
   },
   {
+    "name": "com.mojang.authlib.yggdrasil.YggdrasilServicesKeyInfo$KeySetResponse",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true,
+    "allDeclaredFields": true
+  },
+  {
+    "name": "com.mojang.authlib.yggdrasil.YggdrasilServicesKeyInfo$KeyData",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true,
+    "allDeclaredFields": true
+  },
+  {
+    "name": "com.mojang.authlib.yggdrasil.request.JoinMinecraftServerRequest",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true,
+    "allDeclaredFields": true
+  },
+  {
+    "name": "com.mojang.authlib.yggdrasil.response.ProfileAction",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true,
+    "allDeclaredFields": true
+  },
+  {
+    "name": "com.mojang.authlib.yggdrasil.ProfileActionType",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true,
+    "allDeclaredFields": true
+  },
+  {
+    "name": "com.mojang.authlib.yggdrasil.response.MinecraftProfilePropertiesResponse",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true,
+    "allDeclaredFields": true
+  },
+  {
+    "name": "com.mojang.authlib.yggdrasil.response.KeyPairResponse",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true,
+    "allDeclaredFields": true
+  },
+  {
+    "name": "com.mojang.authlib.yggdrasil.response.KeyPairResponse$KeyPair",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true,
+    "allDeclaredFields": true
+  },
+  {
+    "name": "com.mojang.authlib.yggdrasil.response.UserAttributesResponse",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true,
+    "allDeclaredFields": true
+  },
+  {
+    "name": "com.mojang.authlib.yggdrasil.response.UserAttributesResponse$Privileges",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true,
+    "allDeclaredFields": true
+  },
+  {
+    "name": "com.mojang.authlib.yggdrasil.response.UserAttributesResponse$Privileges$Privilege",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true,
+    "allDeclaredFields": true
+  },
+  {
+    "name": "com.mojang.authlib.yggdrasil.response.UserAttributesResponse$ProfanityFilterPreferences",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true,
+    "allDeclaredFields": true
+  },
+  {
+    "name": "com.mojang.authlib.yggdrasil.response.UserAttributesResponse$BanStatus",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true,
+    "allDeclaredFields": true
+  },
+  {
+    "name": "com.mojang.authlib.yggdrasil.response.UserAttributesResponse$BanStatus$BannedScope",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true,
+    "allDeclaredFields": true
+  },
+  {
+    "name": "com.mojang.authlib.yggdrasil.response.HasJoinedMinecraftServerResponse",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true,
+    "allDeclaredFields": true
+  },
+  {
     "name": "com.mojang.authlib.yggdrasil.response.ErrorResponse",
     "fields": [
       {

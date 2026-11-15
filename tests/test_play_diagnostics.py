@@ -16,6 +16,31 @@ import fabricaot.diag.PlayDiagnostics;
 
 public final class DiagFixture {
     public static void main(String[] args) throws Exception {
+        if (args.length > 0) {
+            var entered = new java.util.concurrent.CountDownLatch(1);
+            var release = new java.util.concurrent.CountDownLatch(1);
+            Thread render = new Thread(() -> {
+                PlayDiagnostics.tick();
+                PlayDiagnostics.tracker("WaitingForServer");
+                PlayDiagnostics.packetBegin("handlePlayerInfoUpdate");
+                entered.countDown();
+                try { release.await(); } catch (InterruptedException error) { throw new AssertionError(error); }
+                PlayDiagnostics.packetEnd();
+                PlayDiagnostics.tick();
+            }, "Render thread");
+            render.start();
+            if (!entered.await(5, java.util.concurrent.TimeUnit.SECONDS)) throw new AssertionError("no render entry");
+            for (int i = 0; i < 18; i++) {
+                PlayDiagnostics.chunk(i, 0);
+                Thread.sleep(100);
+            }
+            release.countDown();
+            render.join(5000);
+            if (render.isAlive()) throw new AssertionError("render did not recover");
+            Thread.sleep(250);
+            System.out.println("STALL_FIXTURE_RECOVERED");
+            return;
+        }
         PlayDiagnostics.tick();
         PlayDiagnostics.login("ClientboundLoginPacket[playerId=7]");
         PlayDiagnostics.batchStart();
@@ -51,7 +76,7 @@ class PlayDiagnosticsTests(unittest.TestCase):
         if not DIAGNOSTICS.is_file():
             raise unittest.SkipTest("PlayDiagnostics source is not present")
 
-    def compile_and_run(self, directory: Path, enabled: bool) -> str:
+    def compile_and_run(self, directory: Path, enabled: bool, stalled=False) -> str:
         source = directory / "DiagFixture.java"
         source.write_text(FIXTURE)
         subprocess.run([str(self.home / "bin/javac"), "--release", "25", "-proc:none",
@@ -59,7 +84,9 @@ class PlayDiagnosticsTests(unittest.TestCase):
                        check=True, capture_output=True, text=True, timeout=120)
         result = subprocess.run([
             str(self.home / "bin/java"), f"-Dmcfao.diag.play={'true' if enabled else 'false'}",
-            "-cp", str(directory / "classes"), "fixture.DiagFixture"],
+            "-Dmcfao.diag.tickStallSeconds=1" if stalled else "-Dmcfao.diag.tickStallSeconds=5",
+            "-Dmcfao.diag.heartbeatMillis=100" if stalled else "-Dmcfao.diag.heartbeatMillis=2000",
+            "-cp", str(directory / "classes"), "fixture.DiagFixture", *(["stall"] if stalled else [])],
             capture_output=True, text=True, timeout=60)
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout
@@ -92,6 +119,25 @@ class PlayDiagnosticsTests(unittest.TestCase):
             output = self.compile_and_run(Path(temp), True)
             self.assertIn("error=java.lang.RuntimeException: fixture failure", output)
             self.assertIn("event=connection_exception_frame", output)
+
+    def test_waiting_client_tick_is_dumped_while_network_keeps_arriving(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output = self.compile_and_run(Path(temp), True, stalled=True)
+        self.assertIn("stallSeconds=35 tickStallSeconds=1", output)
+        self.assertEqual(output.count("event=client_tick_stall"), 1)
+        self.assertIn("clientHandler=handlePlayerInfoUpdate handlerActive=true", output)
+        self.assertRegex(output, r"event=thread [^\n]* name=Render thread state=WAITING")
+        self.assertRegex(output, r"event=thread_frame [^\n]* name=Render thread")
+        self.assertIn("event=thread_dump_end", output)
+        self.assertIn("handlerActive=false", output)
+        self.assertIn("STALL_FIXTURE_RECOVERED", output)
+        self.assertNotIn("event=stall_detected", output)
+
+    def test_disabled_watchdog_does_not_dump_a_stalled_client(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output = self.compile_and_run(Path(temp), False, stalled=True)
+        self.assertNotIn("[MCFAO_DIAG]", output)
+        self.assertIn("STALL_FIXTURE_RECOVERED", output)
 
 
 if __name__ == "__main__":

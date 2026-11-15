@@ -18,6 +18,9 @@ jobs:
         run: |
           python3 -m compileall -q tools tests
           python3 -m unittest discover -s tests -p test_config_reflection.py -v
+          python3 -m unittest discover -s tests -p test_authlib_reflection.py -v
+          python3 -m unittest discover -s tests -p test_play_diagnostics.py -v
+          python3 -m unittest discover -s tests -p test_packet_diagnostics_injection.py -v
           python3 -m unittest discover -s tests -p test_mod_matrix.py -v
           python3 -m unittest discover -s tests -p test_scan_mod_evidence.py -v
       - name: Compile launcher and both Metal target paths
