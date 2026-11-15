@@ -325,7 +325,7 @@ code {
 
 .sidebar nav {
   display: grid;
-  gap: 1px;
+  gap: var(--space-1);
 }
 
 .nav-item {
@@ -334,8 +334,8 @@ code {
   align-items: center;
   gap: 9px;
   width: 100%;
-  min-height: 30px;
-  padding: 6px 9px;
+  min-height: 34px;
+  padding: 8px 9px;
   border-radius: var(--radius-sm);
   color: var(--text);
   font-size: 12.5px;
