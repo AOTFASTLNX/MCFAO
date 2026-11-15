@@ -9,12 +9,10 @@ from __future__ import annotations
 
 import argparse
 import io
-import hashlib
 import ipaddress
 import json
 import re
 import stat
-import ssl
 import sys
 import unicodedata
 import zipfile
@@ -28,101 +26,6 @@ MAX_EMBEDDED_JAR = 96 * 1024 * 1024
 MAX_ENTRIES = 10_000
 MAX_TOTAL_UNCOMPRESSED = 4 * 1024 * 1024 * 1024
 MAX_COMPRESSION_RATIO = 500
-RESOURCE_DIRS = {'mods': 'mods', 'resourcepacks': 'resourcepacks', 'shaderpacks': 'shaderpacks', 'config': 'config', 'defaultconfigs': 'config', 'kubejs': 'config', 'scripts': 'config'}
-
-
-def resource_unit(name):
-    parts = name.split('/')
-    return '/'.join(parts[:2]) if parts[0] in ('resourcepacks', 'shaderpacks') and len(parts) > 2 else name
-
-
-def tls_context():
-    """A verifying TLS context, including the macOS roots when Python has no trust store."""
-    context = ssl.create_default_context()
-    if context.cert_store_stats().get('x509_ca', 0) == 0:
-        for candidate in ('/etc/ssl/cert.pem', '/usr/local/etc/openssl/cert.pem'):
-            if Path(candidate).is_file():
-                context.load_verify_locations(candidate)
-                break
-        else:
-            try:
-                import certifi
-                context.load_verify_locations(certifi.where())
-            except ImportError:
-                raise ValueError('找不到可用的 HTTPS 根证书，无法安全下载')
-    return context
-
-
-def resource_inventory(path, result):
-    """List controlled import files, never reading private worlds/accounts or executing code."""
-    rows = {}
-    def add(name, origin, source_path, size, *, client='required', unsafe=False, stamp=None):
-        if not safe_archive_path(name): return
-        unit = resource_unit(name)
-        ident = origin + ':' + unit
-        category = RESOURCE_DIRS.get(name.split('/')[0], 'other')
-        supported = category != 'other' or name == 'options.txt'
-        disabled = name.lower().endswith(('.jar.disabled', '.jar.off'))
-        reason = 'unsafe' if unsafe else 'server_only' if client == 'unsupported' else 'disabled' if disabled else 'unsupported' if not supported else 'available'
-        row = rows.setdefault(ident, dict(id=ident, path=unit, origin=origin, category=category, status=reason, optional=client == 'optional', selectable=reason == 'available', default_selected=reason == 'available' and client != 'optional', bytes=0, file_count=0))
-        if reason != 'available': row.update(status=reason, selectable=False, default_selected=False)
-        row['bytes'] += size
-        row['file_count'] += 1
-        if stamp is not None: stamps.append((source_path, stamp, size))
-    stamps = []
-    if path.is_file() and path.suffix.lower() == '.mrpack':
-        with zipfile.ZipFile(path) as archive:
-            if not validate_zip_members(archive, [], str(path)): return
-            manifest = read_json_limited(archive, 'modrinth.index.json', MAX_MANIFEST)
-            files = manifest.get('files', [])
-            for entry in files if isinstance(files, list) else []:
-                if not isinstance(entry, dict) or not safe_archive_path(entry.get('path')): continue
-                env = entry.get('env', {})
-                add(entry['path'], 'manifest', entry['path'], entry.get('fileSize', 0) if type(entry.get('fileSize', 0)) is int and entry.get('fileSize', 0) >= 0 else 0, client=env.get('client', 'required') if isinstance(env, dict) else 'required')
-            for item in archive.infolist():
-                if item.is_dir(): continue
-                for prefix, origin in (('overrides/', 'overrides'), ('client-overrides/', 'client-overrides')):
-                    if item.filename.startswith(prefix):
-                        add(item.filename[len(prefix):], origin, item.filename, item.file_size)
-                        break
-        stamps.append(('source', path.stat().st_mtime_ns, path.stat().st_size))
-    elif path.is_dir():
-        base = next((p for p in (path / '.minecraft', path / 'minecraft', path) if (p / 'mods').is_dir()), path)
-        for directory in RESOURCE_DIRS:
-            folder = base / directory
-            if folder.is_symlink():
-                add(directory, 'local', directory, 0, unsafe=True)
-                continue
-            for file in sorted(folder.rglob('*')) if folder.is_dir() else []:
-                if len(stamps) >= MAX_ENTRIES: raise ValueError('Too many resource files')
-                unsafe = file.is_symlink() or not file.resolve().is_relative_to(path.resolve())
-                if unsafe or file.is_file():
-                    stat_value = file.lstat()
-                    add(str(file.relative_to(base)), 'local', str(file.relative_to(base)), stat_value.st_size, unsafe=unsafe, stamp=stat_value.st_mtime_ns)
-        options = base / 'options.txt'
-        if options.exists() or options.is_symlink():
-            st = options.lstat()
-            add('options.txt', 'local', 'options.txt', st.st_size, unsafe=options.is_symlink(), stamp=st.st_mtime_ns)
-    for mod in result.get('mod_inventory', []):
-        if mod['status'] != 'server_only': continue
-        name = mod['path']
-        if name.startswith('client-overrides/'):
-            ident = 'client-overrides:' + name[len('client-overrides/'):]
-        elif name.startswith('overrides/'):
-            ident = 'overrides:' + name[len('overrides/'):]
-        elif mod['origin'] == 'local': ident = 'local:mods/' + name
-        else: ident = 'manifest:' + name
-        if ident in rows: rows[ident].update(status='server_only', selectable=False, default_selected=False)
-    result['resources'] = list(rows.values())
-    result['resources_fingerprint'] = hashlib.sha256(json.dumps([result['resources'], stamps], sort_keys=True, ensure_ascii=False).encode()).hexdigest()
-    # Presentation metadata does not change the inclusion contract or fingerprint.
-    for row in result['resources']:
-        requirement = ('unsupported' if row['status'] == 'server_only' else
-                       'optional' if row['origin'] == 'manifest' and row['optional'] else
-                       'required' if row['origin'] == 'manifest' else 'unknown')
-        row['client_requirement'] = requirement
-        row['requirement_basis'] = ('mrpack_client' if row['origin'] == 'manifest' else
-                                    'mod_environment' if requirement == 'unsupported' else 'undeclared')
 
 
 def finding(severity: str, code: str, message: str) -> dict:
@@ -322,7 +225,6 @@ def scan_mod_bytes(content: bytes, jar_name: str, findings: list, mods: list):
             native_names = [n for n in archive.namelist() if n.lower().endswith((".dylib", ".dll", ".so", ".jnilib"))]
             mod = {
                 "path": jar_name, "id": mod_id, "version": version,
-                "name": meta.get("name") if isinstance(meta.get("name"), str) else mod_id,
                 "environment": meta.get("environment", "*"),
                 "has_mixins": bool(meta.get("mixins")),
                 "has_entrypoints": bool(meta.get("entrypoints")),
@@ -350,30 +252,13 @@ def scan_mod_bytes(content: bytes, jar_name: str, findings: list, mods: list):
         findings.append(finding("error", "INVALID_MOD_JAR", f"{jar_name}: {exc}"))
 
 
-def inventory_jar(path: str, origin: str, read, size: int, findings: list, mods: list, inventory: list):
-    """Attach only this JAR's scan findings; never load or execute Mod code."""
-    start, before = len(findings), len(mods)
-    try:
-        if size > MAX_EMBEDDED_JAR:
-            findings.append(finding("warning", "JAR_TOO_LARGE", path))
-        else:
-            scan_mod_bytes(read(), path, findings, mods)
-    except OSError as exc:
-        findings.append(finding("error", "MOD_READ_ERROR", f"{path}: {exc}"))
-    mod = mods[before] if len(mods) > before else None
-    inventory.append(dict(path=path, origin=origin,
-                          status=("server_only" if mod and mod["environment"] == "server" else "metadata_read") if mod else "unreadable",
-                          findings=findings[start:], **({"mod": mod} if mod else {})))
-
-
 def scan_pack(path: Path) -> dict:
     findings: list[dict] = []
     mods: list[dict] = []
-    inventory: list[dict] = []
     result = {
         "source": str(path), "target_minecraft": TARGET_MINECRAFT,
         "status": "STATIC_PREFLIGHT_ONLY", "source_type": "unknown",
-        "mods": mods, "mod_inventory": inventory, "findings": findings, "aot_ios_verified": False,
+        "mods": mods, "findings": findings, "aot_ios_verified": False,
         "fatal": True,
     }
     if not path.exists():
@@ -412,31 +297,15 @@ def scan_pack(path: Path) -> dict:
                     findings.append(finding("error", "OTHER_LOADER", "Only Fabric is supported"))
                 files = _validate_manifest_files(manifest.get("files"), findings)
                 result["manifest_files"] = len(files)
-                validated_entries = {id(entry) for entry in files}
-                manifest_issues = {}
-                for issue in findings:
-                    prefix, separator, _ = issue["message"].partition("]:")
-                    if separator and prefix.startswith("files[") and prefix[6:].isdigit():
-                        manifest_issues.setdefault(int(prefix[6:]), []).append(issue)
-                for idx, entry in enumerate(manifest.get("files", []) if isinstance(manifest.get("files"), list) else []):
-                    if id(entry) not in validated_entries:
-                        continue
-                    name = entry["path"]
-                    if not name.startswith("mods/") or not name.lower().endswith(".jar"):
-                        continue
-                    env = entry.get("env", {})
-                    client = env.get("client", "required") if isinstance(env, dict) else "required"
-                    issues = manifest_issues.get(idx, [])
-                    inventory.append(dict(path=name, origin="manifest", status="unreadable" if any(f["severity"] == "error" for f in issues) else "server_only" if client == "unsupported" else "skipped_optional" if client == "optional" else "pending_download", findings=issues))
                 jar_entries = [m for m in archive.infolist() if not m.is_dir() and m.filename.startswith(("overrides/mods/", "client-overrides/mods/")) and m.filename.lower().endswith(".jar")]
                 if len(jar_entries) > 2500:
                     findings.append(finding("error", "TOO_MANY_EMBEDDED_MODS", str(len(jar_entries))))
                     jar_entries = jar_entries[:2500]
                 for item in jar_entries:
-                    inventory_jar(item.filename, "embedded", lambda: archive.read(item), item.file_size, findings, mods, inventory)
-                for item in archive.infolist():
-                    if not item.is_dir() and item.filename.startswith(("overrides/mods/", "client-overrides/mods/")) and item.filename.lower().endswith((".jar.disabled", ".jar.off")):
-                        inventory.append(dict(path=item.filename, origin="embedded", status="disabled", findings=[]))
+                    if item.file_size > MAX_EMBEDDED_JAR:
+                        findings.append(finding("warning", "JAR_TOO_LARGE", item.filename))
+                        continue
+                    scan_mod_bytes(archive.read(item), item.filename, findings, mods)
                 remote = sum(1 for f in files if isinstance(f.get("path"), str) and f["path"].lower().endswith(".jar") and (not isinstance(f.get("env"), dict) or f["env"].get("client") != "unsupported"))
                 if remote:
                     findings.append(finding("warning", "REMOTE_MOD_METADATA_NOT_FETCHED", f"{remote} remotely listed JARs: actual Mod IDs/dependencies/AOT compatibility UNKNOWN"))
@@ -477,34 +346,26 @@ def scan_pack(path: Path) -> dict:
             if selected.is_symlink() or not selected.resolve().is_relative_to(root):
                 findings.append(finding("error", "UNSAFE_MOD_DIRECTORY", str(selected)))
             else:
-                jar_paths = sorted(p for p in selected.iterdir() if p.name.lower().endswith((".jar", ".jar.disabled", ".jar.off")))
+                jar_paths = sorted(p for p in selected.iterdir() if p.suffix.lower() == ".jar")
                 if len(jar_paths) > 2500:
                     findings.append(finding("error", "TOO_MANY_MODS", str(len(jar_paths))))
                     jar_paths = jar_paths[:2500]
                 for jar in jar_paths:
                     if jar.is_symlink() or not jar.resolve().is_relative_to(root):
-                        issue = finding("error", "UNSAFE_MOD_SYMLINK", str(jar))
-                        findings.append(issue)
-                        inventory.append(dict(path=jar.name, origin="local", status="unreadable", findings=[issue]))
-                        continue
-                    if jar.name.lower().endswith((".jar.disabled", ".jar.off")):
-                        inventory.append(dict(path=jar.name, origin="local", status="disabled", findings=[]))
+                        findings.append(finding("error", "UNSAFE_MOD_SYMLINK", str(jar)))
                         continue
                     try:
-                        inventory_jar(jar.name, "local", jar.read_bytes, jar.stat().st_size, findings, mods, inventory)
+                        if jar.stat().st_size > MAX_EMBEDDED_JAR:
+                            findings.append(finding("warning", "JAR_TOO_LARGE", jar.name))
+                        else:
+                            scan_mod_bytes(jar.read_bytes(), jar.name, findings, mods)
                     except OSError as exc:
-                        issue = finding("error", "MOD_READ_ERROR", f"{jar.name}: {exc}")
-                        findings.append(issue)
-                        inventory.append(dict(path=jar.name, origin="local", status="unreadable", findings=[issue]))
+                        findings.append(finding("error", "MOD_READ_ERROR", f"{jar.name}: {exc}"))
         else:
             findings.append(finding("info", "NO_MOD_DIRECTORY", "No mods folder"))
     else:
         findings.append(finding("error", "UNSUPPORTED_SOURCE", "Expected .mrpack or Prism instance directory"))
 
-    try:
-        resource_inventory(path, result)
-    except (ValueError, KeyError, OSError, RuntimeError, zipfile.BadZipFile) as exc:
-        findings.append(finding('error', 'RESOURCE_INVENTORY_FAILED', str(exc)))
     # Static scans are never proof of a playable iOS build or mod compatibility.
     result["fatal"] = any(f["severity"] == "error" for f in findings)
     return result
