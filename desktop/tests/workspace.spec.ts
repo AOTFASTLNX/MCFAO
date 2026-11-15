@@ -514,9 +514,11 @@ test("theme setting switches every surface and survives a reload", async ({
   expect(surfaces.colorScheme).toBe("light");
   expect(surfaces.shell).toBe("rgb(231, 232, 233)");
   await page.getByRole("button", { name: "构建记录", exact: true }).click();
+  // History sits on the window surface and separates its two regions with a
+  // divider instead of wrapping them in a card.
   await expect(page.locator(".job-list-panel")).toHaveCSS(
     "background-color",
-    "rgb(255, 255, 255)",
+    "rgba(0, 0, 0, 0)",
   );
   await page.getByRole("button", { name: "设置", exact: true }).click();
   await expect(
@@ -834,4 +836,17 @@ test("popup menus animate, close on outside click and work from the keyboard", a
   await page.keyboard.press("Escape");
   await expect(popup).toBeHidden();
   await expect(trigger).toHaveText("蓝色");
+});
+
+test("no page repeats a marketing footer under the content", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1100, height: 760 });
+  await page.goto("/");
+  for (const name of ["构建 IPA", "构建记录", "环境与资源", "设置"]) {
+    await page.getByRole("button", { name, exact: true }).first().click();
+    await expect(page.locator(".page-footer")).toHaveCount(0);
+    await expect(page.getByText("内容由你掌控", { exact: false })).toHaveCount(0);
+    await expect(page.getByText("Fabric Only", { exact: false })).toHaveCount(0);
+  }
 });

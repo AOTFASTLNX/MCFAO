@@ -1,0 +1,11 @@
+{
+  "volume": "/Volumes/K",
+  "data": "/Volumes/K/MCFAO-data",
+  "directories": [
+    {"link": "artifacts/mcfao", "external": "artifacts/mcfao"},
+    {"link": "artifacts/graphics", "external": "artifacts/graphics"},
+    {"link": "artifacts/desktop-jobs", "external": "artifacts/desktop-jobs"},
+    {"link": "desktop/src-tauri/target", "external": "desktop/src-tauri/target"},
+    {"link": ".cache", "external": "cache"}
+  ]
+}

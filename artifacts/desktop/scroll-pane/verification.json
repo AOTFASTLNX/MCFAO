@@ -1,0 +1,28 @@
+{
+  "date": "2026-11-15",
+  "change": "One scroll bar: the window frame no longer scrolls, and the pane below the title bar owns the only scroll bar.",
+  "source": [
+    "desktop/src/system-neutral.css",
+    "desktop/tests/titlebar.spec.ts"
+  ],
+  "cause": ".visually-hidden was absolutely positioned without a positioned ancestor, so the hidden report file input sat below the content and stretched the document to 1016 pt in a 855 pt window, adding a second window-level scroll bar.",
+  "browser": {
+    "playwright": "33 passed",
+    "newTests": [
+      "the page scroll bar belongs to the pane below the title bar",
+      "a loaded report keeps the document inside the window",
+      "every page scrolls in the pane without a second window scroll bar"
+    ],
+    "unit": "56 passed"
+  },
+  "native": {
+    "window": "1100 x 760 pt (2x capture 2200 x 1520 px)",
+    "capture": "native-light-1100.png",
+    "scrollBarColumnsPx": [2172, 2193],
+    "scrollBarTopPx": 218,
+    "scrollBarBottomPx": 1513,
+    "scrollBarCount": 1,
+    "note": "The capture is scrolled to the bottom of the report; the only bar runs from under the title bar to the window bottom edge."
+  },
+  "limits": "The packaged .app lives on the exFAT external disk where codesign cannot write, so the build was verified from a locally signed copy. Narrow windows (<= 700 pt) stack the sidebar and scroll the document by design."
+}

@@ -1,7 +1,8 @@
 # Private local build state and generated evidence
-/.cache/
+/.cache
 /artifacts/*
 !/artifacts/desktop/
+/desktop/src-tauri/target
 /logs/
 /config/
 /docs/.codex/

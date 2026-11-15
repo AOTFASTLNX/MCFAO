@@ -123,6 +123,17 @@ body {
   color: var(--text);
 }
 
+/* Wide layouts scroll inside the pane, so a stray absolutely positioned child
+   must not turn the window itself into a second scroll container. */
+@media (min-width: 701px) {
+  html,
+  body,
+  #root {
+    height: 100%;
+    overflow: hidden;
+  }
+}
+
 button,
 input,
 select,
@@ -248,7 +259,8 @@ code {
 /* Native overlay title bar: the sidebar reserves the traffic-light area. */
 .app-shell {
   display: flex;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
   background: var(--bg);
 }
 
@@ -449,14 +461,15 @@ code {
   flex: 1;
   flex-direction: column;
   min-width: 0;
-  min-height: 100vh;
+  min-height: 0;
+  height: 100vh;
+  overflow: hidden;
   margin-left: var(--sidebar-width);
   width: calc(100% - var(--sidebar-width));
 }
 
 .topbar {
-  position: sticky;
-  top: 0;
+  position: relative;
   z-index: 9;
   display: flex;
   flex-shrink: 0;
@@ -516,10 +529,24 @@ code {
 
 .main-content {
   flex: 1;
+  min-height: 0;
   width: 100%;
-  max-width: 1460px;
-  margin: 0 auto;
-  padding: var(--space-6) var(--space-6) var(--space-5);
+  /* The content column stays capped and centred, while this pane still spans
+     the window so its scroll bar sits under the title bar and hugs the edge
+     instead of running the full window height. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* Padding lives on an inner column: a sticky child cannot escape its parent's
+   padding box, so the capsules would stop short of the pane edges. */
+.page-column {
+  width: 100%;
+  padding-block: var(--space-6) var(--space-5);
+  padding-inline: max(
+    var(--space-6),
+    calc((100% - 1460px) / 2 + var(--space-6))
+  );
 }
 
 .eyebrow {
@@ -540,7 +567,8 @@ code {
 /* The builder sits on the window surface: steps read as one continuous page
    instead of a card inside the window. Other panels keep their card. */
 .builder-panel {
-  overflow: hidden;
+  /* Keeps the sticky capsules free of a scroll container of their own. */
+  overflow: visible;
 }
 
 .panel,
@@ -552,21 +580,36 @@ code {
 }
 
 .stepper {
+  /* Floats over the page: sticky inside the scroll pane, so it stays put while
+     the step content scrolls underneath it. */
+  position: sticky;
+  top: var(--space-2);
+  z-index: 5;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-1);
-  padding: var(--space-3) var(--space-5);
-  background: var(--layer-2);
-  border-radius: var(--radius) var(--radius) 0 0;
+  margin-bottom: var(--space-4);
+  /* Even inset all round: each step pill sits the same distance from the
+     capsule wall, so the caps read as concentric. */
+  padding: 8px;
+  border-radius: 999px;
+  background: var(--raised);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 8%),
+    0 10px 26px rgb(0 0 0 / 8%);
 }
+
 
 .step {
   display: flex;
   align-items: center;
   gap: 6px;
   min-height: 26px;
-  padding: 0;
+  /* Steps are controls inside the capsule too, so they become pills with an
+     even inset that keeps them concentric with the capsule wall. */
+  padding: 4px 10px;
+  border-radius: 999px;
   color: var(--muted);
   font-size: 11px;
   text-align: left;
@@ -574,6 +617,7 @@ code {
 }
 
 .step:hover {
+  background: var(--control-bg);
   color: var(--text);
 }
 
@@ -592,6 +636,7 @@ code {
 }
 
 .step.current {
+  background: var(--control-bg);
   color: var(--text);
   font-weight: 500;
 }
@@ -793,6 +838,9 @@ button:disabled {
 
 .text-button {
   display: inline-flex;
+  /* Anchors the clipped file input, so its overflow stays inside the scroll
+     pane instead of stretching the document. */
+  position: relative;
   align-items: center;
   justify-content: flex-start;
   gap: 5px;
@@ -858,10 +906,14 @@ button:disabled {
   position: absolute;
   width: 1px;
   height: 1px;
+  /* Anchored to the nearest positioned ancestor and clipped out of flow, so a
+     hidden file input cannot stretch the document past the window. */
+  inset: 0 auto auto 0;
   padding: 0;
-  margin: -1px;
+  margin: 0;
   overflow: hidden;
   clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
   white-space: nowrap;
   border: 0;
 }
@@ -1428,12 +1480,27 @@ button:disabled {
 }
 
 .wizard-footer {
+  /* Second floating capsule, pinned to the bottom of the scroll pane so the
+     navigation stays reachable while the step content scrolls. */
+  position: sticky;
+  bottom: var(--space-2);
+  z-index: 5;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  padding: var(--space-3) var(--space-5);
-  background: var(--layer-2);
+  margin-top: var(--space-4);
+  /* Even inset on the three sides that meet the filled button, so its cap
+     curves stay concentric with the capsule; the text keeps a wider lead-in. */
+  --pill-inset: 7px;
+  /* Equal inset on all four sides: the outer cap radius then equals the inner
+     radius plus the inset, which is what makes the two curves concentric. */
+  padding: var(--pill-inset);
+  border-radius: 999px;
+  background: var(--raised);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 8%),
+    0 10px 26px rgb(0 0 0 / 10%);
 }
 
 .wizard-footer > span {
@@ -1444,6 +1511,21 @@ button:disabled {
 
 .wizard-footer .primary {
   min-width: 96px;
+  /* Pill geometry: the cap radius is half the button height, so its curve is
+     parallel to the capsule wall. */
+  border-radius: 999px;
+  padding-inline: 16px;
+}
+
+.wizard-footer .text-button {
+  border-radius: 999px;
+  padding: 3px 12px;
+  /* Match the filled button's height, so both caps share the same radius and
+     stay concentric with the bar. */
+  min-height: var(--control-height);
+  /* The lead-in padding of the bar is gone, so the label keeps its breathing
+     room here instead. */
+  margin-left: var(--space-3);
 }
 
 .running-callout {
@@ -2643,11 +2725,35 @@ button:disabled {
 }
 
 .page-toolbar {
+  /* Floats over the page: the actions stay reachable while the list below
+     scrolls underneath them. */
+  position: sticky;
+  /* Sticks a little below the top bar so its shadow never slides under it. */
+  top: var(--space-2);
+  z-index: 6;
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: var(--space-2);
-  margin: 0 0 var(--space-4);
+  /* Hugs the actions so the capsule is as wide as its buttons. */
+  width: fit-content;
+  margin: 0 0 0 auto;
+  --pill-inset: 6px;
+  padding: var(--pill-inset);
+  border-radius: 999px;
+  background: var(--raised);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 8%),
+    0 10px 26px rgb(0 0 0 / 8%);
+}
+
+/* Every control inside a floating capsule is a pill whose cap radius matches
+   the capsule wall, with an even inset, so the curves stay concentric. */
+.page-toolbar .primary,
+.page-toolbar .secondary,
+.page-toolbar .danger {
+  border-radius: 999px;
+  padding-inline: 16px;
 }
 
 .page-toolbar-actions {
@@ -2672,6 +2778,55 @@ button:disabled {
 .panel {
   padding: var(--space-5);
 }
+
+/* Environment and history group their content into regions instead of
+   wrapping everything in an outer card: no surface, no outline, and a single
+   divider between adjacent regions. */
+.flat {
+  border-radius: 0;
+  background: transparent;
+}
+
+.flat + .flat {
+  border-top: 1px solid var(--control-bg);
+}
+
+/* The flat regions stack on the window surface, so the outer card edge is
+   replaced by a divider between the two areas. The divider starts below the
+   floating action capsule, which is why the second region is offset. */
+.settings-layout:has(> .flat) {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+}
+
+.settings-layout > .flat {
+  padding-inline: 0;
+}
+
+.settings-layout > .flat + .flat {
+  margin-top: var(--space-5);
+  padding-top: var(--space-5);
+}
+
+/* History is two columns; the divider runs between them for the full height
+   of the detail region instead of cutting across the page. */
+.history-layout:has(> .flat) {
+  /* Both columns share the taller row, so the divider runs the full height of
+     the detail region instead of stopping at the shorter list. */
+  align-items: stretch;
+  gap: 0;
+}
+
+.history-layout > .flat {
+  padding-inline: 0;
+}
+
+.history-layout > .flat + .flat {
+  border-top: 0;
+  border-left: 1px solid var(--control-bg);
+  padding-left: var(--space-5);
+}
+
 
 .panel > h2 {
   font-size: 14px;
@@ -2859,18 +3014,6 @@ button:disabled {
 
 .red {
   color: var(--danger-text) !important;
-}
-
-.page-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  margin-top: var(--space-8);
-  padding: var(--space-3) 0 var(--space-4);
-  color: var(--dim);
-  font-size: 9.5px;
-  line-height: 1.5;
 }
 
 .busy-toast {
@@ -3222,7 +3365,8 @@ button:disabled {
   }
 
   .stepper {
-    padding: var(--space-3) var(--space-4);
+    /* Keep the inset square so the step pills stay concentric at every width. */
+    padding: var(--space-2);
   }
 
   .step {
@@ -3248,7 +3392,8 @@ button:disabled {
   }
 
   .main-content {
-    padding: var(--space-5) var(--space-4) 0;
+    padding-block: var(--space-5) 0;
+    padding-inline: var(--space-4);
   }
 
   .topbar {
@@ -3292,6 +3437,21 @@ button:disabled {
 
   .app-shell {
     display: block;
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+
+  /* Narrow windows stack the sidebar above the page, so the document itself
+     scrolls again and the inner pane must not trap the scroll bar. */
+  .app-shell > main {
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .main-content {
+    overflow: visible;
   }
 
   .sidebar {
@@ -3379,7 +3539,7 @@ button:disabled {
   }
 
   .stepper {
-    padding: var(--space-2) var(--space-2);
+    padding: var(--space-2);
     gap: 1px;
   }
 
@@ -3465,14 +3625,6 @@ button:disabled {
   .signing-facts strong,
   .signing-facts code {
     text-align: left;
-  }
-
-  .page-footer {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 2px;
-    margin-top: var(--space-5);
-    font-size: 8.5px;
   }
 
   .busy-toast {

@@ -17,6 +17,7 @@ import sys
 from uuid import uuid4
 import zipfile
 from renderer_profile import config_names, libraries as renderer_libraries, validate_runtime
+from external_storage import ExternalStorageUnavailable, require_mount
 
 from bootstrap_toolchain import sha256
 from build_c0_harness import binary_platform, validate_dylib, validate_shader_bundle
@@ -771,7 +772,10 @@ def main(argv=None):
                 compile_command.error("Fabric requires --mods and either --prepare-only or --audited-mods")
         elif args.mods or args.prepare_only or args.audited_mods or args.trace_agent:
             compile_command.error("Mod options are only valid for Fabric")
+    # Local builds read heavyweight evidence, caches and Rust artifacts through
+    # symlinks onto the external disk. Pause before creating any output.
     try:
+        require_mount(f"mcfao {args.action}")
         if args.action == "doctor":
             config = load_config(args.config.resolve(), args.renderer)
             manifest, client, _ = inputs(config, args.renderer)
@@ -784,6 +788,9 @@ def main(argv=None):
         else:
             result = verify(args.output.resolve(), args.device)
         print(json.dumps(result, indent=2))
+    except ExternalStorageUnavailable as error:
+        print(error, file=sys.stderr)
+        return 3
     except (KeyError, OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
         print(f"mcfao {args.action}: {error}", file=sys.stderr)
         return 2

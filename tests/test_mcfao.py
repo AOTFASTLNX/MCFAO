@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 
 from mcfao import (Build, device_xcode, export_ipa, load_config, resolve_development_team,
                    main as mcfao_main, select_development_team, tree_files, write_json)
+from external_storage import ExternalStorageUnavailable
 from prepare_fabric_aot import MAX_TRANSFORM_ARCHIVES
 from prepare_fabric_aot import inspect_archives, inspect_compatibility, main as prepare_fabric
 from prepare_fabric_aot import merge_client, root_mod_ids, runtime_overlay_sources
@@ -157,6 +158,15 @@ class FabricInputTests(unittest.TestCase):
                                 "--inspect", "--trace-agent"])
         self.assertEqual(raised.exception.code, 2)
         self.assertIn("--trace-agent requires --audited-mods", stderr.getvalue())
+
+    def test_cli_pauses_with_exit_code_3_when_external_disk_is_absent(self):
+        stderr = io.StringIO()
+        with patch("sys.stderr", stderr), patch(
+                "mcfao.require_mount",
+                side_effect=ExternalStorageUnavailable("mcfao build: PAUSED")):
+            code = mcfao_main(["doctor", "--config", str(self.root / "absent.json")])
+        self.assertEqual(code, 3)
+        self.assertIn("PAUSED", stderr.getvalue())
         self.assertFalse((self.root / "output").exists())
 
     def test_compile_cli_rejects_tracing_without_audit_before_loading_config(self):
