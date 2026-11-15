@@ -1,0 +1,13 @@
+
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" fill="none" stroke="#376F65" stroke-width="20" stroke-linejoin="round">
+
+  <!-- 顶面 -->
+  <path d="M512 95 L874 267 L512 444 L150 267 Z" fill="#C8F0E5"></path>
+
+  <!-- 左面 -->
+  <path d="M150 267 L512 444 L512 920 L150 748 Z" fill="#8ED3C1"></path>
+
+  <!-- 右面 -->
+  <path d="M512 444 L874 267 L874 748 L512 920 Z" fill="#5DAD9B"></path>
+
+</svg>

@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">NCL · 抽象空间字母标志</title>
+  <desc id="desc">仅由三组青绿色的立体透视字母笔画构成，没有立方体面或底色。左侧是 N，顶部是向 N 开口的 C，右侧是水平镜像的 L。C 的一个末端与 N 的右上端相接，另外三个接近点刻意留有空隙；笔画宽度加倍，断口仍然开放。</desc>
+  <defs>
+    <!-- 统一渐变让不同笔画在相接点无色差，背景始终透明。 -->
+    <linearGradient id="mint" x1="140" y1="90" x2="900" y2="940" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#B6EEE3"/>
+      <stop offset="0.54" stop-color="#7FD5C8"/>
+      <stop offset="1" stop-color="#4CB5A8"/>
+    </linearGradient>
+  </defs>
+  <!-- 顶面 C：左端与 N 的左上端留空（加粗后重新调整端点）；右侧绕至中央，与 N 的右上端连接。 -->
+  <path id="C" d="M 295 194 L 512 95 L 874 267 L 512 444"
+        fill="none" stroke="url(#mint)" stroke-width="104"
+        stroke-linejoin="round" stroke-linecap="round"/>
+  <!-- 左面 N：独立左竖、下降斜笔、右竖；在中央上端与 C 相接。 -->
+  <path id="N" d="M 150 267 L 150 748 M 150 267 L 512 920 M 512 444 L 512 920"
+        fill="none" stroke="url(#mint)" stroke-width="104"
+        stroke-linejoin="round" stroke-linecap="round"/>
+  <!-- 右面镜像 L：顶部与 C 断开，底部与 N 断开（加粗后保留留白）。 -->
+  <path id="mirrored-L" d="M 874 425 L 874 748 L 664 875"
+        fill="none" stroke="url(#mint)" stroke-width="104"
+        stroke-linejoin="round" stroke-linecap="round"/>
+</svg>
