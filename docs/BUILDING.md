@@ -1,5 +1,7 @@
 # FabricAOT 构建与复现
 
+GL41 构建必须使用支持 OpenGL/OSMesa 的 GLFW 二进制；历史 `glfw-ios-05` 的哈希有效但仅支持 NO_API，会在创建 OpenGL 窗口时失败。构建器现校验实际 GLFW ABI，而非仅检查报告/文件名。更新 GLFW 后，常规完整构建仍需重建与其哈希绑定的 LWJGL 输入。LAN r4 的原生修复、源码快照及验证见 [GL41_STARTUP_BRIDGE_FIX](GL41_STARTUP_BRIDGE_FIX.md)。
+
 最后复核于 2026-11-16。状态见 [STATUS](STATUS.md)，实验结论见 [ADR-001](evidence/ADR-001.md)。以下均在项目根执行，日志输出目录要求新建。
 
 > 前置条件：先接上并挂载外接盘 K。大体积产物与工具链缓存位于 /Volumes/K/MCFAO-data/，项目内是符号链接；断盘时 mcfao 会在创建输出前暂停（退出码 3），GUI 工作台显示「暂停」。检查与恢复见 EXTERNAL_STORAGE.md。

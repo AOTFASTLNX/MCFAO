@@ -27,6 +27,8 @@ def validate_runtime(app: Path, renderer: str):
         raise ValueError(f"Incomplete {renderer} runtime: missing={set(libraries(renderer))-found}, unexpected={found-set(libraries(renderer))}")
     for name in libraries(renderer):
         validate_dylib(directory / name)
+    from glfw_runtime_contract import validate_glfw_renderer
+    validate_glfw_renderer(directory / 'libglfw.dylib', renderer)
     if renderer == "metal":
         from build_c0_harness import validate_shader_bundle
         validate_shader_bundle(directory / "fabricaot-shaders", simulator=False)

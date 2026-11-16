@@ -40,6 +40,7 @@ int main(void){
     const char *error;assert(glfwGetError(&error)==GLFW_NOT_INITIALIZED&&error);
     assert(glfwGetError(&error)==0&&error==NULL);
     assert(glfwInit());
+    assert(strcmp(faot_glfw_client_api_contract(), "FAOT_GLFW_CLIENT_APIS:v1:NO_API,OPENGL_OSMESA")==0);
     /* The OpenGL client API is now accepted; its OSMesa context is created lazily by
        MakeCurrent. An unknown API value still has to fail closed. */
     window=glfwCreateWindow(1,1,"deferred GL context",NULL,NULL);assert(window);

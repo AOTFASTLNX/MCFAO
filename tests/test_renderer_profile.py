@@ -7,6 +7,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 import mcfao
 from renderer_profile import libraries, config_names, validate_runtime
+from glfw_runtime_contract import CONTRACT, GL41_EXPORTS, validate_bytes, validate_glfw_renderer
 
 class RendererProfileTests(unittest.TestCase):
     def test_gl41_config_does_not_require_native_metal_inputs(self):
@@ -25,11 +26,12 @@ class RendererProfileTests(unittest.TestCase):
             app = Path(temp); frameworks = app / "Frameworks"; frameworks.mkdir()
             for name in libraries("gl41"):
                 (frameworks / name).touch()
+            (frameworks / 'libglfw.dylib').write_bytes(CONTRACT + b'\0')
             (app / "assets/indexes").mkdir(parents=True)
             (app / "assets/indexes/30.json").write_text("{}")
             (app / "assets/objects/aa").mkdir(parents=True)
             (app / "assets/objects/aa/object").write_bytes(b"fixture")
-            with patch("build_c0_harness.validate_dylib") as validate:
+            with patch("build_c0_harness.validate_dylib") as validate, patch('glfw_runtime_contract.subprocess.check_output', return_value='\n'.join('_' + name for name in GL41_EXPORTS)):
                 validate_runtime(app, "gl41")
                 self.assertEqual(validate.call_count, 7)
                 # exFAT volumes add `._name` sidecars next to every file; they are
@@ -51,6 +53,22 @@ class RendererProfileTests(unittest.TestCase):
                 (directory / name).write_bytes(b"not a dylib")
             with self.assertRaises((ValueError, OSError, SystemExit)):
                 validate_runtime(app, "gl41")
+
+    def test_historical_metal_only_glfw_is_rejected_even_with_valid_input_hashes(self):
+        with self.assertRaisesRegex(ValueError, 'OpenGL/OSMesa GLFW'):
+            validate_bytes(b'GLFW-lite requires GLFW_NO_API; select the Metal backend\0', set(GL41_EXPORTS), 'gl41')
+        with self.assertRaisesRegex(ValueError, 'Missing exports'):
+            validate_bytes(CONTRACT + b'\0', set(), 'gl41')
+        self.assertEqual(validate_bytes(CONTRACT + b'\0', set(GL41_EXPORTS), 'gl41')['status'], 'GLFW_RENDERER_ABI_VERIFIED')
+        self.assertEqual(validate_bytes(b'legacy NO_API bridge', set(), 'metal')['renderer'], 'metal')
+
+    def test_actual_binary_contract_is_required_instead_of_a_report_claim(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / 'libglfw.dylib'
+            path.write_bytes(b'old library with a previously valid checksum')
+            symbols = '\n'.join('_' + name for name in GL41_EXPORTS)
+            with patch('glfw_runtime_contract.subprocess.check_output', return_value=symbols):
+                with self.assertRaises(ValueError): validate_glfw_renderer(path, 'gl41')
 
     def test_unsigned_gl41_xcode_argv_is_literal_and_uses_distinct_bundle(self):
         argv = mcfao.device_xcode(Path("/tmp/stage with spaces"), Path("/tmp/assets"),

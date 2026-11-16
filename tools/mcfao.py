@@ -26,6 +26,7 @@ from capture import ROOT, capture
 from bundle_source import source_identity
 from graphics_common import bridge_overlays
 from build_glfw_lite import exported_symbols, validate_input_exports
+from glfw_runtime_contract import validate_glfw_renderer
 from prepare_fabric_aot import TOOL as FABRIC_TOOL, mod_files
 from stage_game_assets import verified_assets
 from mod_file_policy import is_metadata
@@ -57,7 +58,7 @@ BACKEND_TOOLS = (
     "build_c0_harness", "client_graph_diagnostics", "lwjgl_codegen",
     "config_reflection", "mdaf", "verify_aot_classpath", "patch_gl41_client", "renderer_profile",
     "cleanup_storage",
-    "storage_config", "bundle_source", "host_tools", "verified_download",
+    "storage_config", "bundle_source", "host_tools", "verified_download", "glfw_runtime_contract",
 )
 
 
@@ -196,6 +197,7 @@ def inputs(config: dict, renderer: str = "metal") -> tuple[dict, Path, list[Path
     # A valid historical report can still predate a required Mod input API.
     # Inspect the actual binary and bind the Java overlays to that GLFW input.
     glfw_binary = config["glfw"] / "libglfw.dylib"
+    validate_glfw_renderer(glfw_binary, renderer)
     validate_input_exports(exported_symbols(subprocess.check_output(
         ["xcrun", "nm", "-gUj", str(glfw_binary)], text=True)))
     if read_json(config["lwjgl"] / "result.json").get("glfwLibrarySHA256") != sha256(glfw_binary):

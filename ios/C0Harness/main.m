@@ -26,6 +26,7 @@
 #import <sys/sysctl.h>
 #import <unistd.h>
 #include "log_file.h"
+#include "renderer_preflight.h"
 #import "FAOTLauncherViewController.h"
 
 // A single process can only ever host one Graal isolate; later attempts return an error.
@@ -339,6 +340,15 @@ static void FAOTProbeReservations(FILE *logFile) {
         emit([NSString stringWithFormat:@"[FAOT] physicalMemory=%@ reserved=%llu MiB",
               FAOTPhysicalMemoryText(), reserved >> 20]);
 
+        if ([NSFileManager.defaultManager fileExistsAtPath:[frameworks stringByAppendingPathComponent:@"libOSMesa.8.dylib"]]) {
+            char reason[1024] = {0};
+            if (!FAOTRequireGL41Bridge(frameworks.fileSystemRepresentation, reason, sizeof reason)) {
+                emit([NSString stringWithFormat:@"[FAOT] renderer preflight failed: %s", reason]);
+                if (logFile) fclose(logFile);
+                [self finishWithStatus:@"图形运行库不匹配" logPath:logPath];
+                return;
+            }
+        }
         void *handle = dlopen(library.fileSystemRepresentation, RTLD_NOW | RTLD_LOCAL);
         if (!handle) {
             emit([NSString stringWithFormat:@"[FAOT] dlopen failed: %s", dlerror()]);

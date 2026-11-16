@@ -11,6 +11,7 @@ from pathlib import Path
 from build_c0_harness import sha256, validate_dylib, validate_shader_bundle
 from capture import ROOT
 from graphics_common import register_tree
+from glfw_runtime_contract import validate_glfw_renderer
 
 
 def main(argv=None):
@@ -59,6 +60,8 @@ def main(argv=None):
             continue
         report = read_report(directory, {status})
         add(directory / name, report["binarySHA256"], dylib=True)
+        if directory == args.glfw:
+            validate_glfw_renderer(directory / name, args.renderer)
         if directory == args.metal:
             add(directory / "fabricaot-present.metallib", report["metallibSHA256"])
 
