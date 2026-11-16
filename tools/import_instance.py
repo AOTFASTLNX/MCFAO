@@ -35,7 +35,7 @@ def download(url, limit=MAX_FILE):
     # urllib uses the macOS system proxy and the standard *_proxy environment variables, so a
     # local proxy's fake-IP or loopback DNS answer is not rejected. The host allowlist and TLS
     # certificate/hostname verification still apply, including after redirects.
-    request = urllib.request.Request(public_endpoint(url).geturl(), headers={"User-Agent": "MCFAO-local-import/1"})
+    request = urllib.request.Request(public_endpoint(url).geturl(), headers={"User-Agent": "NCL-local-import/1"})
     with urllib.request.build_opener(SafeRedirect(), urllib.request.HTTPSHandler(context=tls_context())).open(request, timeout=30) as response:
         if response.status != 200: raise ValueError(f"Download HTTP {response.status}")
         data = response.read(limit + 1)

@@ -266,7 +266,7 @@ def render(data: dict) -> str:
     criteria_met = all(markers.values())
     passed = str(smoke["status"]).endswith("_PASS")
     lines = [
-        "# MCFAO 整合包 AOT 兼容性矩阵",
+        "# NCL 整合包 AOT 兼容性矩阵",
         "",
         "> 本文件由 `tools/generate_mod_matrix.py` 从验证包自身的 `result.json` 生成，请勿手改表格；"
         "人工判定的状态升级写在 `docs/MOD_MATRIX_EVIDENCE.json`。"

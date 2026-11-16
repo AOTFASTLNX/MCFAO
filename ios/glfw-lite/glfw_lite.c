@@ -104,9 +104,9 @@ const char *faot_glfw_client_api_contract(void) {
 }
 const char *glfwGetVersionString(void) {
 #if defined(__ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__)
-    return "3.4.0 FabricAOT iOS UIKit GL41/Metal (experimental)";
+    return "3.4.0 Native Craft iOS UIKit GL41/Metal (experimental)";
 #else
-    return "3.4.0 FabricAOT host test surface (fixture only)";
+    return "3.4.0 Native Craft host test surface (fixture only)";
 #endif
 }
 void glfwGetVersion(int *a, int *b, int *c) { if(a)*a=3; if(b)*b=4; if(c)*c=0; }

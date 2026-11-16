@@ -59,7 +59,7 @@ def fetch(spec: dict, destination: Path) -> Path:
     if system_ca.is_file():
         context.load_verify_locations(cafile=str(system_ca))
     opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=context), FixedRedirects())
-    request = urllib.request.Request(spec["url"], headers={"User-Agent": "FabricAOT-research/0.1"})
+    request = urllib.request.Request(spec["url"], headers={"User-Agent": "NCL-research/0.1"})
     count = 0
     digest = hashlib.sha256()
     # Exclusive creation preserves any interrupted download for inspection.

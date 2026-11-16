@@ -152,7 +152,7 @@ NSString *FAOTPojavDefaultLayoutJSON(void) {
 
 - (void)buildInterface {
     UILabel *title = [UILabel new];
-    title.text = @"FabricAOT";
+    title.text = @"Native Craft";
     title.numberOfLines = 0;
     title.font = [UIFont systemFontOfSize:30 weight:UIFontWeightBold];
     title.textColor = [UIColor colorWithRed:0.6 green:0.95 blue:0.82 alpha:1];

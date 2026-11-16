@@ -1,4 +1,4 @@
-# FabricAOT 构建与复现
+# Native Craft Launcher 构建与复现
 
 GL41 构建必须使用支持 OpenGL/OSMesa 的 GLFW 二进制；历史 `glfw-ios-05` 的哈希有效但仅支持 NO_API，会在创建 OpenGL 窗口时失败。构建器现校验实际 GLFW ABI，而非仅检查报告/文件名。更新 GLFW 后，常规完整构建仍需重建与其哈希绑定的 LWJGL 输入。LAN r4 的原生修复、源码快照及验证见 [GL41_STARTUP_BRIDGE_FIX](GL41_STARTUP_BRIDGE_FIX.md)。
 
@@ -173,7 +173,7 @@ ExportOptions.plist 使用本地 debugging 导出和当前 Team；其他用户�
 
 镜像在 `run_main` 里自行创建 isolate。宿主通过 `-XX:ReservedAddressSpaceSize=<字节>` 传入预留空间，设备诊断默认 1 GiB，模拟器默认 2 GiB。
 
-打开 Xcode 工程，选择 **WorldSimulator** 和 **FabricAOT World 26.1.2**，按 ⌘R 可进入原版横屏菜单。左右横屏均由应用支持。本地 AOT、Metal 着色器和原生库由下面的命令核验并准备。新模拟器安装应用后，需要将经过哈希验证的资源目录复制到该应用的 `Documents/assets`。本次测试模拟器已经准备好。
+打开 Xcode 工程，选择 **WorldSimulator** 和 **Native Craft 26.1.2**，按 ⌘R 可进入原版横屏菜单。左右横屏均由应用支持。本地 AOT、Metal 着色器和原生库由下面的命令核验并准备。新模拟器安装应用后，需要将经过哈希验证的资源目录复制到该应用的 `Documents/assets`。本次测试模拟器已经准备好。
 
 `WorldSimulator` 使用独立的 `FabricAOTWorld.app` 目标，并沿用原有模拟器应用标识以保留存档。Xcode 27.2 仍可能列出物理 iPhone。误选时构建会报 `FabricAOTWorld requires an iOS Simulator destination.`，请选择模拟器后再运行。
 
@@ -212,7 +212,7 @@ python3 -B tools/build_c0_harness.py --dylib artifacts/c0/client-link-02/client-
 
 打开 [C0Harness.xcodeproj](../ios/C0Harness/C0Harness.xcodeproj/)，选择 **WorldDevice**，目的地选择自己的 iPhone，然后按 **⌘R**。该方案使用真机 arm64 游戏镜像、真机 Metal 库和用户本地已核验的资源索引 30，沿用现有开发签名和应用标识。首次进入时用左右横屏，建议从菜单新建测试世界，验证移动、跳跃、放置和破坏方块、声音、保存退出与重进。
 
-验证独立启动时，在 Xcode 停止运行，断开连接，从 iPhone 主屏幕重新打开 **FabricAOT World**。启动失败时可在「文件」→「我的 iPhone」→「FabricAOT World」→ `c0-logs` 找到最近一次 `run-*.log`。安装和运行由测试者在手机上完成。
+验证独立启动时，在 Xcode 停止运行，断开连接，从 iPhone 主屏幕重新打开 **Native Craft**。启动失败时可在「文件」→「我的 iPhone」→「Native Craft」→ `c0-logs` 找到最近一次 `run-*.log`。安装和运行由测试者在手机上完成。
 
 本地重建使用与横屏模拟器相同的 `main-aot-15` 可重定位对象。以下命令从本机已锁定的构建输入重新生成真机库。输出目录必须是新路径，生成后按实际路径更新 `WorldDevice.xcconfig`。
 

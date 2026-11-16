@@ -41,7 +41,7 @@ def main(argv=None):
     result={"registry":"AAR selected from PATH","registrations":[],"failures":[],"pending":[]}
     for path,kind,recursive in specs:
         command=[aar,"register","--path",str(path),"--project",str(ROOT),"--type",kind,
-                 "--source","FabricAOT graphics evidence; per-step commands in command.json; docs/GRAPHICS_BOOTSTRAP.md","--json"]
+                 "--source","Native Craft Launcher graphics evidence; per-step commands in command.json; docs/GRAPHICS_BOOTSTRAP.md","--json"]
         if recursive:command.append("--include-files")
         if not shutil.which('aar'):
             result['pending'].append({'status':'REGISTRATION_PENDING','argv':command})

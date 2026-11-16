@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# One-shot build of the FabricAOT (Minecraft 26.1.2) iOS game IPA on an arm64 Mac.
+# One-shot build of the Native Craft Launcher (Minecraft 26.1.2) iOS game IPA on an arm64 Mac.
 #
 #   SOURCE_REF=main bash build_mac.sh
 #
 # Requirements: Apple silicon macOS with Xcode 16+ and >= 16 GiB RAM.
-# Produces: $WORK/FabricAOT-game.ipa (unsigned), $WORK/build.log
+# Produces: $WORK/NCL-game.ipa (unsigned), $WORK/build.log
 set -euo pipefail
 
 WORK="${WORK:-$HOME/mcfao-build}"
@@ -317,9 +317,9 @@ cp -R "$APP" dist/Payload/
 PACKAGE_APP="$(find dist/Payload -maxdepth 1 -type d -name '*.app' -print -quit)"
 test -n "$PACKAGE_APP" || die "missing packaged .app"
 python3 -B tools/renderer_profile.py --app "$PACKAGE_APP" --renderer "$RENDERER"
-(cd dist && /usr/bin/zip -qry "$WORK/FabricAOT-game.ipa" Payload)
-unzip -tq "$WORK/FabricAOT-game.ipa" > "$WORK/ipa-zip-test.txt"
-shasum -a 256 "$WORK/FabricAOT-game.ipa" | tee "$WORK/ipa-sha256.txt"
+(cd dist && /usr/bin/zip -qry "$WORK/NCL-game.ipa" Payload)
+unzip -tq "$WORK/NCL-game.ipa" > "$WORK/ipa-zip-test.txt"
+shasum -a 256 "$WORK/NCL-game.ipa" | tee "$WORK/ipa-sha256.txt"
 printf '%s\n' "$SRC_HEAD" > "$WORK/source-sha.txt"
 du -sh dist/Payload || true
-log "DONE: $WORK/FabricAOT-game.ipa (unsigned; personal signing required)"
+log "DONE: $WORK/NCL-game.ipa (unsigned; personal signing required)"

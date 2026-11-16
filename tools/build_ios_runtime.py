@@ -156,7 +156,7 @@ def main(argv=None):
         for name in fallback_names:
             symbol = name[1:]
             code += [f'__attribute__((noreturn,visibility("default"))) void {symbol}(void) {{',
-                     f'  fputs("FabricAOT unsupported native entry: {symbol}\\n", stderr); abort();', '}']
+                     f'  fputs("Native Craft unsupported native entry: {symbol}\\n", stderr); abort();', '}']
         fallback.write_text("\n".join(code) + "\n")
         obj = output / "unsupported_jvm_calls.o"
         result = capture(base_args + ["-c", str(fallback), "-o", str(obj)], output / "commands/fallback-compile")
