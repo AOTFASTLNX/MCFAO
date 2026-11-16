@@ -5,6 +5,7 @@ This is not a general modpack downloader or the Gate D0 security boundary.
 Only the official desktop JDK is extracted. The iOS candidate remains a ZIP.
 """
 from __future__ import annotations
+from storage_config import cache_path
 
 import argparse
 import hashlib
@@ -109,7 +110,7 @@ def main(argv=None) -> int:
     if injected:
         parser.error("Unset JVM option injection variables: " + ", ".join(injected))
     lock = json.loads((ROOT / "compiler/toolchains.lock.json").read_text())
-    cache = ROOT / ".cache/toolchains"
+    cache = cache_path('toolchains')
     for key in ("iosCandidate", "graalvm"):
         fetch(lock[key], cache / lock[key]["file"])
     if not args.download_only:

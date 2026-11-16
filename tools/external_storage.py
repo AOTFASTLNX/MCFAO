@@ -5,8 +5,6 @@ import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VOLUME = Path('/Volumes/K')
-DATA = VOLUME / 'MCFAO-data'
 CONFIG = ROOT / 'external-storage.json'
 
 
@@ -20,10 +18,15 @@ def descriptors(CONFIG=None):
 
 
 def mount_check(VOLUME=None, DATA=None, CONFIG=None, ROOT=None):
-    volume = Path(VOLUME or globals()['VOLUME'])
-    data = Path(DATA or volume / 'MCFAO-data')
     config = Path(CONFIG or globals()['CONFIG'])
     root = Path(ROOT or globals()['ROOT'])
+    if not config.is_file():
+        from storage_config import storage_paths, space_report
+        report = space_report(storage_paths(root))
+        return {'available': True, 'volume': 'configured storage', 'data': str(root), 'links': [], 'space': report}
+    settings = json.loads(config.read_text())
+    volume = Path(VOLUME or settings['volume'])
+    data = Path(DATA or (volume / 'MCFAO-data' if VOLUME else settings.get('data', volume / 'MCFAO-data')))
     if not os.path.ismount(volume):
         return {'available': False, 'reason': 'volume-not-mounted', 'volume': str(volume)}
     if not data.is_dir():
@@ -68,7 +71,7 @@ def main(argv=None):
     else:
         print('PAUSED: external disk is required for local builds')
         print(json.dumps(status, indent=2, sort_keys=True))
-    return 0 if status['available'] else 2
+    return 0 if status['available'] else 3
 
 
 if __name__ == '__main__':

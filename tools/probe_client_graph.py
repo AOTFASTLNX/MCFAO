@@ -5,6 +5,7 @@ import os
 
 import argparse
 import json
+import re
 import shutil
 import socket
 import subprocess
@@ -21,6 +22,33 @@ from config_reflection import reflection_from_jar
 from mdaf import (build_native_image_config, merge_agent_metadata,
                   validate_reflection_entries)
 from verify_aot_classpath import verify_entries
+
+NATIVE_FAILURE = re.compile(
+    r"OutOfMemoryError|ran out of memory|NativeImage\$NativeImageError|"
+    r"UnsatisfiedLinkError|NoClassDefFoundError|Exception in thread|^Error:")
+
+
+def native_failure_reason(folder: Path, run: dict, limit=6):
+    """Name why Native Image stopped, without echoing its whole report.
+
+    The fatal line lands in the middle of stdout; Native Image then prints
+    statistics and diagnostics. Returning that line lets the caller explain the
+    failure instead of reporting a bare exit code.
+    """
+    lines = []
+    for name in ("stderr.log", "stdout.log"):
+        path = folder / name
+        if path.is_file():
+            lines.extend(path.read_text(errors="replace").splitlines())
+    picked = []
+    for line in lines:
+        if NATIVE_FAILURE.search(line):
+            entry = line.strip()
+            if entry not in picked: picked.append(entry)
+            if len(picked) == limit: break
+    if not picked:
+        picked = [line.strip() for line in lines if line.strip()][-4:]
+    return {"exitCode": run["exitCode"], "timedOut": run["timedOut"], "lines": picked}
 
 def verify_split_runtime_input(candidate: Path)->dict|None:
     manifest=candidate.parent/'result.json'
@@ -529,6 +557,10 @@ def main(argv=None):
         result["gcSummary"]=summarize_gc_logs("\n".join(p.read_text(errors="replace") for p in logs))
         result["analysisCompleted"]=bool(built["exitCode"]==0 and not built["timedOut"]
             and result["analysisStatistics"] and not built["outputLimitExceeded"])
+        if built["exitCode"] != 0 or built["timedOut"]:
+            # Native Image prints the fatal line on stdout, then keeps writing
+            # diagnostics, so the exit code alone never names the cause.
+            result["analysisFailure"] = native_failure_reason(output / "analysis", built)
         if args.full_build:
             # A full build may legitimately fail after analysis; record whatever it emitted.
             produced=[p for p in work.glob("client-graph*") if p.is_file()]

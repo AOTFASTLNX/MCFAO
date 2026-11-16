@@ -11,6 +11,7 @@ The check is deliberately the same operation the image builder performs - resolv
 do not initialise it - so its answer matches what native-image can see.
 """
 from __future__ import annotations
+from storage_config import cache_path
 
 import argparse
 import json
@@ -19,7 +20,7 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-JAVA = ROOT / ".cache/toolchains/graalvm-25.0.2/graalvm-community-openjdk-25.0.2+10.1/Contents/Home/bin"
+JAVA = cache_path('toolchains/graalvm-25.0.2/graalvm-community-openjdk-25.0.2+10.1/Contents/Home/bin')
 
 PROBE = """
 import java.io.BufferedReader;

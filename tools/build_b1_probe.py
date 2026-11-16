@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Build the verified B0 first-party replay as an iOS AOT object in a restricted build workspace."""
 from __future__ import annotations
+from storage_config import cache_path
 
 import argparse
 import json
@@ -75,7 +76,7 @@ def main(argv=None):
             "stage":"compile", "deviceRun":"NOT RUN", "b0Evidence":str(b0), "binaries":{}}, indent=2)+"\n")
         return 2
     spec = json.loads((ROOT / "compiler/toolchains.lock.json").read_text())["iosCandidate"]
-    candidate = ROOT / ".cache/toolchains" / spec["file"]
+    candidate = cache_path('toolchains') / spec["file"]
     cache_info = inspect(candidate, spec)
     with zipfile.ZipFile(candidate) as archive:
         for name in cache_info["capFiles"]:

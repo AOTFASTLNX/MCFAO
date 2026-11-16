@@ -21,10 +21,12 @@ from capture import ROOT
 
 
 def sandbox_policy(work: Path, java_home: Path, readable_files: list[Path]) -> str:
+    # Seatbelt matches resolved filesystem paths, including symlinked external
+    # toolchains and work directories. Keep each grant at its original scope.
     def literal(path):
-        return "(literal " + json.dumps(str(path), ensure_ascii=False) + ")"
+        return "(literal " + json.dumps(str(Path(path).resolve()), ensure_ascii=False) + ")"
     def subpath(path):
-        return "(subpath " + json.dumps(str(path), ensure_ascii=False) + ")"
+        return "(subpath " + json.dumps(str(Path(path).resolve()), ensure_ascii=False) + ")"
     reads = [subpath(p) for p in ("/System", "/usr/lib", "/Library/Apple/System", java_home, work)]
     reads += [literal(p) for p in readable_files]
     # dyld's cache finder opens the root directory on this macOS version.
@@ -119,7 +121,9 @@ def execute(argv: list[str], folder: Path, cwd: Path, *, timeout=120, cpu_second
 
 def require_run(record, folder, marker):
     if record["exitCode"] != 0 or record["timedOut"] or marker not in (folder / "stdout.log").read_text().splitlines():
-        raise RuntimeError("Stage failed: " + str(folder) + "; read stdout.log/stderr.log")
+        detail = (folder / "stderr.log").read_text(errors="replace")[-4000:].strip()
+        raise RuntimeError("Stage failed: " + str(folder) + "; read stdout.log/stderr.log"
+                           + ("\n" + detail if detail else ""))
 
 
 def negative_control_ok(record: dict, stdout: str, stderr: str) -> bool:

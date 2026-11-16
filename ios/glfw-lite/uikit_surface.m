@@ -15,7 +15,7 @@ enum { CONTROL_BREAK=-1, CONTROL_PLACE=-2, CONTROL_PREVIOUS=-3, CONTROL_NEXT=-4,
 enum { CONTROL_KEYBOARD=-101, CONTROL_TOGGLECTRL=-102, CONTROL_PRIMARY=-103, CONTROL_SECONDARY=-104,
        CONTROL_VIRTUALMOUSE=-105, CONTROL_MIDDLE=-106, CONTROL_SCROLLUP=-107, CONTROL_SCROLLDOWN=-108 };
 static void onMain(dispatch_block_t block) {
-    if (NSThread.isMainThread) block(); else dispatch_sync(dispatch_get_main_queue(),block);
+    if ([NSThread isMainThread]) block(); else dispatch_sync(dispatch_get_main_queue(),block);
 }
 static UIWindowScene *activeScene(void) {
     UIWindowScene *inactive=nil;
@@ -485,14 +485,14 @@ static NSArray<NSDictionary *> *FAOTBuiltinControlModels(void) {
             if(view&&view.handle&&view.captured&&view.pointerIsLocked)
                 faot_glfw_enqueue(view.handle,FAOT_EVENT_CURSOR_DELTA,dx,-dy,0,0);
         };
-        if(NSThread.isMainThread)forward();else dispatch_async(dispatch_get_main_queue(),forward);
+        if([NSThread isMainThread])forward();else dispatch_async(dispatch_get_main_queue(),forward);
     };
     void (^bindButton)(GCControllerButtonInput *,int)=^(GCControllerButtonInput *button,int index){
         if(!button)return;
         button.valueChangedHandler=^(GCControllerButtonInput *sender,float value,BOOL pressed){
             (void)sender;(void)value;
             dispatch_block_t forward=^{ FAOTMetalView *view=weakView; if(view)[view nativeMouseButton:index pressed:pressed]; };
-            if(NSThread.isMainThread)forward();else dispatch_async(dispatch_get_main_queue(),forward);
+            if([NSThread isMainThread])forward();else dispatch_async(dispatch_get_main_queue(),forward);
         };
     };
     bindButton(input.leftButton,0);
@@ -505,7 +505,7 @@ static NSArray<NSDictionary *> *FAOTBuiltinControlModels(void) {
             if(view&&view.handle)
                 faot_glfw_enqueue(view.handle,FAOT_EVENT_SCROLL,dx,dy,0,0);
         };
-        if(NSThread.isMainThread)forward();else dispatch_async(dispatch_get_main_queue(),forward);
+        if([NSThread isMainThread])forward();else dispatch_async(dispatch_get_main_queue(),forward);
     };
 }
 @end

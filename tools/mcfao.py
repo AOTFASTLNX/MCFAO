@@ -1,5 +1,6 @@
 """Build and verify local MCFAO research packages."""
 from __future__ import annotations
+from storage_config import cache_path
 
 import argparse
 from datetime import datetime, timezone
@@ -22,10 +23,12 @@ from external_storage import ExternalStorageUnavailable, require_mount
 from bootstrap_toolchain import sha256
 from build_c0_harness import binary_platform, validate_dylib, validate_shader_bundle
 from capture import ROOT, capture
+from bundle_source import source_identity
 from graphics_common import bridge_overlays
 from build_glfw_lite import exported_symbols, validate_input_exports
 from prepare_fabric_aot import TOOL as FABRIC_TOOL, mod_files
 from stage_game_assets import verified_assets
+from mod_file_policy import is_metadata
 
 VERSION = "26.1.2"
 TARGET = "ios-arm64"
@@ -47,12 +50,14 @@ CONFIG_PATHS = (
 )
 OPTIONAL_CONFIG_PATHS = {"openjdkSource", "graalSource"}
 BACKEND_TOOLS = (
-    "mcfao", "import_instance",
+    "mcfao", "import_instance", "mod_file_policy",
     "split_methods", "build_method_splitter", "inject_metal_backend", "probe_client_graph",
     "build_ios_runtime", "link_c0_ios", "stage_device_xcode", "graphics_common",
     "stage_game_assets", "run_b0_reference", "capture", "inspect_ios_candidate",
     "build_c0_harness", "client_graph_diagnostics", "lwjgl_codegen",
     "config_reflection", "mdaf", "verify_aot_classpath", "patch_gl41_client", "renderer_profile",
+    "cleanup_storage",
+    "storage_config", "bundle_source", "host_tools", "verified_download",
 )
 
 
@@ -73,7 +78,8 @@ def command(*argv) -> str:
 
 def tree_files(directory: Path) -> dict:
     files = {}
-    for item in sorted(directory.rglob("*")):
+    from mod_file_policy import content_paths
+    for item in sorted(content_paths(directory)):
         if item.is_symlink():
             raise ValueError(f"Unexpected symbolic link in build input or output: {item}")
         if item.is_file():
@@ -114,7 +120,7 @@ def runtime_sources(config):
         if name in config:
             paths[tool] = config[name]
         else:
-            descriptor = ROOT / ".cache/upstream" / f"{tool}.json"
+            descriptor = cache_path('upstream') / f"{tool}.json"
             paths[tool] = Path(read_json(descriptor)["path"]).resolve(strict=True)
     return paths
 
@@ -262,13 +268,35 @@ def inputs(config: dict, renderer: str = "metal") -> tuple[dict, Path, list[Path
                     add(file)
     return {
         "schema": 1, "version": VERSION, "loader": "vanilla", "mappingNamespace": "official",
-        "renderer": renderer, "sourceCommit": command("git", "-C", ROOT, "rev-parse", "HEAD"),
-        "sourceDiffSHA256": hashlib.sha256(command("git", "-C", ROOT, "diff", "HEAD", "--").encode()).hexdigest(),
+        "renderer": renderer, **source_identity(ROOT),
         "target": TARGET, "config": {key: str(p) for key, p in config.items()},
         "toolchain": toolchain(home), "filesSHA256": fingerprints,
         "runtimeSources": {key: str(path) for key, path in sources.items()},
         "assetsSHA256": asset_files(config["assets"], config["versionMetadata"]),
     }, clients[0], libraries
+
+
+CRITICAL_FAILURE = re.compile(
+    r"OutOfMemoryError|ran out of memory|NativeImage\$NativeImageError|"
+    r"UnsatisfiedLinkError|NoClassDefFoundError|Exception in thread|"
+    r"^error:|\bFATAL\b|^Error:")
+
+
+def failure_summary(log: Path, limit=14):
+    """Pick the lines that name the failure, not just the last lines written.
+
+    A native-image run prints diagnostics and a report path after its error, so
+    the final lines of stdout often say nothing about the cause. Prefer the first
+    recognisable error lines and fall back to the tail when none match.
+    """
+    text = "\n".join((log / name).read_text(errors="replace") for name in ("stderr.log", "stdout.log"))
+    lines = [line for line in text.splitlines() if line.strip()]
+    picked = []
+    for line in lines:
+        if CRITICAL_FAILURE.search(line) and line not in picked:
+            picked.append(line.strip())
+            if len(picked) == limit: break
+    return picked or lines[-8:]
 
 
 class Build:
@@ -296,8 +324,7 @@ class Build:
         log = attempt / "command"
         result = capture(cmd, log, timeout)
         if result["exitCode"] != 0 or result["timedOut"]:
-            tail = (log / "stderr.log").read_text(errors="replace").splitlines()[-8:]
-            tail += (log / "stdout.log").read_text(errors="replace").splitlines()[-8:]
+            tail = failure_summary(log)
             raise RuntimeError(f"{name} failed (exit {result['exitCode']}, timeout={result['timedOut']}). "
                                f"Logs: {log}\n" + "\n".join(tail))
         if not product.is_dir():
@@ -345,7 +372,8 @@ def app_facts(app: Path, requested_device: str | None, logs: Path, renderer="met
     facts = binary_platform(executable)
     if facts["platform"] != "IOS" or command("/usr/bin/lipo", "-archs", executable) != "arm64":
         raise ValueError(f"Expected an arm64 iPhoneOS executable: {facts}")
-    libraries = [validate_dylib(path) for path in sorted((app / "Frameworks").glob("*.dylib"))]
+    libraries = [validate_dylib(path) for path in sorted((app / "Frameworks").glob("*.dylib"))
+                 if not is_metadata(path.name)]
     validate_runtime(app, renderer)
     for library in libraries:
         if command("/usr/bin/lipo", "-archs", library["path"]) != "arm64":
@@ -513,6 +541,7 @@ def verify(output: Path, device: str | None) -> dict:
 
 
 def export_ipa(args) -> dict:
+    from mod_file_policy import is_metadata
     build = args.build.resolve(strict=True)
     output = args.output.resolve()
     options = args.export_options.resolve(strict=True)
@@ -552,13 +581,16 @@ def export_ipa(args) -> dict:
                      "-archivePath", archive, "archive"])
     step("export-log", ["/usr/bin/xcodebuild", "-exportArchive", "-archivePath", archive,
                         "-exportOptionsPlist", options, "-exportPath", output / "export"])
-    ipas = list((output / "export").glob("*.ipa"))
+    # exFAT volumes (the external build disk) create `._name.ipa` sidecars that
+    # match `*.ipa`. They are metadata, not products, and must not count as a
+    # second export.
+    ipas = [p for p in (output / "export").glob("*.ipa") if not is_metadata(p.name)]
     if len(ipas) != 1:
         raise ValueError(f"Expected one exported IPA: {output / 'export'}")
     ipa = ipas[0]
     unpacked = output / "unpacked"
     step("unpack", ["/usr/bin/ditto", "-x", "-k", ipa, unpacked])
-    apps = list((unpacked / "Payload").glob("*.app"))
+    apps = [p for p in (unpacked / "Payload").glob("*.app") if not is_metadata(p.name)]
     if len(apps) != 1:
         raise ValueError("Expected one exported iPhoneOS app")
     validate_package(apps[0], staged, evidence["assetsSHA256"], renderer)
@@ -577,7 +609,8 @@ def instance_files(root):
     root = Path(root).resolve()
     manifest = read_json(root / "import.json")
     files = tree_files(root)
-    declared = manifest["files"]
+    from mod_file_policy import is_metadata
+    declared = {name: facts for name, facts in manifest["files"].items() if not is_metadata(name)}
     if set(files) != set(declared) | {"import.json"}:
         raise ValueError("Imported instance contains undeclared files")
     for name, facts in declared.items():
@@ -670,6 +703,11 @@ def build(args, config):
             aot_args.extend(["--tracing-config", tracing_path])
         aot = pipeline.step("aot", script("probe_client_graph", *aot_args), timeout=3800)
         image = read_json(aot / "result.json")
+        if image.get("analysisFailure"):
+            failure = image["analysisFailure"]
+            raise ValueError("Native Image stopped before producing an image (exit "
+                             f"{failure['exitCode']}). Logs: {aot / 'analysis'}\n"
+                             + "\n".join(failure.get("lines") or []))
         image_object = Path(image["imageObject"]["path"])
         flags = read_json(aot / "analysis/command.json")["argv"]
         if (image["targetCodeGeneration"] != "RELOCATABLE_OBJECT"
@@ -776,6 +814,11 @@ def main(argv=None):
     # symlinks onto the external disk. Pause before creating any output.
     try:
         require_mount(f"mcfao {args.action}")
+        if args.action == "build":
+            from storage_config import require_space, storage_paths
+            paths = storage_paths()
+            paths["builds"] = args.output.absolute()
+            require_space(paths)
         if args.action == "doctor":
             config = load_config(args.config.resolve(), args.renderer)
             manifest, client, _ = inputs(config, args.renderer)

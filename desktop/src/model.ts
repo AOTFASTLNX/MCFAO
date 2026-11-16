@@ -96,7 +96,7 @@ export const DEFAULT_SETTINGS: Settings = {
   config: "mcfao.local.json",
   output: "artifacts/desktop-preparation",
 };
-export const STORAGE_KEY = "fabricaot.desktop.v1";
+export { STORAGE_KEY, LEGACY_STORAGE_KEY } from "./storage";
 const object = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === "object" && !Array.isArray(value);
 function string(value: unknown, max = 4096): string {

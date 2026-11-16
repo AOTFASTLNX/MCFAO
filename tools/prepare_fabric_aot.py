@@ -107,7 +107,8 @@ def needs_reference_remapping(archive, name):
 
 
 def mod_files(directory):
-    jars = sorted(p for p in directory.iterdir() if p.suffix.lower() == ".jar")
+    from mod_file_policy import mod_candidates
+    jars = mod_candidates(directory)
     if not jars or any(p.is_symlink() or not p.is_file() for p in jars):
         raise ValueError("Expected regular local .jar files in --mods")
     if len(jars) > 128:
@@ -426,6 +427,9 @@ def prepare(prepared, client, mods, output, audited, trace_agent=False):
         if hashes[str(source)] != sha256(destination):
             raise ValueError(f"Mod changed while copying: {source}")
         roots.append(destination)
+    # copyfile may still create exFAT sidecars; Knot scans the directory itself.
+    from mod_file_policy import clean_staged_metadata
+    clean_staged_metadata(work / 'game/mods')
     inventory = inspect_archives(roots, work, metadata_only=not audited)
     # Use only the pinned Loader/ASM/Mixin copies ahead of the vanilla reference.
     engine_names = {p.name for p in engine}
@@ -441,7 +445,7 @@ def prepare(prepared, client, mods, output, audited, trace_agent=False):
     runtime_classes = None
     if runtime_sources:
         runtime_classes = work / "runtime-classes"
-        compile_java(home, [*classpath, *sorted((work / "game/mods").glob("*.jar"))],
+        compile_java(home, [*classpath, *mod_files(work / "game/mods")],
                      runtime_sources, runtime_classes, output / "compile-runtime")
     driver = prepared / "driver.jar"
     if sha256(driver) != report["binaries"]["driver.jar"]["sha256"]:

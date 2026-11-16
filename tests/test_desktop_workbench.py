@@ -90,6 +90,26 @@ class WorkbenchTests(unittest.TestCase):
         self.assertTrue(decision['accepted'])
         self.assertTrue(decision['respondedAt'])
 
+    def test_exclusion_report_hashes_staged_mods_and_rejects_changed_input(self):
+        source = self.prism()
+        selection = self.selected(source)
+        _, game = w.stage_source(source, self.root/'stage', selection=selection)
+        attempt = 'c'*32
+        product = self.root/'build/fabric'/attempt/'product'
+        product.mkdir(parents=True)
+        mods = game/'mods'
+        w.write_json(self.root/'build/fabric/checkpoint.json', {'attempt':attempt})
+        w.write_json(product/'result.json', {
+            'status':'FABRIC_AOT_INPUT_PREPARED',
+            'excludedMods':{'fixture':['runtime defineClass is unsupported']},
+            'modSHA256':{str(p.resolve()): w.sha256(p) for p in w.mod_candidates(mods)},
+        })
+        facts = w.fabric_exclusion_report(self.root/'build', self.root/'stage')
+        self.assertIn('fixture', facts['excludedMods'])
+        (mods/'fixture.jar').write_bytes(jar_bytes('changed'))
+        with self.assertRaisesRegex(ValueError, '不匹配'):
+            w.fabric_exclusion_report(self.root/'build', self.root/'stage')
+
     def test_explicit_optional_selection_downloads_only_selected_file(self):
         data = jar_bytes()
         def remote(name): return dict(path='mods/'+name+'.jar', hashes=dict(sha1=hashlib.sha1(data).hexdigest(),sha512=hashlib.sha512(data).hexdigest()), downloads=['https://cdn.modrinth.com/data/'+name+'.jar'], fileSize=len(data), env=dict(client='optional'))
@@ -305,6 +325,27 @@ class WorkbenchTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'退出码 7'):
             w.execute([sys.executable,'-c',"import sys;print('reason',file=sys.stderr);sys.exit(7)"],self.root,'fixture',lambda **_:None,'aot',dict(os.environ))
 
+    def test_failed_stage_reports_only_its_own_output(self):
+        # A retry appends to the same log. An earlier exclusion message must not
+        # mask the real reason a later stage failed.
+        (self.root/'fixture.stderr.log').write_text(
+            'mcfao build: Requested Fabric instance contains excluded Mods; review /x.\n')
+        with self.assertRaises(ValueError) as caught:
+            w.execute([sys.executable,'-c',"import sys;print('OutOfMemoryError: Java heap space',file=sys.stderr);sys.exit(2)"],
+                      self.root,'fixture',lambda **_:None,'aot',dict(os.environ))
+        message = str(caught.exception)
+        self.assertIn('OutOfMemoryError', message)
+        self.assertNotIn('contains excluded Mods', message)
+
+    def test_failed_stage_falls_back_to_its_stdout(self):
+        (self.root/'quiet.stderr.log').write_text('old stderr from a previous round\n')
+        with self.assertRaises(ValueError) as caught:
+            w.execute([sys.executable,'-c',"print('analysis said no');import sys;sys.exit(3)"],
+                      self.root,'quiet',lambda **_:None,'aot',dict(os.environ))
+        message = str(caught.exception)
+        self.assertIn('analysis said no', message)
+        self.assertNotIn('previous round', message)
+
     def test_execute_cancels_descendant_processes(self):
         pidfile=self.root / 'child.pid'
         import threading
@@ -377,6 +418,40 @@ class WorkbenchTests(unittest.TestCase):
         self.assertNotIn('--prepare-only', build_command)
         self.assertEqual(w.read_json(folder/'source/source.json')['report']['fabric_loader_version'], '0.19.3')
 
+    def test_aot_heap_follows_the_compiler_half_of_memory_ceiling(self):
+        self.assertEqual(w.aot_heap_gib(18 * 1024**3), 9)
+        self.assertEqual(w.aot_heap_gib(16 * 1024**3), 8)
+        self.assertEqual(w.aot_heap_gib(12 * 1024**3), 6)
+        self.assertEqual(w.aot_heap_gib(64 * 1024**3), 9)
+
+    def test_compile_build_moves_to_fresh_directory_when_reused_inputs_changed(self):
+        folder = self.root/'retry-job'
+        folder.mkdir()
+        path = folder/'job.json'
+        w.write_json(path, dict(id='d'*32, state='queued', stage='validate',
+                               request={'loader':'fabric', 'config':str(self.root/'config.json'), 'output':str(self.root/'output')},
+                               build=str(self.root/'stale-build'), folder=str(folder), previousBuilds=[]))
+        calls = []
+        def execute(argv, folder, name, update, stage, env):
+            calls.append(Path(argv[argv.index('--output')+1]))
+            if len(calls) == 1:
+                raise ValueError('build 失败（退出码 2）\nmcfao build: Build inputs changed. Use a new output.')
+        job = w.read_json(path)
+        def update(**values):
+            job.update(values)
+            w.write_json(path, job)
+        with patch.object(w, 'execute', side_effect=execute):
+            error, build = w.compile_build(['python', 'mcfao.py'], folder,
+                                           {'loader':'fabric', 'config':str(self.root/'config.json'), 'output':str(self.root/'output')},
+                                           self.root/'stale-build', self.root/'mods', self.root/'game', update, {})
+        self.assertIsNone(error)
+        self.assertEqual(len(calls), 2)
+        self.assertNotEqual(calls[0], calls[1])
+        self.assertEqual(build, calls[1])
+        job = w.read_json(path)
+        self.assertEqual(job['build'], str(calls[1]))
+        self.assertEqual(job['previousBuilds'][0]['path'], str(self.root/'stale-build'))
+
     def test_stale_job_is_interrupted_and_compiler_logs_are_visible(self):
         folder=self.root / 'job';folder.mkdir();build=self.root / 'build'
         log=build / 'aot/attempt/command';log.mkdir(parents=True);(log / 'stdout.log').write_text('real compiler progress')
@@ -384,6 +459,32 @@ class WorkbenchTests(unittest.TestCase):
         with patch.object(w,'alive',return_value=False): result=w.snapshot(path)
         self.assertEqual(result['state'],'interrupted')
         self.assertIn('real compiler progress',result['log'])
+
+    def test_log_snapshot_filters_metadata_before_selecting_latest_files(self):
+        folder = self.root / 'job'
+        folder.mkdir()
+        build = self.root / 'build'
+        command = build / 'fabric/attempt/command'
+        command.mkdir(parents=True)
+        analysis = build / 'aot/attempt/product/analysis'
+        analysis.mkdir(parents=True)
+        (folder / 'build.stdout.log').write_text('fabric: real progress\n')
+        (command / 'stderr.log').write_text('real sandbox error')
+        for base in (folder, command, analysis):
+            (base / '._build.stdout.log').write_bytes(b'\x00\x05\x16\x07Mac OS X ATTR')
+            (base / '._stderr.log').write_bytes(b'\x00\x05\x16\x07Mac OS X ATTR')
+        for name in ('__MACOSX', '._nested'):
+            (folder / name).mkdir()
+            (folder / name / 'stdout.log').write_text('metadata directory content')
+        path = folder / 'job.json'
+        w.write_json(path, dict(id='c'*32, state='failed', stage='fabric', build=str(build)))
+        result = w.snapshot(path)
+        self.assertIn('real progress', result['log'])
+        self.assertIn('real sandbox error', result['log'])
+        self.assertNotIn('ATTR', result['log'])
+        self.assertNotIn('metadata directory content', result['log'])
+        self.assertNotIn('._', result['log'])
+        self.assertEqual(result['stage'], 'fabric')
 
     def test_job_launch_is_persisted_before_worker_release_and_concurrent_start_is_blocked(self):
         from types import SimpleNamespace
@@ -429,5 +530,24 @@ class WorkbenchTests(unittest.TestCase):
                    UNLOCALIZED_RESOURCES_FOLDER_PATH='App.app', FAOT_GAME_ASSETS_DIR='', FAOT_GRAPHICS_NATIVE_DIR='')
         subprocess.run(['/bin/sh', str(ROOT / 'ios/C0Harness/embed_graphics_libraries.sh')], env=env, check=True)
         self.assertEqual((output / 'App.app/instance-seed/config/a.json').read_text(), 'fixture configuration')
+
+    def test_storage_plan_and_clean_use_the_shared_data_root(self):
+        data = self.root / 'data'
+        (data / 'cache/upstream').mkdir(parents=True)
+        (data / 'cache/upstream/jdk.tar.gz').write_bytes(b'x' * 2048)
+        with patch.object(w.cleanup_storage, 'default_data_root', return_value=data):
+            plan = w.storage('storage-plan', {})
+            self.assertEqual(plan['status'], 'STORAGE_PLAN')
+            self.assertIn('cache', [group['id'] for group in plan['groups']])
+            result = w.storage('storage-clean', {'groups': ['cache']})
+        self.assertEqual(result['status'], 'STORAGE_CLEANED')
+        self.assertFalse((data / 'cache/upstream').exists())
+
+    def test_storage_clean_requires_an_explicit_group(self):
+        with patch.object(w.cleanup_storage, 'default_data_root', return_value=self.root):
+            with self.assertRaises(ValueError):
+                w.storage('storage-clean', {})
+            with self.assertRaises(ValueError):
+                w.storage('storage-clean', {'groups': ['cache', 3]})
 
 if __name__=='__main__': unittest.main()

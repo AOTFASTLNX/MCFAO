@@ -5,7 +5,14 @@ export interface ResourceSelection {
   included: string[];
 }
 
+export interface StoragePaths {
+  cache: string;
+  builds: string;
+  jobs: string;
+  rust: string;
+}
 export interface BuildForm {
+  unsigned?: boolean;
   resourceSelection: ResourceSelection | null;
   existingBuild?: string;
   workspace: string;
@@ -42,6 +49,8 @@ export interface BuildJob {
   sha256?: string;
   bytes?: number;
   log?: string;
+  signature?: string;
+  warning?: string;
   compatibilityOverrides?: {
     code: string;
     sourceLoader: string;
@@ -68,7 +77,19 @@ export interface Checks {
   checks: EnvironmentCheck[];
   checkedAt: string;
 }
+export interface SetupState {
+  state: string;
+  message?: string;
+  completedBytes?: number;
+  totalBytes?: number;
+  error?: string;
+  client?: string;
+  javaHome?: string;
+}
 export interface Bootstrap {
+  bundled?: boolean;
+  setup?: SetupState;
+  storage?: StoragePaths;
   workspace: string;
   config: string;
   exportOptions: string;
@@ -76,8 +97,9 @@ export interface Bootstrap {
   configFields: Record<string, string>;
   jobs: BuildJob[];
 }
-export const FORM_KEY = "fabricaot.builder.v2";
+export { FORM_KEY, LEGACY_FORM_KEY } from "./storage";
 export const defaultForm: BuildForm = {
+  unsigned: false,
   resourceSelection: null,
   workspace: "",
   python: "",
@@ -139,18 +161,126 @@ export const stateNames: Record<BuildJob["state"], string> = {
   failed: "构建失败",
   succeeded: "IPA 已验证",
 };
+
+export interface ErrorExplanation {
+  /** Short headline naming the failing stage and the kind of problem. */
+  title: string;
+  /** What actually happened, in plain language. */
+  cause: string;
+  /** Concrete things the user can change before retrying. */
+  next: string[];
+  /** Whether retrying unchanged is likely to reproduce the same failure. */
+  retryHelps: boolean;
+}
+
+// Compiler failures arrive as an English first line plus raw log tails. Turn the
+// ones we can recognise into a stated cause and an actionable next step; keep
+// the original text available so the diagnosis stays inspectable.
+export function explainError(
+  error: string,
+  stage: string,
+): ErrorExplanation | null {
+  if (!error.trim()) return null;
+  const label = stageName(stage);
+  const has = (needle: string) => error.includes(needle);
+
+  if (has("OutOfMemoryError") || has("ran out of memory")) {
+    const heap = /-Xmx(\d+)g/.exec(error);
+    return {
+      title: `${label}内存不足`,
+      cause:
+        `${heap ? `原生编译只拿到 ${heap[1]} GiB 堆内存，` : "原生编译的 Java 堆不够用，"}` +
+        "在分析阶段就耗尽了。这是编译主机的内存限制，和整合包、Mod 兼容性无关。",
+      next: [
+        "关闭占用内存较多的其它应用，给编译器留出余量。",
+        "重试时让构建器使用更大的堆内存（Apple Silicon 18 GB 机型可用 9 GiB）。",
+        "若仍然耗尽，需要减少同时启用的内容或换内存更大的 Mac。",
+      ],
+      retryHelps: false,
+    };
+  }
+  if (has("Build inputs changed")) {
+    return {
+      title: "构建输入与旧目录不一致",
+      cause:
+        "这次构建沿用了上次的产物目录，但输入指纹已经变化。编译器不会覆盖已写入指纹的目录。",
+      next: ["重试即可，构建器会自动换用新的产物目录继续。"],
+      retryHelps: true,
+    };
+  }
+  if (has("UNEXPECTED_EOF") || has("SSL") || has("urlopen error")) {
+    return {
+      title: "下载整合包内容时网络中断",
+      cause:
+        "从 Modrinth CDN 下载文件时连接被中断，已下载并通过校验的部分会保留。",
+      next: ["确认网络稳定后直接重试，已校验的文件不会重复下载。"],
+      retryHelps: true,
+    };
+  }
+  if (has("Requested Fabric instance contains excluded Mods")) {
+    return {
+      title: "仍有无法静态转换的 Mod",
+      cause:
+        "转换报告里还有运行期定义类或加载原生库的 Mod，需要确认排除后才能继续。",
+      next: ["重试后按提示确认排除清单。"],
+      retryHelps: true,
+    };
+  }
+  if (has("失败原因不是可确认的静态 AOT 排除项")) {
+    return {
+      title: "构建在 Fabric 检查阶段停止",
+      cause:
+        "这一轮的失败发生在静态转换之后，但当时记录的原因只有这句笼统说明，具体错误没有写进任务记录。",
+      next: [
+        "直接重试；新版本会把 AOT 编译、下载等真实原因写进这条提示。",
+        "若要复核这一轮，请打开任务文件夹里的 build.stderr.log 与对应阶段的日志。",
+      ],
+      retryHelps: true,
+    };
+  }
+  if (has("Host memory headroom")) {
+    return {
+      title: "主机内存余量不足",
+      cause: "构建前的内存检查没有通过，编译器需要比当前可用内存更多的余量。",
+      next: ["释放内存后重试。"],
+      retryHelps: false,
+    };
+  }
+  if (has("IPA 完整性验证失败") || has("DEVELOPMENT_IPA_VERIFIED")) {
+    return {
+      title: "导出的 IPA 未通过完整性校验",
+      cause: "导出产物与签名记录不一致，构建器拒绝把它当作可用结果。",
+      next: ["重试导出；若重复出现，请保留诊断目录。"],
+      retryHelps: false,
+    };
+  }
+  if (has("Expected one exported IPA")) {
+    return {
+      title: "导出目录里不止一个 IPA",
+      cause:
+        "Xcode 已导出 IPA，但导出目录中出现了额外的 .ipa 文件，构建器无法判断哪个是本次产物。",
+      next: [
+        "重试即可；已修复的版本会忽略外接盘生成的 ._ 元数据文件。",
+        "若仍出现，请检查导出目录里是否有你手动放入的 IPA。",
+      ],
+      retryHelps: true,
+    };
+  }
+  return null;
+}
 export function buildProblems(
   form: BuildForm,
   report: Report | null,
   desktop: boolean,
 ): string[] {
   const result: string[] = [];
-  if (!desktop) result.push("请在 FabricAOT 桌面应用中执行构建。");
-  if (!form.workspace.trim()) result.push("请选择 FabricAOT 项目目录。");
+  if (!desktop) result.push("请在 NCL Builder 桌面应用中执行构建。");
+  if (!form.workspace.trim()) result.push("请选择 NCL 项目目录。");
   if (!form.config.trim()) result.push("请选择或创建构建配置。");
-  if (!form.exportOptions.trim()) result.push("请选择 IPA 开发导出配置。");
+  if (!form.unsigned && !form.exportOptions.trim())
+    result.push("请选择 IPA 开发导出配置。");
   if (!form.output.trim()) result.push("请选择构建产物目录。");
-  if (form.team && !/^[A-Z0-9]{10}$/.test(form.team))
+  if (!form.unsigned && form.team && !/^[A-Z0-9]{10}$/.test(form.team))
     result.push("Team ID 需要 10 位大写字母或数字。");
   if (form.loader === "fabric") {
     if (!form.source.trim()) result.push("请选择整合包或 Prism 实例。");
@@ -203,6 +333,9 @@ export function restoreForm(raw: string | null): BuildForm {
       throw new Error("构建设置字段无效");
     result[key] = value[key] ?? "";
   }
+  if (value.unsigned !== undefined && typeof value.unsigned !== "boolean")
+    throw new Error("未签名选项无效");
+  result.unsigned = value.unsigned === true;
   result.loader = value.loader === "vanilla" ? "vanilla" : "fabric";
   if (value.resourceSelection != null) {
     const r = value.resourceSelection;

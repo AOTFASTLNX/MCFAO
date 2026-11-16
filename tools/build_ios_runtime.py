@@ -5,6 +5,7 @@ No candidate binaries or third-party project scripts are used. This assembles
 an experimental runtime for the A1 fixture, not a full Java compatibility claim.
 """
 from __future__ import annotations
+from storage_config import cache_path
 
 import argparse
 import concurrent.futures
@@ -64,8 +65,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     output = args.output.absolute()
     output.mkdir(parents=True, exist_ok=False)
-    jdk = args.jdk_source or Path(json.loads((ROOT / ".cache/upstream/jdk.json").read_text())["path"])
-    graal = args.graal_source or Path(json.loads((ROOT / ".cache/upstream/graal.json").read_text())["path"])
+    jdk = args.jdk_source or Path(json.loads((cache_path('upstream/jdk.json')).read_text())["path"])
+    graal = args.graal_source or Path(json.loads((cache_path('upstream/graal.json')).read_text())["path"])
     svm = graal / "substratevm"
     headers = jdk / "build/fabricaot-host/support/headers/java.base"
     if not (headers / "java_lang_System.h").is_file():
@@ -78,7 +79,7 @@ def main(argv=None):
     include_paths |= {headers, jdk / "build/fabricaot-host/jdk/include",
                       jdk / "src/hotspot/share/include", jdk / "src/hotspot/os/posix/include",
                       svm / "src/com.oracle.svm.native.libchelper/include"}
-    home = args.graalvm_home or ROOT / ".cache/toolchains/graalvm-25.0.2/graalvm-community-openjdk-25.0.2+10.1/Contents/Home"
+    home = args.graalvm_home or cache_path('toolchains/graalvm-25.0.2/graalvm-community-openjdk-25.0.2+10.1/Contents/Home')
     include_paths |= {home / "include", home / "include/darwin"}
     base_args = ["xcrun", "--sdk", args.sdk, "clang", "-target", target, "-isysroot", sdk,
                  "-O2", "-fPIC", "-fno-common", "-fvisibility=hidden", "-ffunction-sections", "-fdata-sections",

@@ -2,54 +2,49 @@
 """Build the first-party method splitter (`compiler/splitter`) with a pinned ASM classpath.
 
 The splitter is first-party Java source. Its only dependencies are the ASM bytecode libraries,
-which are **not** vendored into this repository: they are resolved from the Gradle distribution that
-is already on this machine plus two verified Maven Central downloads, and every jar is recorded with
+which are **not** vendored into this repository: all five come from checksum-pinned Maven Central
+downloads (compiler/asm.lock.json), and every jar is recorded with
 its SHA-256 in the build record so a later run can detect a substituted library.
 
 This tool only compiles. It does not transform any jar and it is not Gate evidence.
 """
 from __future__ import annotations
+from storage_config import cache_path
 
 import argparse
-import glob
 import json
 import shutil
 from pathlib import Path
 
 from bootstrap_toolchain import sha256
+from verified_download import fetch
 from capture import ROOT, capture
 from run_b0_reference import execute  # noqa: F401  (imported for parity with other tools)
 
 SOURCE = ROOT / "compiler/splitter/src/fabricaot/split/MethodSplitter.java"
 ASM_VERSION = "9.9"
 
-# Where the two jars that the Gradle distribution does not ship are expected. They are fetched by
+# All five ASM dependencies are fetched by
 # `python3 -B tools/build_method_splitter.py --fetch-missing` from Maven Central.
-CACHE = ROOT / (".cache/libs/asm-" + ASM_VERSION)
+CACHE = cache_path("libs/asm-" + ASM_VERSION)
 MAVEN = "https://repo1.maven.org/maven2/org/ow2/asm"
 
 
 def gradle_asm() -> dict:
-    """Return {name: path} for the ASM jars bundled with the local Gradle distribution."""
-    patterns = [
-        str(Path.home() / ".gradle/wrapper/dists/gradle-*-bin/*/gradle-*/lib/asm-%s.jar") % ASM_VERSION,
-        str(Path.home() / ".gradle/wrapper/dists/gradle-*-bin/*/gradle-*/lib/asm-tree-%s.jar") % ASM_VERSION,
-    ]
-    found = {}
-    for pattern in patterns:
-        for path in sorted(glob.glob(pattern)):
-            found[Path(path).name] = Path(path)
-    return found
+    """Compatibility name: all five dependencies now come from checksum-pinned Maven files."""
+    lock = json.loads((ROOT / 'compiler/asm.lock.json').read_text())
+    libraries = {}
+    for spec in lock.values():
+        path = CACHE / spec['file']
+        if not path.is_file() or path.stat().st_size != spec['size'] or sha256(path) != spec['sha256']:
+            raise ValueError('Missing or modified ASM dependency; run --fetch-missing: ' + str(path))
+        libraries[spec['file']] = path
+    return libraries
 
 
 def build(java_home: Path, output: Path, extra: list | None = None) -> dict:
     """Compile the splitter into `output/classes` and return a build record."""
     libraries = gradle_asm()
-    for name in ("asm-analysis-%s.jar" % ASM_VERSION, "asm-util-%s.jar" % ASM_VERSION):
-        libraries[name] = CACHE / name
-    for name, path in libraries.items():
-        if not path.exists():
-            raise SystemExit("missing ASM library %s (%s); run with --fetch-missing" % (name, path))
     classpath = ":".join(str(path) for path in libraries.values())
     classes = output / "classes"
     if classes.exists():
@@ -81,19 +76,13 @@ def build(java_home: Path, output: Path, extra: list | None = None) -> dict:
 
 
 def fetch_missing() -> list:
-    """Download the two ASM artifacts the Gradle distribution does not bundle (pinned version)."""
-    import urllib.request
-
-    CACHE.mkdir(parents=True, exist_ok=True)
+    """Fetch all five pinned ASM artifacts, independent of Gradle installations."""
     fetched = []
-    for artifact in ("asm-analysis", "asm-util"):
-        target = CACHE / ("%s-%s.jar" % (artifact, ASM_VERSION))
-        if target.exists():
-            continue
-        url = "%s/%s/%s/%s-%s.jar" % (MAVEN, artifact, ASM_VERSION, artifact, ASM_VERSION)
-        with urllib.request.urlopen(url, timeout=60) as response:
-            target.write_bytes(response.read())
-        fetched.append({"path": str(target), "url": url, "sha256": sha256(target)})
+    for spec in json.loads((ROOT / 'compiler/asm.lock.json').read_text()).values():
+        target = CACHE / spec['file']
+        existed = target.is_file()
+        fetch(spec, CACHE.resolve() / spec["file"])
+        if not existed: fetched.append({'path': str(target), **spec})
     return fetched
 
 

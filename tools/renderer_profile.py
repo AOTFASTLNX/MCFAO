@@ -18,8 +18,11 @@ def config_names(renderer):
 
 def validate_runtime(app: Path, renderer: str):
     from build_c0_harness import validate_dylib
+    from mod_file_policy import is_metadata
     directory = app / "Frameworks"
-    found = {p.name for p in directory.glob("*.dylib")}
+    # exFAT volumes add `._name.dylib` sidecars; they are metadata, not runtime
+    # libraries, and must not be reported as unexpected members.
+    found = {p.name for p in directory.glob("*.dylib") if not is_metadata(p.name)}
     if found != set(libraries(renderer)):
         raise ValueError(f"Incomplete {renderer} runtime: missing={set(libraries(renderer))-found}, unexpected={found-set(libraries(renderer))}")
     for name in libraries(renderer):

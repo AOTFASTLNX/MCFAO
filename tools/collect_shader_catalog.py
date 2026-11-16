@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Inventory vanilla shader variants through the real Java pipeline declarations, under isolation."""
 from __future__ import annotations
+from storage_config import cache_path
 import argparse
 import json
 import os
@@ -22,7 +23,7 @@ def main(argv=None):
         references.append(path)
         if path.name=='26.1.2.jar':client=path
     if client is None:raise ValueError('Pinned client missing')
-    home=ROOT/'.cache/toolchains/graalvm-25.0.2/graalvm-community-openjdk-25.0.2+10.1/Contents/Home';classes=out/'classes';classes.mkdir()
+    home=cache_path('toolchains/graalvm-25.0.2/graalvm-community-openjdk-25.0.2+10.1/Contents/Home');classes=out/'classes';classes.mkdir()
     source=ROOT/'compiler/shaders/src/fabricaot/shaders/ShaderCatalog.java';classpath=os.pathsep.join(map(str,references));data=out/'catalog'
     result={'status':'BLOCKED','scope':'static vanilla shader inventory only; no shader compilation or target rendering','sourcesSHA256':{str(f.relative_to(ROOT)):sha256(f) for f in [source,Path(__file__)]},'clientSHA256':sha256(client)}
     compile=capture([str(home/'bin/javac'),'-proc:none','-cp',classpath,'-d',str(classes),str(source)],out/'javac',120);result['javac']=compile

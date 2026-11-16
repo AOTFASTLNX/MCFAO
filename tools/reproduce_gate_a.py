@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Re-run available research checks in a fresh directory; do not promote iOS Gates."""
 from __future__ import annotations
+from storage_config import cache_path
 
 import json
 import subprocess
@@ -11,7 +12,7 @@ from capture import ROOT
 
 
 def main():
-    home = ROOT / ".cache/toolchains/graalvm-25.0.2/graalvm-community-openjdk-25.0.2+10.1/Contents/Home"
+    home = cache_path('toolchains/graalvm-25.0.2/graalvm-community-openjdk-25.0.2+10.1/Contents/Home')
     if not (home / "bin/native-image").is_file():
         print("Run tools/bootstrap_toolchain.py first.", file=sys.stderr)
         return 2

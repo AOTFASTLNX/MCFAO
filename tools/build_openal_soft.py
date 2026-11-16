@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Build pinned OpenAL Soft for iOS under a default-deny policy; require real CoreAudio."""
 from __future__ import annotations
+from storage_config import cache_path
 import argparse
 import json
 import shutil
@@ -11,10 +12,11 @@ from bootstrap_toolchain import sha256
 from build_c0_harness import validate_dylib
 from capture import ROOT
 from graphics_common import register_tree
+from host_tools import developer_dir, xcode_tool
 from prepare_shader_toolchain import extract,policy
 from run_b0_reference import execute
 
-CACHE=ROOT/'.cache/graphics/openal-soft'
+CACHE=cache_path('graphics/openal-soft')
 LOCK=ROOT/'compiler/openal.lock.json'
 
 def main(argv=None):
@@ -30,19 +32,19 @@ def main(argv=None):
     if archive.stat().st_size!=spec['size'] or sha256(archive)!=spec['sha256']:raise ValueError('OpenAL archive modified')
     extract(archive,CACHE/'source');source=CACHE/'source'/('openal-soft-'+spec['commit'])
     host=ROOT/'artifacts/graphics/shader-toolchain-03';report=json.loads((host/'result.json').read_text())
-    cmake=ROOT/'.cache/graphics/shader-toolchain/cmake/cmake-3.31.12-macos-universal/CMake.app/Contents/bin/cmake'
+    cmake=cache_path('graphics/shader-toolchain/cmake/cmake-3.31.12-macos-universal/CMake.app/Contents/bin/cmake')
     # This executable's archive is pinned by the existing host-tool lock.
     cmake_lock=json.loads((ROOT/'compiler/graphics-toolchain.lock.json').read_text())['cmake']
-    cmake_archive=ROOT/'.cache/graphics/shader-toolchain/archives'/cmake_lock['file']
+    cmake_archive=cache_path('graphics/shader-toolchain/archives')/cmake_lock['file']
     if sha256(cmake_archive)!=cmake_lock['sha256'] or report['status']!='SHADER_HOST_TOOLS_BUILT':raise ValueError('Verified CMake toolchain required')
-    extract(cmake_archive,ROOT/'.cache/graphics/shader-toolchain/cmake')
+    extract(cmake_archive,cache_path('graphics/shader-toolchain/cmake'))
     if not cmake.is_file():raise ValueError('Pinned CMake executable unavailable')
     command=[sys.executable,'-B',str(Path(__file__).resolve()),*(sys.argv[1:] if argv is None else argv)]
     register_tree(CACHE,command,kind='CACHE')
     out=a.output.resolve();out.mkdir(parents=True,exist_ok=False);work=out/'work';work.mkdir()
-    sb=out/'build.sb';sb.write_text(policy(work)+'(allow file-read* (subpath '+json.dumps(str(CACHE))+'))\n')
+    sb=out/'build.sb';sb.write_text(policy(work)+'(allow file-read* (subpath '+json.dumps(str(CACHE.resolve()))+'))\n')
     sdk=subprocess.check_output(['xcrun','--sdk',a.sdk,'--show-sdk-path'],text=True).strip()
-    env={'SDKROOT':sdk,'DEVELOPER_DIR':'/Applications/Xcode.app/Contents/Developer','PYTHONDONTWRITEBYTECODE':'1'}
+    env={'SDKROOT':sdk,'DEVELOPER_DIR':str(developer_dir()),'PYTHONDONTWRITEBYTECODE':'1','TMPDIR':str(work)}
     result={'status':'BLOCKED','sdk':a.sdk,'target':'arm64-apple-ios17.0'+('-simulator' if a.sdk=='iphonesimulator' else ''),
             'scope':'source-built CoreAudio OpenAL; runtime audio and device acceptance are separate',
             'sourcesSHA256':{str(f.relative_to(ROOT)):sha256(f) for f in [Path(__file__),LOCK]},
@@ -54,17 +56,16 @@ def main(argv=None):
         controls=out/'controls';controls.mkdir();(controls/'input').write_text('denied outside read')
         run(['/bin/cat',controls/'input'],'deny-read',10,1);run(['/usr/bin/touch',controls/'output'],'deny-write',10,1)
         if (controls/'output').exists():raise RuntimeError('Sandbox write control escaped')
-        toolchain=Path('/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin')
         build=work/'build'
         compatibility=work/'sdk-compat.cmake'
         compatibility.write_text('cmake_language(DEFER CALL set_property SOURCE '+json.dumps(str(source/'alc/backends/coreaudio.cpp'))+' APPEND PROPERTY COMPILE_OPTIONS "-Wno-error=function-effects")\n')
         options=['-G','Unix Makefiles','-DCMAKE_SYSTEM_NAME=iOS','-DCMAKE_BUILD_TYPE=Release','-DCMAKE_OSX_ARCHITECTURES=arm64',
             '-DCMAKE_OSX_SYSROOT='+sdk,'-DCMAKE_OSX_DEPLOYMENT_TARGET=17.0',
-            '-DCMAKE_C_COMPILER='+str(toolchain/'clang'),'-DCMAKE_CXX_COMPILER='+str(toolchain/'clang++'),
-            '-DCMAKE_AR='+str(toolchain/'ar'),'-DCMAKE_RANLIB='+str(toolchain/'ranlib'),
+            '-DCMAKE_C_COMPILER='+xcode_tool('clang',a.sdk),'-DCMAKE_CXX_COMPILER='+xcode_tool('clang++',a.sdk),
+            '-DCMAKE_AR='+xcode_tool('ar',a.sdk),'-DCMAKE_RANLIB='+xcode_tool('ranlib',a.sdk),
             # Append only to CoreAudio after upstream target flags, retaining the diagnostic.
             '-DCMAKE_PROJECT_TOP_LEVEL_INCLUDES='+str(compatibility),
-            '-DCMAKE_MAKE_PROGRAM=/Applications/Xcode.app/Contents/Developer/usr/bin/make',
+            '-DCMAKE_MAKE_PROGRAM='+xcode_tool('make'),
             '-DLIBTYPE=SHARED','-DALSOFT_REQUIRE_COREAUDIO=ON','-DALSOFT_BACKEND_COREAUDIO=ON',
             '-DALSOFT_UTILS=OFF','-DALSOFT_EXAMPLES=OFF','-DALSOFT_TESTS=OFF','-DALSOFT_INSTALL=OFF',
             '-DALSOFT_UPDATE_BUILD_VERSION=OFF','-DALSOFT_ENABLE_MODULES=OFF','-DALSOFT_EMBED_HRTF_DATA=ON']

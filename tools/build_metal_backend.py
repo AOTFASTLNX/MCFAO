@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Compile the experimental blaze3d Metal backend, draw paths and JNI bridge."""
 from __future__ import annotations
+from storage_config import cache_path
 import argparse
 import json
 import os
@@ -24,7 +25,7 @@ def main(argv=None):
     overlays=bridge_overlays(args.graphics_bridge)
     glfw=args.glfw_library.resolve(strict=True);validate_dylib(glfw,args.sdk=="iphonesimulator")
     out=args.output.resolve();out.mkdir(parents=True,exist_ok=False)
-    home=ROOT/".cache/toolchains/graalvm-25.0.2/graalvm-community-openjdk-25.0.2+10.1/Contents/Home"
+    home=cache_path('toolchains/graalvm-25.0.2/graalvm-community-openjdk-25.0.2+10.1/Contents/Home')
     manifest=json.loads((ROOT/"artifacts/b0/prepared-04/result.json").read_text())
     cp=[*overlays]
     for entry in manifest["referenceLibraries"]:

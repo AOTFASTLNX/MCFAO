@@ -5,6 +5,7 @@ Requires a newly created log, RenderSystem initialization, successful Metal pres
 normal probe completion. The result remains a simulator diagnostic, never a playable-game gate.
 """
 from __future__ import annotations
+from host_tools import developer_dir
 import argparse
 import json
 import os
@@ -52,9 +53,11 @@ def main(argv=None):
     environment={}
     if args.probe=='audio':environment.update(SIMCTL_CHILD_ALSOFT_DRIVERS='core',SIMCTL_CHILD_ALSOFT_LOGLEVEL='3')
     if args.check_runtime:
-        checker=Path("/Applications/Xcode.app/Contents/Developer/usr/lib/libMainThreadChecker.dylib")
-        if not checker.is_file():p.error("Apple Main Thread Checker unavailable")
-        environment.update(SIMCTL_CHILD_DYLD_INSERT_LIBRARIES=str(checker),SIMCTL_CHILD_MTL_DEBUG_LAYER='1')
+        selected=developer_dir(False)
+        checker=selected/"usr/lib/libMainThreadChecker.dylib" if selected else Path("/nonexistent/libMainThreadChecker.dylib")
+        if checker.is_file(): environment['SIMCTL_CHILD_DYLD_INSERT_LIBRARIES']=str(checker)
+        else: print('Apple Main Thread Checker unavailable; continuing without it',file=sys.stderr)
+        environment['SIMCTL_CHILD_MTL_DEBUG_LAYER']='1'
     for name,value in environment.items():previous[name]=os.environ.get(name);os.environ[name]=value
     try:launched=capture(["xcrun","simctl","launch","--terminate-running-process",args.simulator,"org.fabricaot.research.c0.kexin"],out/"launch",30)
     finally:

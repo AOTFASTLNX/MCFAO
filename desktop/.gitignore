@@ -1,7 +1,14 @@
 node_modules/
+.vite/
 dist/
 src-tauri/target/
 src-tauri/gen/
+src-tauri/icon-build/
 playwright-report/
 test-results/
 *.tsbuildinfo
+
+/src-tauri/bundle-source/
+/src-tauri/bundle-source-*/
+
+/src-tauri/icon-build-previous-*/

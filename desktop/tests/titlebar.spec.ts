@@ -329,7 +329,7 @@ test("controls inside a capsule are pills concentric with it", async ({
     for (const width of [800, 1100, 1900]) {
       await page.setViewportSize({ width, height: 760 });
       await page.addInitScript(
-        (value) => localStorage.setItem("fabricaot.theme.v1", value),
+        (value) => localStorage.setItem("ncl.theme.v1", value),
         theme,
       );
       await page.goto("/");

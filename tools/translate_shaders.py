@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Translate actual vanilla shader pairs to precompiled Metal, preserving binding evidence."""
 from __future__ import annotations
+from storage_config import cache_path
 import argparse
 import json
 import math
@@ -66,7 +67,7 @@ def main(argv=None):
         r=capture(list(map(str,command)),folder,90,cwd=cwd)
         if r['exitCode'] or r['timedOut']:raise RuntimeError(str(folder.relative_to(out))+': '+(folder/'stdout.log').read_text()[-1400:]+(folder/'stderr.log').read_text()[-1400:])
     try:
-        source=ROOT/'.cache/graphics/shader-toolchain/spirv-cross/SPIRV-Cross-f11ba9f0b21ba8fc15153d50a2a1ae31ab1cf8f7';library=tool_root/'work/build-spirv-cross';adapter=work/'msl-translate'
+        source=cache_path('graphics/shader-toolchain/spirv-cross/SPIRV-Cross-f11ba9f0b21ba8fc15153d50a2a1ae31ab1cf8f7');library=tool_root/'work/build-spirv-cross';adapter=work/'msl-translate'
         run(['xcrun','clang++','-std=c++17','-O2','-Wall','-Wextra','-Werror','-I',source,ROOT/'compiler/shaders/native/msl_translate.cpp',library/'libspirv-cross-msl.a',library/'libspirv-cross-glsl.a',library/'libspirv-cross-core.a','-o',adapter],out/'adapter-compile')
         for program in catalog['programs']:
             key=program['key']

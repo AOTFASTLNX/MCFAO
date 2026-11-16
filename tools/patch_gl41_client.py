@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Prepare the GL41 client and add world-join diagnostics without executing it."""
 from __future__ import annotations
+from storage_config import cache_path
 
 import argparse
 import json
@@ -26,7 +27,7 @@ def main(argv=None):
     out = args.output.resolve()
     out.mkdir(parents=True, exist_ok=False)
     home = args.graalvm_home.resolve(strict=True) if args.graalvm_home else java_home()
-    asm = [path.resolve(strict=True) for path in (args.asm_jars or (ROOT / ".cache/libs/asm-9.9/asm-9.9.jar", ROOT / ".cache/libs/asm-9.9/asm-tree-9.9.jar"))]
+    asm = [path.resolve(strict=True) for path in (args.asm_jars or (cache_path('libs/asm-9.9/asm-9.9.jar'), cache_path('libs/asm-9.9/asm-tree-9.9.jar')))]
     classes = out / "classes"
     classes.mkdir()
     source = ROOT / "compiler/gl41/tools/fabricaot/gl41/PatchDevice.java"

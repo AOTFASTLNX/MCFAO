@@ -24,7 +24,7 @@ def bridge_overlays(directory: Path) -> list[Path]:
 def register_tree(path: Path, command: list[str], *, regenerable: bool = True, kind: str = "BUILD", recursive: bool = True) -> dict:
     if os.environ.get("AAR_HOME"):
         raise RuntimeError("AAR_HOME must be unset: the central registry is mandatory")
-    aar = shutil.which("aar") or str(Path.home() / "Documents/Codex/monitor/bin/aar")
+    aar = shutil.which("aar") or "aar"
     argv = [aar,"register","--path",str(path.resolve()),"--project",str(ROOT),"--type",kind,
             "--source","First-party graphics build; source and command fingerprints in result.json",
             "--argv-json",json.dumps(command),"--json"]
@@ -37,7 +37,7 @@ def register_tree(path: Path, command: list[str], *, regenerable: bool = True, k
         # Retain the exact registration request for replay when AAR is restored.
         pending = {"status": "REGISTRATION_PENDING", "reason": "AAR executable unavailable",
                    "argv": argv}
-        (path / "registration-pending.json").write_text(json.dumps(pending, indent=2) + "\n")
+        ((path if path.is_dir() else path.parent) / ("registration-pending.json" if path.is_dir() else path.name + ".registration-pending.json")).write_text(json.dumps(pending, indent=2) + "\n")
         return pending
     if result.returncode:
         raise RuntimeError(f"Central AAR registration failed ({result.returncode}): {result.stderr or result.stdout}")

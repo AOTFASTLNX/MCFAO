@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Build pinned host-only GLSL/SPIRV-Cross tools with no global installation."""
 from __future__ import annotations
+from storage_config import cache_path
 import argparse
 import hashlib
 import json
@@ -13,15 +14,16 @@ from pathlib import Path
 from bootstrap_toolchain import sha256
 from capture import ROOT
 from graphics_common import register_tree
+from host_tools import developer_dir, xcode_tool
 from run_b0_reference import execute
 
-CACHE=ROOT/".cache/graphics/shader-toolchain"
+CACHE=cache_path('graphics/shader-toolchain')
 LOCK=ROOT/"compiler/graphics-toolchain.lock.json"
 
-def extract(archive: Path,directory: Path):
+def extract(archive: Path,directory: Path, *, max_entries=30000, max_bytes=2*1024**3):
     with tarfile.open(archive,"r:gz") as source:
         members=source.getmembers()
-        if len(members)>30000 or sum(m.size for m in members)>2*1024**3:
+        if len(members)>max_entries or sum(m.size for m in members)>max_bytes:
             raise ValueError("Shader tool archive exceeds extraction budget")
         if not directory.exists():
             directory.mkdir(parents=True)
@@ -55,9 +57,9 @@ def cache_inputs()->dict:
     return roots
 
 def policy(work: Path)->str:
-    def sub(path):return '(subpath '+json.dumps(str(path))+')'
+    def sub(path):return '(subpath '+json.dumps(str(Path(path).resolve()))+')'
     return '\n'.join(['(version 1)','(deny default)','(allow file-read-metadata)',
-        '(allow file-read* '+ ' '.join(sub(p) for p in ['/System','/usr','/bin','/Library/Apple/System','/Applications/Xcode.app',CACHE,work])+' (literal "/") (literal "/dev/null") (literal "/dev/urandom") (literal "/Library/Preferences/com.apple.dt.Xcode.plist"))',
+        '(allow file-read* '+ ' '.join(sub(p) for p in ['/System','/usr','/bin','/Library/Apple/System',*( [developer_dir()] if developer_dir(False) else [] ),CACHE,work])+' (literal "/") (literal "/dev/null") (literal "/dev/urandom") (literal "/Library/Preferences/com.apple.dt.Xcode.plist"))',
         '(allow file-write* '+sub(work)+' (literal "/dev/null"))','(allow process-exec)','(allow process-fork)',
         '(allow sysctl-read)','(allow process-info* (target self))','(allow signal (target self))',
         '(allow mach-lookup (global-name "com.apple.system.opendirectoryd.libinfo") (global-name "com.apple.system.notification_center"))'])+'\n'
@@ -67,15 +69,12 @@ def main(argv=None):
     if not a.cache_only and not a.output:p.error('--output is required for a build')
     roots=cache_inputs()
     # CMake.app contains internal links; register its parent without traversing them.
-    aar=str(Path.home() / 'Documents/Codex/monitor/bin/aar');command=[sys.executable,'-B',str(Path(__file__).resolve()),'--cache-only']
+    command=[sys.executable,'-B',str(Path(__file__).resolve()),'--cache-only']
     for directory in [CACHE/'archives',*(CACHE/name for name in roots)]:
-        args=[aar,'register','--path',str(directory),'--project',str(ROOT),'--type','CACHE','--regenerable','--source','Official checksum-pinned shader host tools; compiler/graphics-toolchain.lock.json','--argv-json',json.dumps(command),'--json']
-        if not any(f.is_symlink() for f in directory.rglob('*')):args.append('--include-files')
-        done=subprocess.run(args,capture_output=True,text=True,timeout=180)
-        if done.returncode:raise RuntimeError('Central AAR registration failed: '+(done.stderr or done.stdout))
+        register_tree(directory,command,kind='CACHE',recursive=not any(f.is_symlink() for f in directory.rglob('*')))
     if a.cache_only:print('SHADER_TOOL_SOURCES_VERIFIED');return 0
     out=a.output.resolve();out.mkdir(parents=True,exist_ok=False);work=out/'work';work.mkdir();(work/'tmp').mkdir()
-    sb=out/'build.sb';sb.write_text(policy(work));env={'PYTHONDONTWRITEBYTECODE':'1','DEVELOPER_DIR':'/Applications/Xcode.app/Contents/Developer'}
+    sb=out/'build.sb';sb.write_text(policy(work));env={'PYTHONDONTWRITEBYTECODE':'1','DEVELOPER_DIR':str(developer_dir()),'TMPDIR':str(work/'tmp')}
     sdk=subprocess.check_output(['xcrun','--sdk','macosx','--show-sdk-path'],text=True).strip();env['SDKROOT']=sdk
     cmake=roots['cmake']/'CMake.app/Contents/bin/cmake';result={'status':'BLOCKED','scope':'host shader tools only; no target shader or game acceptance','sourcesSHA256':{str(f.relative_to(ROOT)):sha256(f) for f in [Path(__file__),LOCK]},'steps':[]}
     def run(args,name,timeout=600,expected=0):
@@ -85,11 +84,9 @@ def main(argv=None):
         controls=out/'controls';controls.mkdir();(controls/'input').write_text('first-party denied-read control')
         run(['/bin/cat',controls/'input'],'deny-read',10,1);run(['/usr/bin/touch',controls/'output'],'deny-write',10,1)
         if (controls/'output').exists():raise RuntimeError('Sandbox write control escaped')
-        common=['-DCMAKE_BUILD_TYPE=Release','-DCMAKE_OSX_ARCHITECTURES=arm64','-DCMAKE_OSX_SYSROOT='+sdk,'-DCMAKE_MAKE_PROGRAM=/Applications/Xcode.app/Contents/Developer/usr/bin/make',
-            '-DCMAKE_AR=/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ar',
-            '-DCMAKE_RANLIB=/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ranlib',
-            '-DCMAKE_C_COMPILER=/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang',
-            '-DCMAKE_CXX_COMPILER=/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++']
+        common=['-DCMAKE_BUILD_TYPE=Release','-DCMAKE_OSX_ARCHITECTURES=arm64','-DCMAKE_OSX_SYSROOT='+sdk]
+        common += ['-DCMAKE_'+key+'='+xcode_tool(tool) for key,tool in
+                   [('MAKE_PROGRAM','make'),('AR','ar'),('RANLIB','ranlib'),('C_COMPILER','clang'),('CXX_COMPILER','clang++')]]
         targets=[('glslang',['-DBUILD_EXTERNAL=OFF','-DENABLE_OPT=OFF','-DENABLE_HLSL=OFF','-DGLSLANG_TESTS=OFF','-DENABLE_PCH=OFF','-DGLSLANG_ENABLE_INSTALL=OFF']),
             ('spirv-cross',['-DSPIRV_CROSS_ENABLE_TESTS=OFF','-DSPIRV_CROSS_ENABLE_C_API=OFF','-DSPIRV_CROSS_SKIP_INSTALL=ON'])]
         for name,options in targets:

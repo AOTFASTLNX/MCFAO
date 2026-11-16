@@ -23,7 +23,11 @@ from uuid import uuid4
 import zipfile
 from preflight import scan_pack, validate_zip_members, read_json_limited, MAX_MANIFEST, resource_unit, tls_context
 from mcfao import instance_files
+from bootstrap_toolchain import sha256
+from mod_file_policy import is_metadata, content_paths, mod_candidates, copy_ignore, clean_staged_metadata
 from external_storage import ExternalStorageUnavailable, require_mount
+import cleanup_storage
+from storage_config import storage_paths, job_roots, require_space, save_paths, space_report, control_lock
 
 ROOT = Path(__file__).resolve().parents[1]
 KEYS = ('prepared', 'caps', 'bootstrapRuntime', 'splitter', 'versionMetadata', 'assets',
@@ -55,7 +59,8 @@ def workspace_path(value):
 
 def job_path(workspace, ident):
     if not re.fullmatch('[a-f0-9]{32}', ident or ''): raise ValueError('任务编号无效')
-    return workspace / 'artifacts/desktop-jobs' / ident / 'job.json'
+    roots = job_roots(workspace)
+    return next((p / ident / 'job.json' for p in roots if (p / ident / 'job.json').is_file()), roots[0] / ident / 'job.json')
 
 def tail(path, limit=16000):
     try:
@@ -83,7 +88,8 @@ def snapshot(path, logs=True):
         files = [p for pattern in ('*stdout.log', '*stderr.log', 'worker.log') for p in path.parent.rglob(pattern)]
         files += list(Path(job["build"]).glob("*/*/command/*.log"))
         files += list(Path(job["build"]).glob("aot/*/product/analysis/*.log"))
-        files = sorted(files, key=lambda p: p.stat().st_mtime)[-6:]
+        files = sorted((p for p in files if not is_metadata(p) and p.is_file()),
+                       key=lambda p: p.stat().st_mtime)[-6:]
         job['log'] = '\n'.join('[' + str(p) + ']\n' + tail(p) for p in files)
         if job['stage'] not in ('archive', 'export-log', 'verify'):
             for line in tail(path.parent / 'build.stdout.log', 64000).splitlines():
@@ -94,7 +100,7 @@ def snapshot(path, logs=True):
     return job
 
 def history(workspace):
-    paths = sorted((workspace / 'artifacts/desktop-jobs').glob('*/job.json'), key=lambda p: p.stat().st_mtime, reverse=True)[:40]
+    paths = sorted((p for root in job_roots(workspace) for p in root.glob('*/job.json')), key=lambda p: p.stat().st_mtime, reverse=True)[:40]
     jobs = []
     for p in paths:
         try: jobs.append(snapshot(p, False))
@@ -117,9 +123,16 @@ def bootstrap(workspace):
     if config:
         try: fields = read_json(config)
         except (OSError, ValueError): pass
-    return dict(workspace=str(workspace), config=str(config) if config else '', configFields=fields,
+    bundled = (workspace / 'bundle-manifest.json').is_file()
+    setup = None
+    if bundled:
+        from first_run import start as start_setup
+        try: setup = start_setup()
+        except (OSError, ValueError, RuntimeError) as exc:
+            setup = dict(state='failed', message='首次准备暂停，请检查存储位置后重试', error=str(exc))
+    return dict(workspace=str(workspace), bundled=bundled, setup=setup, config=str(config) if config else '', configFields=fields,
                 exportOptions=str(workspace / 'ios/C0Harness/ExportOptions.plist'),
-                output=str(workspace / 'artifacts/desktop-builds'), jobs=history(workspace))
+                output=str(storage_paths(workspace)['builds']), storage={k: str(v) for k, v in storage_paths(workspace).items()}, jobs=history(workspace))
 
 def check(request):
     workspace_path(request['workspace'])
@@ -162,7 +175,11 @@ def check(request):
         identities = subprocess.check_output(['/usr/bin/security', 'find-identity', '-v', '-p', 'codesigning'], text=True, timeout=15)
         if not re.search(r'\b[1-9]\d* valid identities found', identities): raise ValueError('钥匙串中没有有效签名证书，请先在 Xcode 准备开发签名')
         return '开发团队 ' + team + ' · 导出配置有效'
-    add('开发签名', signing)
+    if request.get('unsigned'):
+        checks.append(dict(name='未签名导出', status='warning', detail='跳过签名与 Xcode 导出；未签名 IPA 不能直接装机，需要另行签名。'))
+    else:
+        add('开发签名', signing)
+    add('磁盘剩余空间', lambda: str(require_space({**storage_paths(), 'builds': resolve(request['output'])})))
     return dict(ready=not any(c['status'] == 'missing' for c in checks), checks=checks, checkedAt=now())
 
 def save_config(request):
@@ -172,11 +189,33 @@ def save_config(request):
         raise ValueError('配置字段不完整')
     values = {k: str(resolve(v)) for k, v in values.items() if v}
     if not set(KEYS) <= values.keys(): raise ValueError('请填写所有必需路径')
-    folder = workspace / 'artifacts/desktop-configs'
+    folder = storage_paths(workspace)['jobs'] / 'configs'
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / (uuid4().hex + '.json')
     write_json(path, values)
     return dict(path=str(path))
+
+def storage(action, request):
+    """Plan or apply a cache/artefact cleanup; never touches a running build."""
+    from storage_config import config_path
+    if config_path().is_file() or (ROOT / 'bundle-manifest.json').is_file() or any(os.environ.get('MCFAO_' + role.upper() + '_DIR') for role in storage_paths()):
+        if action != 'storage-plan':
+            raise ValueError('自定义存储目录需单独确认逐文件清理计划；当前只提供只读统计')
+        paths = storage_paths()
+        report = space_report(paths)
+        usage = [dict(role=role, path=str(path), bytes=cleanup_storage.tree_bytes(path.resolve())) for role, path in paths.items()]
+        return dict(status='STORAGE_PLAN', dataRoot='configured directories', freeBytes=min(row['freeBytes'] for row in report['paths']),
+                    reclaimBytes=0, groups=[], activeJobs=[], blocked=True,
+                    reason='自定义目录当前只读统计；迁移与清理需另行确认具体文件计划。', usage=usage)
+    data_root = cleanup_storage.default_data_root()
+    if action == 'storage-plan':
+        return cleanup_storage.plan(data_root=data_root,
+                                    keep_builds=int(request.get('keepBuilds', 2)))
+    groups = request.get('groups')
+    if not isinstance(groups, list) or not groups or not all(isinstance(g, str) for g in groups):
+        raise ValueError('请选择要清理的内容')
+    return cleanup_storage.apply(data_root=data_root, groups=groups,
+                                 keep_builds=int(request.get('keepBuilds', 2)))
 
 def source_overrides(report, build_loader, force_compile=False):
     if report['fatal']:
@@ -203,22 +242,25 @@ def resource_selection(report, selection):
 
 def validate_request(request):
     workspace = workspace_path(request['workspace'])
+    if not isinstance(request.get('unsigned', False), bool): raise ValueError('未签名选项必须为布尔值')
     if not isinstance(request.get('forceCompile', False), bool): raise ValueError('强制编译选项必须为布尔值')
     if request.get('loader') not in ('fabric', 'vanilla'): raise ValueError('请选择 Fabric 或原版')
     if request.get('existingBuild'):
         result = read_json(resolve(request['existingBuild']) / 'result.json')
-        if result.get('status') != 'SIGNED_DEVICE_APP' or result.get('target') != 'ios-arm64':
+        expected = 'UNSIGNED_DEVICE_APP' if request.get('unsigned') else 'SIGNED_DEVICE_APP'
+        if result.get('status') != expected or result.get('target') != 'ios-arm64':
             raise ValueError('请选择已完成的 iPhoneOS 构建目录')
-        if plistlib.loads(resolve(request['exportOptions']).read_bytes()).get('method') != 'debugging':
+        if not request.get('unsigned') and plistlib.loads(resolve(request['exportOptions']).read_bytes()).get('method') != 'debugging':
             raise ValueError('请选择 debugging 导出配置')
-        if request.get('team') and not re.fullmatch('[A-Z0-9]{10}', request['team']):
+        if not request.get('unsigned') and request.get('team') and not re.fullmatch('[A-Z0-9]{10}', request['team']):
             raise ValueError('Team ID 无效')
         if result.get('loader') in ('fabric', 'vanilla'):
             request['loader'] = result['loader']
         return workspace
     config_summary(request['config'])
-    if plistlib.loads(resolve(request['exportOptions']).read_bytes()).get('method') != 'debugging': raise ValueError('请选择 debugging 导出配置')
-    if request.get('team') and not re.fullmatch('[A-Z0-9]{10}', request['team']): raise ValueError('Team ID 无效')
+    if not request.get('unsigned'):
+        if plistlib.loads(resolve(request['exportOptions']).read_bytes()).get('method') != 'debugging': raise ValueError('请选择 debugging 导出配置')
+        if request.get('team') and not re.fullmatch('[A-Z0-9]{10}', request['team']): raise ValueError('Team ID 无效')
     output = resolve(request['output'])
     if output == workspace or output in workspace.parents or any(output.is_relative_to(workspace / p) for p in ('tools', 'ios', 'compiler')):
         raise ValueError('请选择专用的构建产物目录')
@@ -274,6 +316,7 @@ def stage_source(source, destination, progress=lambda _: None, cancelled=lambda:
     overrides = source_overrides(report, loader, force_compile)
     included = resource_selection(report, selection)
     def keep(name, origin):
+        if is_metadata(name): return False
         if included is None: return True
         ident = origin + ':' + resource_unit(name)
         if ident in included: return True
@@ -306,7 +349,7 @@ def stage_source(source, destination, progress=lambda _: None, cancelled=lambda:
             folder = base / name
             if folder.is_symlink(): raise ValueError('拒绝复制链接目录')
             if folder.is_dir():
-                for p in sorted(folder.rglob('*')):
+                for p in sorted(content_paths(folder)):
                     if p.is_symlink() or not p.resolve().is_relative_to(source.resolve()): raise ValueError('实例中包含不安全链接')
                     if p.is_file():
                         if not keep(str(p.relative_to(base)), 'local'): continue
@@ -332,19 +375,20 @@ def stage_source(source, destination, progress=lambda _: None, cancelled=lambda:
                 download(entry, target_for(entry['path'], 0))
             for layer, prefix in enumerate(('overrides/', 'client-overrides/'), 1):
                 for item in archive.infolist():
-                    if item.is_dir() or not item.filename.startswith(prefix): continue
+                    if item.is_dir() or is_metadata(item.filename) or not item.filename.startswith(prefix): continue
                     if not keep(item.filename[len(prefix):], prefix.rstrip('/')): continue
                     budget(item.file_size)
                     target = target_for(item.filename[len(prefix):], layer)
                     with archive.open(item) as src, target.open('wb') as dst: shutil.copyfileobj(src, dst, 1024 * 1024)
+    clean_staged_metadata(game)
     mods = game / 'mods'
-    if not mods.is_dir() or not list(mods.glob('*.jar')): raise ValueError('没有 Fabric Mod JAR；无 Mod 时请选择原版')
-    if len(list(mods.glob('*.jar'))) > 128: raise ValueError('当前构建器最多支持 128 个根 Mod JAR')
+    if not mods.is_dir() or not mod_candidates(mods): raise ValueError('没有 Fabric Mod JAR；无 Mod 时请选择原版')
+    if len(mod_candidates(mods)) > 128: raise ValueError('当前构建器最多支持 128 个根 Mod JAR')
     write_json(destination / 'mmc-pack.json', {'components': [{'uid': 'net.minecraft', 'version': '26.1.2'}, {'uid': 'net.fabricmc.fabric-loader', 'version': loader}]})
     staged = scan_pack(destination)
     if staged['fatal']: raise ValueError('下载或复制后的 Mod 检查未通过：' + '; '.join(f['message'] for f in staged['findings'] if f['severity'] == 'error'))
     hashes = {}
-    for p in game.rglob('*'):
+    for p in content_paths(game):
         if p.is_file():
             with p.open('rb') as f: hashes[str(p.relative_to(game))] = hashlib.file_digest(f, 'sha256').hexdigest()
     write_json(game / 'import.json', dict(status='INSTANCE_FILES_IMPORTED', root=str(game.resolve()), mods=str(mods.resolve()), files={name: dict(sha256=digest, bytes=(game / name).stat().st_size) for name, digest in hashes.items()}, source=str(source), resourceSelection=selection, compatibilityOverrides=overrides))
@@ -426,7 +470,7 @@ def static_exclusion_plan(facts, source_folder):
         visible.append({'modIds': sorted(entry['ids']), 'name': metadata.get('name') or ', '.join(sorted(entry['ids'])),
                         'version': metadata.get('version', ''), 'file': filename,
                         'reasons': list(dict.fromkeys(entry['reasons']))})
-    remaining = [path for path in (staged_game / 'mods').glob('*.jar') if path.name not in filenames]
+    remaining = [path for path in mod_candidates(staged_game / 'mods') if path.name not in filenames]
     if not remaining:
         raise ValueError('排除这些项目后没有剩余 Mod，无法继续 Fabric 构建')
     return {'mods': sorted(visible, key=lambda row: row['file'].casefold()),
@@ -438,11 +482,12 @@ def filtered_source_copy(source_folder, destination, plan):
     game = source_folder / '.minecraft'
     if not (game / 'import.json').is_file() or destination.exists():
         raise ValueError('无法创建静态排除后的暂存副本')
-    for path in source_folder.rglob('*'):
+    for path in content_paths(source_folder):
         if path.is_symlink():
             raise ValueError('暂存来源包含链接，拒绝复制')
-    shutil.copytree(source_folder, destination)
+    shutil.copytree(source_folder, destination, ignore=copy_ignore)
     copied_game = destination / '.minecraft'
+    clean_staged_metadata(copied_game)
     removed_files = set(plan['modFiles'])
     for filename in removed_files:
         target = copied_game / 'mods' / filename
@@ -453,7 +498,7 @@ def filtered_source_copy(source_folder, destination, plan):
     manifest = read_json(manifest_path)
     manifest['mods'] = str((copied_game / 'mods').resolve())
     manifest['files'] = {name: facts for name, facts in manifest['files'].items()
-                         if not (name.startswith('mods/') and Path(name).name in removed_files)}
+                         if not is_metadata(name) and not (name.startswith('mods/') and Path(name).name in removed_files)}
     manifest['staticAotExclusions'] = plan['mods']
     write_json(manifest_path, manifest)
     record_path = destination / 'source.json'
@@ -482,7 +527,7 @@ def fabric_exclusion_report(build, source_folder):
     if facts.get('status') != 'FABRIC_AOT_INPUT_PREPARED' or not facts.get('excludedMods'):
         raise ValueError('失败原因不是可确认的静态 AOT 排除项')
     mods = Path(source_folder) / '.minecraft/mods'
-    current = {str(path.resolve()): sha256(path) for path in sorted(mods.glob('*.jar'))}
+    current = {str(path.resolve()): sha256(path) for path in mod_candidates(mods)}
     if facts.get('modSHA256') != current:
         raise ValueError('Fabric 排除报告与当前暂存 Mod 不匹配')
     return facts
@@ -523,10 +568,64 @@ def descendants(pid):
         if extra <= found: return found - {pid}
         found |= extra
 
+def aot_heap_gib(physical_bytes=None):
+    """Pick the Native Image heap that fits this host.
+
+    probe_client_graph.py refuses anything above half of physical memory, so the
+    ceiling is the only safe upper bound. The compiler needs the ceiling here:
+    a modpack that registers more reachable state than a 7 GiB heap can hold dies
+    with OutOfMemoryError during analysis, which costs a full rebuild to discover.
+    """
+    if physical_bytes is None:
+        try: physical_bytes = os.sysconf('SC_PHYS_PAGES') * os.sysconf('SC_PAGE_SIZE')
+        except (ValueError, OSError, AttributeError): return 7
+    gib = physical_bytes / 1024 ** 3
+    for choice in (9, 8, 7, 6):
+        if choice <= gib / 2: return choice
+    return 6
+
+
+def compile_build(command, folder, request, build, mods, game, update, env, previous=None):
+    """Run the compiler, moving to a fresh directory when a reused one is stale.
+
+    A retry keeps the previous build directory so already verified stages stay
+    cached. The compiler writes its input fingerprint once, so a directory whose
+    inputs changed can never be reused; report the failure with that directory
+    preserved and let the caller decide what to do next.
+    """
+    build = Path(build)
+    previous = list(previous or [])
+    for _ in range(3):
+        args = [*command, 'build', '--version', '26.1.2', '--loader', request['loader'], '--renderer', 'gl41',
+                '--heap-gib', str(aot_heap_gib()), '--parallelism', '3', '--target', 'ios-arm64',
+                '--config', resolve(request['config']), '--output', build]
+        if request['loader'] == 'fabric':
+            args += ['--mods', mods, '--audited-mods', '--instance-data', game]
+        if request.get('unsigned'):
+            args += ['--unsigned']
+        try:
+            execute(args, folder, 'build', update, 'fabric' if request['loader'] == 'fabric' else 'split', env)
+            return None, build
+        except ValueError as error:
+            if 'Build inputs changed' not in str(error):
+                return error, build
+            previous.append(dict(path=str(build), reason='输入指纹已变化，改用新的构建目录'))
+            build = resolve(request['output']) / f'build-{uuid4().hex[:12]}'
+            update(build=str(build), previousBuilds=previous)
+    raise ValueError('输入指纹在重试期间反复变化，请重新发起构建')
+
 def execute(argv, folder, name, update, stage, env):
     if CANCELLED or (folder / 'cancel').exists(): raise InterruptedError('构建已取消')
     update(stage=stage)
-    with (folder / (name + '.stdout.log')).open('ab', buffering=0) as out, (folder / (name + '.stderr.log')).open('ab', buffering=0) as err:
+    # A job keeps appending across retries and exclusion rounds, so a previous
+    # failure stays in these logs. Remember where this attempt starts and only
+    # report text written by it; otherwise an earlier "excluded Mods" message
+    # masks the real cause of a later AOT failure.
+    stderr_path = folder / (name + '.stderr.log')
+    stdout_path = folder / (name + '.stdout.log')
+    started_at = stderr_path.stat().st_size if stderr_path.exists() else 0
+    started_out = stdout_path.stat().st_size if stdout_path.exists() else 0
+    with stdout_path.open('ab', buffering=0) as out, stderr_path.open('ab', buffering=0) as err:
         child = subprocess.Popen(list(map(str, argv)), cwd=ROOT, env=env, stdin=subprocess.DEVNULL, stdout=out, stderr=err)
         started = time.monotonic()
         while child.poll() is None:
@@ -541,7 +640,45 @@ def execute(argv, folder, name, update, stage, env):
                 raise InterruptedError('构建已取消' if CANCELLED or (folder / 'cancel').exists() else '构建超过 4 小时上限')
             time.sleep(.2)
     if CANCELLED or (folder / 'cancel').exists(): raise InterruptedError('构建已取消')
-    if child.returncode: raise ValueError(f'{name} 失败（退出码 {child.returncode}）\n' + (tail(folder / (name + '.stderr.log'), 5000) or tail(folder / (name + '.stdout.log'), 5000)))
+    if child.returncode:
+        reason = attempt_output(stderr_path, started_at, 5000) or attempt_output(stdout_path, started_out, 5000)
+        raise ValueError(f'{name} 失败（退出码 {child.returncode}）\n' + reason)
+
+def attempt_output(path, offset, limit):
+    """Return only the text this attempt appended, capped to the last `limit` bytes."""
+    try:
+        with Path(path).open('rb') as f:
+            f.seek(0, 2)
+            end = f.tell()
+            f.seek(max(offset, end - limit))
+            return f.read().decode('utf-8', errors='replace')
+    except OSError: return ''
+
+def verify_unsigned_build(build):
+    """Revalidate AOT evidence, app and each IPA member without signing/exportArchive."""
+    from mcfao import verify
+    build = Path(build).resolve(strict=True)
+    result = read_json(build / 'result.json')
+    if result.get('status') != 'UNSIGNED_DEVICE_APP' or result.get('signature') != 'UNSIGNED':
+        raise ValueError('Expected a completed unsigned build')
+    ipa = Path(result['ipa'])
+    if ipa.is_symlink() or not ipa.resolve(strict=True).is_relative_to(build):
+        raise ValueError('IPA is outside the build directory')
+    verify(build, None)
+    expected = {'Payload/' + Path(result['app']).name + '/' + name: digest
+                for name, digest in result['appFilesSHA256'].items()}
+    with zipfile.ZipFile(ipa) as archive:
+        findings = []
+        if not validate_zip_members(archive, findings, 'unsigned IPA'):
+            raise ValueError('Unsafe unsigned IPA archive: ' + str(findings))
+        actual = {}
+        for member in archive.infolist():
+            if member.is_dir(): continue
+            with archive.open(member) as stream:
+                actual[member.filename] = hashlib.file_digest(stream, 'sha256').hexdigest()
+        if actual != expected or archive.testzip() is not None:
+            raise ValueError('Unsigned IPA content differs from the verified app')
+    return result
 
 def run_job(path):
     def stop(_sig, _frame):
@@ -570,7 +707,9 @@ def run_job(path):
         if not checked['ready']: raise ValueError('构建检查未通过：\n' + '\n'.join(c['name'] + '：' + c['detail'] for c in checked['checks'] if c['status'] == 'missing'))
         env = dict(os.environ, PYTHONUNBUFFERED='1')
         for key in ('JAVA_TOOL_OPTIONS', 'JDK_JAVA_OPTIONS', '_JAVA_OPTIONS', 'CLASSPATH'): env.pop(key, None)
-        if request.get('team'): env['MCFAO_DEVELOPMENT_TEAM'] = request['team']
+        if request.get('team') and not request.get('unsigned'): env['MCFAO_DEVELOPMENT_TEAM'] = request['team']
+        for role, directory in storage_paths().items(): env['MCFAO_' + role.upper() + '_DIR'] = str(directory)
+        env['CARGO_TARGET_DIR'] = str(storage_paths()['rust'])
         command = [sys.executable, '-B', ROOT / 'tools/mcfao.py']
         build = Path(job['build'])
         if not (build / 'result.json').exists():
@@ -585,12 +724,11 @@ def run_job(path):
                     if record.get('resourceSelection') != request.get('resourceSelection'):
                         raise ValueError('暂存内容的资源选择与任务不一致，请新建构建')
                     game = source / '.minecraft'
-                    actual = {}
-                    for p in game.rglob('*'):
-                        if p.is_symlink(): raise ValueError('暂存内容包含链接')
-                        if p.is_file():
-                            with p.open('rb') as f: actual[str(p.relative_to(game))] = hashlib.file_digest(f, 'sha256').hexdigest()
-                    if actual != record['filesSHA256']: raise ValueError('暂存内容发生变化，请新建构建')
+                    removed = clean_staged_metadata(game)
+                    if removed: print(f'已清理 {len(removed)} 个 macOS 元数据项', flush=True)
+                    actual = instance_files(game)
+                    expected = {name: digest for name, digest in record['filesSHA256'].items() if not is_metadata(name)}
+                    if actual != expected: raise ValueError('暂存内容发生变化，请新建构建')
                     mods = game / 'mods'
                 else: mods, game = stage_source(resolve(request['source']), source, lambda s: print(s, flush=True), lambda: CANCELLED or (folder / 'cancel').exists(), force_compile=request.get('forceCompile', False), selection=request.get('resourceSelection'))
                 update(compatibilityOverrides=read_json(source / 'source.json').get('compatibilityOverrides', []))
@@ -598,15 +736,13 @@ def run_job(path):
             execute([*command, 'doctor', '--renderer', 'gl41', '--config', resolve(request['config'])], folder, 'doctor', update, 'doctor', env)
             for exclusion_round in range(5):
                 build = Path(job['build'])
-                args = [*command, 'build', '--version', '26.1.2', '--loader', request['loader'], '--renderer', 'gl41', '--heap-gib', '7', '--parallelism', '3', '--target', 'ios-arm64', '--config', resolve(request['config']), '--output', build]
-                if request['loader'] == 'fabric':
-                    args += ['--mods', mods, '--audited-mods', '--instance-data', game]
-                try:
-                    execute(args, folder, 'build', update, 'fabric' if request['loader'] == 'fabric' else 'split', env)
+                error, build = compile_build(command, folder, request, build, mods, game, update, env,
+                                             job.get('previousBuilds'))
+                if error is None:
                     break
-                except ValueError as error:
-                    if request['loader'] != 'fabric' or 'Requested Fabric instance contains excluded Mods' not in str(error):
-                        raise
+                elif 'Requested Fabric instance contains excluded Mods' not in str(error) or request['loader'] != 'fabric':
+                    raise error
+                else:
                     if exclusion_round == 4:
                         raise ValueError('静态排除后仍发现新的不支持项，已达到确认次数上限；请先调整整合包') from error
                     facts = fabric_exclusion_report(build, source)
@@ -633,7 +769,12 @@ def run_job(path):
                     mods, game = source / '.minecraft/mods', source / '.minecraft'
             else:
                 raise ValueError('静态排除后没有可继续的构建输入')
-        else: execute([*command, 'verify', '--target', 'ios-arm64', '--output', build], folder, 'reverify', update, 'verify', env)
+        elif not request.get('unsigned'): execute([*command, 'verify', '--target', 'ios-arm64', '--output', build], folder, 'reverify', update, 'verify', env)
+        if request.get('unsigned'):
+            result = verify_unsigned_build(build)
+            update(state='succeeded', stage='verify', ipa=result['ipa'], sha256=result['sha256'], bytes=result['bytes'],
+                   signature='UNSIGNED', warning='未签名 IPA 不能直接装机，需要另行签名。', finishedAt=now())
+            return
         export = folder / ('ipa-' + uuid4().hex[:8])
         update(export=str(export))
         execute([*command, 'export', '--target', 'ios-arm64', '--build', build, '--export-options', resolve(request['exportOptions']), '--output', export], folder, 'export', update, 'archive', env)
@@ -646,8 +787,14 @@ def run_job(path):
     except Exception as e: update(state='failed', error=str(e), finishedAt=now())
 
 def start(request, retry=None):
+    with control_lock(workspace_path(request.get('workspace', str(ROOT)))):
+        return _start(request, retry)
+
+def _start(request, retry=None):
     workspace = validate_request(request)
-    root = workspace / 'artifacts/desktop-jobs'
+    require_mount('desktop build')
+    require_space({**storage_paths(workspace), 'builds': resolve(request['output'])})
+    root = storage_paths(workspace)['jobs']
     root.mkdir(parents=True, exist_ok=True)
     with (root / '.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -690,7 +837,7 @@ def cancel(workspace, ident):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['bootstrap', 'check', 'start', 'status', 'cancel', 'history', 'retry', 'resolve-exclusions', 'save-config', 'run-job'])
+    parser.add_argument('action', choices=['bootstrap', 'check', 'start', 'status', 'cancel', 'history', 'retry', 'resolve-exclusions', 'save-config', 'run-job', 'storage-plan', 'storage-clean', 'storage-settings', 'save-storage', 'setup-start', 'setup-status'])
     parser.add_argument('--request', default='{}')
     parser.add_argument('--workspace', default=str(ROOT))
     parser.add_argument('--id')
@@ -705,9 +852,23 @@ def main():
         if args.action == 'bootstrap': result = bootstrap(workspace)
         elif args.action == 'check': result = check(request)
         elif args.action == 'save-config': result = save_config(request)
+        elif args.action == 'storage-settings': result = space_report(storage_paths(workspace))
+        elif args.action == 'save-storage':
+            with control_lock(workspace):
+                if any(j['state'] in ACTIVE for j in history(workspace)): raise ValueError('请在构建结束后更改存储位置')
+                from first_run import status as setup_status
+                if setup_status().get('state') in ('queued', 'running'): raise ValueError('请在工具链准备结束后更改存储位置')
+                result = save_paths(request['fields'], workspace)
+        elif args.action == 'setup-start':
+            from first_run import start as start_setup
+            result = start_setup(request.get('fields', {}).get('owned') is True)
+        elif args.action == 'setup-status':
+            from first_run import status as setup_status
+            result = setup_status()
         elif args.action == 'start': result = start(request)
         elif args.action == 'retry': result = start(read_json(job_path(workspace, args.id))['request'], args.id)
         elif args.action == 'resolve-exclusions': result = resolve_exclusions(workspace, args.id, request.get('fields', {}))
+        elif args.action in ('storage-plan', 'storage-clean'): result = storage(args.action, request.get('fields', request))
         elif args.action == 'status': result = snapshot(job_path(workspace, args.id))
         elif args.action == 'cancel': result = cancel(workspace, args.id)
         else: result = history(workspace)

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Build/run only the audited A1 fixture; desktop success never passes iOS Gate A1."""
 from __future__ import annotations
+from storage_config import cache_path
 
 import argparse
 import json
@@ -86,7 +87,7 @@ def run(home: Path, output: Path, mode: str) -> dict:
                         # Only numeric ABI cache data is consumed, not the candidate's
                         # native libraries, Gradle scripts, plugins or initializers.
                         spec = json.loads((ROOT / "compiler/toolchains.lock.json").read_text())["iosCandidate"]
-                        candidate = ROOT / ".cache/toolchains" / spec["file"]
+                        candidate = cache_path('toolchains') / spec["file"]
                         integrity = inspect(candidate, spec)
                         cap_cache = output / "caps"
                         cap_cache.mkdir()

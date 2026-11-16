@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import io
+import json
 import sys
+import tempfile
 import unittest
 import zipfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 from prepare_b0 import jar_bytes
-from run_b0_reference import negative_control_ok, sandbox_policy
+from run_b0_reference import negative_control_ok, require_run, sandbox_policy
 
 
 class B0PreparationTests(unittest.TestCase):
@@ -56,6 +58,43 @@ class B0PreparationTests(unittest.TestCase):
         self.assertNotIn('(subpath "/Users")', policy)
         self.assertIn('(literal "/")', policy)
         self.assertNotIn('(subpath "/")', policy)
+
+    def test_policy_resolves_external_toolchain_work_and_individual_jar_links(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            external = root / 'external disk'
+            home = external / 'jdk'
+            (home / 'bin').mkdir(parents=True)
+            (home / 'bin/java').touch()
+            work = external / 'work'
+            work.mkdir()
+            jar = external / 'driver.jar'
+            jar.touch()
+            alias = root / 'cache'
+            alias.symlink_to(external, target_is_directory=True)
+            jar_link = root / 'driver.jar'
+            jar_link.symlink_to(jar)
+            policy = sandbox_policy(alias / 'work', alias / 'jdk', [jar_link])
+            self.assertIn('(allow process-exec (literal ' + json.dumps(str(home / 'bin/java')) + '))', policy)
+            self.assertIn('(subpath ' + json.dumps(str(home)) + ')', policy)
+            self.assertIn('(allow file-write* (subpath ' + json.dumps(str(work)) + ')', policy)
+            self.assertIn('(literal ' + json.dumps(str(jar)) + ')', policy)
+            self.assertNotIn(str(alias), policy)
+            self.assertNotIn('(subpath ' + json.dumps(str(external)) + ')', policy)
+            self.assertNotIn('(allow network', policy)
+
+    def test_failed_control_includes_actual_error_and_preserves_marker_check(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            (folder / 'stdout.log').write_text('')
+            (folder / 'stderr.log').write_text('sandbox-exec: Operation not permitted\n')
+            with self.assertRaisesRegex(RuntimeError, 'Operation not permitted'):
+                require_run({'exitCode': 71, 'timedOut': False}, folder, 'B0_SANDBOX_PASS')
+            (folder / 'stderr.log').write_text('')
+            with self.assertRaises(RuntimeError):
+                require_run({'exitCode': 0, 'timedOut': False}, folder, 'B0_SANDBOX_PASS')
+            (folder / 'stdout.log').write_text('B0_SANDBOX_PASS\n')
+            require_run({'exitCode': 0, 'timedOut': False}, folder, 'B0_SANDBOX_PASS')
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-# FabricAOT IPA 构建工作台（实验版）
+# NCL Builder IPA 构建工作台（实验版）
 
 中文本地图形工具：选择游戏内容 → 构建环境 → 开发签名 → 构建 IPA。包含真实后台任务、阶段日志、取消、失败重试、任务恢复、IPA 校验和 Finder 定位。界面提供跟随系统、浅色和深色三种外观，选择保存在本机，并同步 macOS 窗口标题栏。
 
@@ -14,7 +14,9 @@
 
 ## 本地打包
 
-在 desktop 执行 npm run build:mac。脚本运行 Tauri 开发包构建，并对 FabricAOT.app 执行临时签名及严格验签。产物在 src-tauri/target/debug/bundle/macos/FabricAOT.app。工作台不包含游戏文件；运行时选择完整 FabricAOT 源码目录。正式分发签名和公证尚未验收。
+在 desktop 执行 npm run build:mac。脚本会先检查外接盘挂载与所选目录剩余空间，再用 Xcode actool 把仓库根目录的 NCB.icon 编译为 Assets.car 与 NCB.icns，保留浅色、深色与透明图层；随后运行 Tauri 开发包构建，把这两个资源放入 Contents/Resources，并让 CFBundleIconFile 与 CFBundleIconName 指向 NCB。最终在所选产物根的 desktop/ncl-builder-<version>/ 生成经临时签名与严格验签的 NCL Builder.app 及同名 zip；已有同名交付时使用新的目录后缀。工作台附带受控源码树，分发应用默认使用包内源码，不包含游戏文件；首次准备与外部客户端输入见 docs/DESKTOP.md 和 docs/BUILDING.md。正式分发签名和公证尚未验收。
+
+当前版本 0.2.7，界面、npm、Cargo 和 Tauri 版本号一致。交付位于 artifacts/desktop/ncl-builder-0.2.7/，保留旧版本目录；沿用已有配置迁移，并使用主项目已修复的外接盘隔离路径和日志元数据过滤。
 
 ## 使用
 
@@ -31,6 +33,10 @@
 - 外观默认跟随系统；设置页可固定浅色或深色，并切换交互强调色。
 - 强调色默认读取 macOS 系统设置；浅色模式会自动调整填充色的明度，保证按钮文字可读。
 - 状态色固定表示成功、警告和错误。构建日志使用等宽字体，并同时用文字标签与颜色区分等级。
+
+## 磁盘空间
+
+设置页「磁盘空间」可统计并清理编译缓存、Rust 编译缓存、构建中间产物与旧构建。清理前先展示每组大小，二次确认后只删除勾选的分组；`result.json`、任务日志、`.ipa` 和 `.xcarchive` 始终保留，有构建任务运行时拒绝清理。
 
 ## 测试
 

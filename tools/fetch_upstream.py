@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Fetch immutable upstream source revisions as data; execute no build scripts."""
 from __future__ import annotations
+from storage_config import cache_path
 
 import json
 import ssl
@@ -27,7 +28,7 @@ def extract_source(archive: Path, destination: Path, commit: str):
 
 def main():
     lock = json.loads((ROOT / "compiler/upstream.lock.json").read_text())
-    output = ROOT / ".cache/upstream"
+    output = cache_path('upstream')
     output.mkdir(parents=True, exist_ok=True)
     context = ssl.create_default_context()
     context.load_verify_locations(cafile="/etc/ssl/cert.pem")

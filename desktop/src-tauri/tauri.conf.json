@@ -1,19 +1,19 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "FabricAOT",
-  "version": "0.2.6",
+  "productName": "NCL Builder",
+  "version": "0.2.7",
   "identifier": "org.fabricaot.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://127.0.0.1:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run prepare:bundle && npm run build",
     "frontendDist": "../dist"
   },
   "app": {
     "windows": [
       {
         "label": "main",
-        "title": "FabricAOT · IPA 构建工作台",
+        "title": "NCL Builder \u00b7 IPA \u6784\u5efa\u5de5\u4f5c\u53f0",
         "width": 1100,
         "height": 760,
         "minWidth": 800,
@@ -21,7 +21,10 @@
         "center": true,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
-        "trafficLightPosition": { "x": 20, "y": 20 },
+        "trafficLightPosition": {
+          "x": 20,
+          "y": 20
+        },
         "backgroundColor": "#F5F5F7",
         "theme": null
       }
@@ -33,9 +36,13 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "shortDescription": "FabricAOT 本地 IPA 构建工作台（实验版）",
+    "shortDescription": "NCL Builder \u672c\u5730 IPA \u6784\u5efa\u5de5\u4f5c\u53f0\uff08\u5b9e\u9a8c\u7248\uff09",
     "resources": {
-      "../../tools/preflight.py": "tools/preflight.py"
+      "../../tools/preflight.py": "tools/preflight.py",
+      "icon-build/Assets.car": "Assets.car",
+      "icon-build/NCB.icns": "NCB.icns",
+      "../../tools/mod_file_policy.py": "tools/mod_file_policy.py",
+      "bundle-source/": "source/"
     },
     "icon": [
       "icons/32x32.png",
@@ -45,7 +52,8 @@
       "icons/icon.ico"
     ],
     "macOS": {
-      "minimumSystemVersion": "11.0"
+      "minimumSystemVersion": "11.0",
+      "infoPlist": "Info.plist"
     }
   }
 }

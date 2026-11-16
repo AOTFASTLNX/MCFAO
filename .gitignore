@@ -2,6 +2,8 @@
 /.cache
 /artifacts/*
 !/artifacts/desktop/
+/artifacts/desktop/**/*.app/
+/artifacts/desktop/**/*.zip
 /desktop/src-tauri/target
 /logs/
 /config/

@@ -14,13 +14,8 @@ from bootstrap_toolchain import sha256
 from graphics_common import register_tree
 
 def fetch_verified(url:str,target:Path,size:int,digest:str):
-    context=ssl.create_default_context(cafile='/etc/ssl/cert.pem')
-    target.parent.mkdir(parents=True,exist_ok=True)
-    with urllib.request.urlopen(url,context=context,timeout=45) as response:
-        if response.url!=url:raise ValueError('Unexpected asset redirect')
-        data=response.read(size+1)
-    if len(data)!=size or hashlib.sha1(data).hexdigest()!=digest:raise ValueError('Downloaded asset fingerprint mismatch')
-    with target.open('xb') as stream:stream.write(data)
+    from verified_download import fetch, GAME_HOSTS
+    fetch(dict(url=url, size=size, sha1=digest), target, GAME_HOSTS)
 
 def verified_assets(source:Path, metadata:dict,download:Path|None=None):
     if metadata.get('id')!='26.1.2':raise ValueError('Exact 26.1.2 version metadata required')
@@ -36,7 +31,7 @@ def verified_assets(source:Path, metadata:dict,download:Path|None=None):
         index=download/'indexes'/f'{index_id}.json'
         fetch_verified(url,index,spec['size'],digest)
     objects=json.loads(index.read_text())['objects'];files={}
-    if len(objects)>20000:raise ValueError('Asset count budget exceeded')
+    if len(objects)>20000 or sum(info['size'] for info in objects.values())>1024**3:raise ValueError('Asset count budget exceeded')
     for info in objects.values():
         digest=info['hash'];size=info['size']
         if not re.fullmatch(r'[0-9a-f]{40}',digest) or not isinstance(size,int) or not 0<=size<=128*1024**2:raise ValueError('Invalid object metadata')

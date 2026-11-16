@@ -32,6 +32,14 @@ class RendererProfileTests(unittest.TestCase):
             with patch("build_c0_harness.validate_dylib") as validate:
                 validate_runtime(app, "gl41")
                 self.assertEqual(validate.call_count, 7)
+                # exFAT volumes add `._name` sidecars next to every file; they are
+                # metadata and must not read as unexpected runtime libraries.
+                for name in libraries("gl41"):
+                    (frameworks / ("._" + name)).write_bytes(b"\x00\x05\x16\x07Mac OS X")
+                validate_runtime(app, "gl41")
+                self.assertEqual(validate.call_count, 14)
+                for name in libraries("gl41"):
+                    (frameworks / ("._" + name)).unlink()
                 (frameworks / "libOSMesa.8.dylib").unlink()
                 with self.assertRaisesRegex(ValueError, "libOSMesa"):
                     validate_runtime(app, "gl41")
