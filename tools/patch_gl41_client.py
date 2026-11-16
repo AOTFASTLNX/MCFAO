@@ -68,7 +68,7 @@ def main(argv=None):
     result = {"status": "GL41_CLIENT_PATCHED", "client": str(client), "clientSHA256": sha256(client),
               "outputJar": str(target), "outputJarSHA256": sha256(target),
               "changedEntries": changed, "directStateAccess": "disabled for the 4.1 OSMesa surface",
-              "worldJoin": "preserve vanilla readiness; short-circuit unsigned chat-key waits and trace client loading",
+              "worldJoin": "preserve vanilla readiness and chat signature checks; trace client loading",
               "framePacing": "fixed-deadline 120 FPS limiter; overdue frames do not accumulate",
               "uniformBuffers": "pre-size dynamic transform and chunk-section buffers to avoid frame hitches while loading terrain",
               "scope": "build-time bytecode adaptation; no game execution"}

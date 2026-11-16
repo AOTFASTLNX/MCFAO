@@ -172,7 +172,31 @@ public final class InjectBackend implements Opcodes {
         if(matches!=1)throw new IllegalArgumentException("Expected one GUI item atlas SlotView constructor");
         ClassWriter writer=new ClassWriter(ClassWriter.COMPUTE_MAXS);cls.accept(writer);return writer.toByteArray();
     }
+    static void instrumentClientHandlers(ClassNode cls) {
+        int handlers = 0;
+        for (MethodNode method : cls.methods) {
+            if (!method.name.startsWith("handle") || !method.desc.endsWith(";)V")) continue;
+            for (AbstractInsnNode instruction : method.instructions.toArray()) {
+                if (!(instruction instanceof MethodInsnNode call) || call.getOpcode() != INVOKESTATIC
+                        || !call.owner.equals("net/minecraft/network/protocol/PacketUtils")
+                        || !call.name.equals("ensureRunningOnSameThread")) continue;
+                InsnList begin = new InsnList();
+                begin.add(new LdcInsnNode(method.name));
+                begin.add(diag("packetBegin", "(Ljava/lang/String;)V"));
+                method.instructions.insert(instruction, begin);
+                for (AbstractInsnNode end : method.instructions.toArray()) {
+                    if (end.getOpcode() == RETURN) {
+                        method.instructions.insertBefore(end, diag("packetEnd", "()V"));
+                    }
+                }
+                handlers++;
+                break;
+            }
+        }
+        if (handlers == 0) throw new IllegalArgumentException("Missing client packet thread handoffs");
+    }
     static void instrumentPacketListener(ClassNode cls) {
+        instrumentClientHandlers(cls);
         MethodNode login = require(cls, "handleLogin", "(L" + LOGIN_PACKET + ";)V");
         InsnList loginHook = new InsnList();
         loginHook.add(new VarInsnNode(ALOAD, 1));

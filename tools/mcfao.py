@@ -24,7 +24,8 @@ from bootstrap_toolchain import sha256
 from build_c0_harness import binary_platform, validate_dylib, validate_shader_bundle
 from capture import ROOT, capture
 from bundle_source import source_identity
-from graphics_common import bridge_overlays
+from graphics_common import bridge_overlays, verify_gl41_bridge
+from native_game_checks import verify_game_image
 from build_glfw_lite import exported_symbols, validate_input_exports
 from glfw_runtime_contract import validate_glfw_renderer
 from prepare_fabric_aot import TOOL as FABRIC_TOOL, mod_files
@@ -59,6 +60,7 @@ BACKEND_TOOLS = (
     "config_reflection", "mdaf", "verify_aot_classpath", "patch_gl41_client", "renderer_profile",
     "cleanup_storage",
     "storage_config", "bundle_source", "host_tools", "verified_download", "glfw_runtime_contract",
+    "native_game_checks",
 )
 
 
@@ -205,6 +207,7 @@ def inputs(config: dict, renderer: str = "metal") -> tuple[dict, Path, list[Path
     if renderer == "metal":
         validate_shader_bundle(config["shaders"] / "bundle", simulator=False)
     else:
+        verify_gl41_bridge(config["lwjgl"])
         from fetch_gl41_runtime import FILES, macho_platform
         runtime_report = read_json(config["gl41"] / "result.json")
         if runtime_report.get("status") != "GL41_RUNTIME_FETCHED":
@@ -384,9 +387,10 @@ def app_facts(app: Path, requested_device: str | None, logs: Path, renderer="met
     symbols = command("/usr/bin/xcrun", "nm", "-gUj", app / "Frameworks/client-graph.dylib")
     if abi - set(symbols.splitlines()):
         raise ValueError("Packaged image is missing the Native Image entry/isolate ABI")
+    gameplay = verify_game_image(app / "Frameworks/client-graph.dylib") if renderer == "gl41" else None
     if not signed_app:
         return {"executable": facts, "libraries": libraries, "bundleID": info["CFBundleIdentifier"],
-                "signature": "UNSIGNED - cannot install directly", "imageExports": sorted(abi), "deviceRun": "NOT RUN"}
+                "signature": "UNSIGNED - cannot install directly", "imageExports": sorted(abi), "gameCode": gameplay, "deviceRun": "NOT RUN"}
     codesign = capture(["/usr/bin/codesign", "--verify", "--deep", "--strict", str(app)],
                        logs / "codesign", 60)
     if codesign["exitCode"] or codesign["timedOut"]:
@@ -419,7 +423,7 @@ def app_facts(app: Path, requested_device: str | None, logs: Path, renderer="met
     return {"executable": facts, "libraries": libraries, "bundleID": info["CFBundleIdentifier"],
             "profileExpiresUTC": expiration.isoformat(), "provisionedDeviceCount": len(devices),
             "requestedDeviceCovered": True if requested_device else None,
-            "dynamicCodeEntitlements": "ABSENT", "imageExports": sorted(abi), "deviceRun": "NOT RUN"}
+            "dynamicCodeEntitlements": "ABSENT", "imageExports": sorted(abi), "gameCode": gameplay, "deviceRun": "NOT RUN"}
 
 
 def validate_package(app, staged, asset_hashes, renderer="metal"):
@@ -716,6 +720,8 @@ def build(args, config):
                 or sha256(image_object) != image["imageObject"]["sha256"]
                 or "--no-fallback" not in flags or "-H:+ExitAfterRelocatableImageWrite" not in flags):
             raise ValueError(f"Invalid AOT object or arguments. Logs: {aot / 'analysis'}")
+        if gl41:
+            verify_game_image(image_object)
         runtime = pipeline.step("runtime", script(
             "build_ios_runtime", "--sdk", "iphoneos", "--with-extnet",
             "--graalvm-home", home, "--jdk-source", manifest["runtimeSources"]["jdk"],
@@ -725,6 +731,8 @@ def build(args, config):
             "link_c0_ios", "--sdk", "iphoneos", "--image", aot, "--runtime", runtime,
             "--stub-unsupported-jni", "--output", "{product}"))
         validate_dylib(linked / "client-graph.dylib")
+        if gl41:
+            verify_game_image(linked / "client-graph.dylib")
         staged = pipeline.step("stage", script(
             "stage_device_xcode", "--client", linked,
             *(argument for name in config_names(renderer)

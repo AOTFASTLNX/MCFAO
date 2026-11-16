@@ -14,11 +14,14 @@ import java.util.concurrent.atomic.AtomicLong;
  * <p>Enable with {@code -Dmcfao.diag.play=true} (the default) and disable with
  * {@code -Dmcfao.diag.play=false}. The optional {@code -Dmcfao.diag.stallSeconds=N} controls when
  * a full Java thread dump is written after a level-load state has stopped progressing.
+ * A separate {@code -Dmcfao.diag.tickStallSeconds=N} (default 5) catches a blocked client
+ * loop promptly, even while network packets continue arriving during normal terrain loading.
  */
 public final class PlayDiagnostics implements Runnable {
     private static final boolean ENABLED =
             !"false".equals(System.getProperty("mcfao.diag.play", "true"));
     private static final int STALL_SECONDS = integer("mcfao.diag.stallSeconds", 35);
+    private static final int TICK_STALL_SECONDS = integer("mcfao.diag.tickStallSeconds", 5);
     private static final int HEARTBEAT_MILLIS = integer("mcfao.diag.heartbeatMillis", 2000);
     private static final long START_NANOS = System.nanoTime();
     private static final PlayDiagnostics INSTANCE = new PlayDiagnostics();
@@ -44,6 +47,10 @@ public final class PlayDiagnostics implements Runnable {
     private static volatile String sectionPosition = "?";
     private static volatile boolean sectionWasVisible;
     private static volatile boolean watchdogStarted;
+    private static volatile String clientHandler = "none";
+    private static volatile Thread clientHandlerThread;
+    private static volatile long clientHandlerStartedNanos;
+    private static volatile boolean clientHandlerActive;
     private static long lastTrackerLogNanos;
     private static long lastReadyLogNanos;
     private static long lastSectionLogNanos;
@@ -104,7 +111,6 @@ public final class PlayDiagnostics implements Runnable {
         TICKS.incrementAndGet();
         LAST_TICK_NANOS.set(now());
         startWatchdog();
-        maybeDumpStall();
     }
 
     public static void login(Object packet) {
@@ -112,6 +118,20 @@ public final class PlayDiagnostics implements Runnable {
         trackerState = "login";
         trackerChangedNanos = now();
         log("configuration_to_play", "state=PLAY_LOGIN packet=" + text(packet));
+    }
+
+    /** Injected after PacketUtils' thread handoff, so only the actual client handler is tracked. */
+    public static void packetBegin(String handler) {
+        if (!ENABLED) return;
+        clientHandlerThread = Thread.currentThread();
+        clientHandler = handler;
+        clientHandlerStartedNanos = now();
+        clientHandlerActive = true;
+    }
+
+    public static void packetEnd() {
+        if (!ENABLED || Thread.currentThread() != clientHandlerThread) return;
+        clientHandlerActive = false;
     }
 
     public static void chunk(int x, int z) {
@@ -273,6 +293,7 @@ public final class PlayDiagnostics implements Runnable {
         thread.setDaemon(true);
         thread.start();
         log("diagnostics_start", "enabled=true stallSeconds=" + STALL_SECONDS
+                + " tickStallSeconds=" + TICK_STALL_SECONDS
                 + " heartbeatMillis=" + HEARTBEAT_MILLIS);
     }
 
@@ -295,16 +316,22 @@ public final class PlayDiagnostics implements Runnable {
                     + " section=" + sectionPosition
                     + " sectionVisible=" + sectionWasVisible
                     + " sectionAgeMs=" + since(LAST_SECTION_NANOS)
+                    + " clientHandler=" + clientHandler
+                    + " handlerActive=" + clientHandlerActive
+                    + " handlerAgeMs=" + (clientHandlerStartedNanos == 0 ? -1
+                        : (current - clientHandlerStartedNanos) / 1_000_000L)
                     + " clientPositions=" + CLIENT_POSITIONS.get()
                     + " serverPositions=" + SERVER_POSITIONS.get());
             long tickAgeMs = since(LAST_TICK_NANOS);
-            boolean tickStalled = tickAgeMs >= STALL_SECONDS * 1000L;
+            boolean tickStalled = tickAgeMs >= TICK_STALL_SECONDS * 1000L;
             if (tickStalled && !tickStallReported) {
-                log("client_tick_stall", "tickAgeMs=" + tickAgeMs + " tracker=" + trackerState);
-                if (!trackerState.contains("WaitingFor")) dumpThreads();
+                log("client_tick_stall", "tickAgeMs=" + tickAgeMs + " tracker=" + trackerState
+                        + " clientHandler=" + clientHandler + " handlerActive=" + clientHandlerActive);
+                dumpThreads();
             }
             tickStallReported = tickStalled;
-            maybeDumpStall();
+            // A stalled tick already has its own dump. Readiness can stall with healthy ticks.
+            if (!tickStalled) maybeDumpStall();
         }
     }
 
@@ -329,6 +356,7 @@ public final class PlayDiagnostics implements Runnable {
     }
 
     private static void dumpThreads() {
+        log("thread_dump_start", "clientHandler=" + clientHandler);
         Map<Thread, StackTraceElement[]> traces;
         try {
             traces = Thread.getAllStackTraces();
@@ -343,16 +371,18 @@ public final class PlayDiagnostics implements Runnable {
             log("thread", "name=" + name + " state=" + thread.getState()
                     + " daemon=" + thread.isDaemon());
             StackTraceElement[] frames = entry.getValue();
-            for (int index = 0; index < Math.min(frames.length, 28); index++) {
+            for (int index = 0; index < Math.min(frames.length, 48); index++) {
                 log("thread_frame", "name=" + name + " index=" + index + " at=" + frames[index]);
             }
         }
+        log("thread_dump_end", "");
     }
 
     private static boolean interesting(String name) {
         return name.equals("Render thread") || name.equals("main") || name.equals("Server thread")
                 || name.equals("MCFAO Diag") || name.startsWith("Netty")
                 || name.startsWith("Worker-Main") || name.startsWith("Download")
+                || name.startsWith("User Authenticator")
                 || name.startsWith("IO-Worker") || name.startsWith("Yggdrasil");
     }
 
