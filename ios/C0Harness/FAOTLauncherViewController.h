@@ -8,6 +8,8 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+FOUNDATION_EXPORT NSString *const FAOTTestBuildMarker;
+
 extern NSString *const FAOTPlayerNameDefaultsKey;   // NSString
 extern NSString *const FAOTMemoryGiBDefaultsKey;    // NSNumber
 extern NSString *const FAOTControlLayoutDefaultsKey; // NSString, layout name under Documents/controlmap
