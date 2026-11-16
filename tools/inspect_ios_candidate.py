@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Inspect a pinned iOS runtime ZIP as data, without loading or executing it."""
 from __future__ import annotations
+from storage_config import cache_path
 
 import argparse
 import hashlib
@@ -111,7 +112,7 @@ def main(argv=None):
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
     spec = json.loads((ROOT / "compiler/toolchains.lock.json").read_text())["iosCandidate"]
-    result = inspect(ROOT / ".cache/toolchains" / spec["file"], spec)
+    result = inspect(cache_path('toolchains') / spec["file"], spec)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("x") as out:
         json.dump(result, out, indent=2)

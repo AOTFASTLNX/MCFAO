@@ -9,6 +9,7 @@ from pathlib import Path
 from bootstrap_toolchain import sha256
 from capture import ROOT, capture
 from graphics_common import register_tree
+from glfw_runtime_contract import validate_glfw_renderer
 
 # Mod polling is absent from the vanilla client call inventory. These functions
 # are required by malilib's per-tick key recheck as well as direct game input.
@@ -57,6 +58,8 @@ def main(argv=None):
         (output/"platform.txt").write_text(platform)
         expected="IOSSIMULATOR" if args.sdk=="iphonesimulator" else "IOS"
         if f"platform {expected}\n" in platform and not result["missingCExports"]:
+            result['rendererABI'] = validate_glfw_renderer(binary, 'gl41')
+            result['supportedClientAPIs'] = ['NO_API', 'OPENGL_OSMESA']
             result["status"]="NATIVE_SUBSET_BUILT"
         result["binarySHA256"]=sha256(binary)
     if args.test_host:

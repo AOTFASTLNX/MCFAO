@@ -1,8 +1,37 @@
 # Native Craft Launcher 构建与复现
 
-最后复核于 2026-11-10。状态见 [STATUS](STATUS.md)，实验结论见 [ADR-001](evidence/ADR-001.md)。以下均在项目根执行，日志输出目录要求新建。
+GL41 构建必须使用支持 OpenGL/OSMesa 的 GLFW 二进制；历史 `glfw-ios-05` 的哈希有效但仅支持 NO_API，会在创建 OpenGL 窗口时失败。构建器现校验实际 GLFW ABI，而非仅检查报告/文件名。更新 GLFW 后，常规完整构建仍需重建与其哈希绑定的 LWJGL 输入。LAN r4 的原生修复、源码快照及验证见 [GL41_STARTUP_BRIDGE_FIX](GL41_STARTUP_BRIDGE_FIX.md)。
+
+最后复核于 2026-11-16。状态见 [STATUS](STATUS.md)，实验结论见 [ADR-001](evidence/ADR-001.md)。以下均在项目根执行，日志输出目录要求新建。
 
 > 前置条件：先接上并挂载外接盘 K。大体积产物与工具链缓存位于 /Volumes/K/MCFAO-data/，项目内是符号链接；断盘时 mcfao 会在创建输出前暂停（退出码 3），GUI 工作台显示「暂停」。检查与恢复见 EXTERNAL_STORAGE.md。
+
+
+## 可分发构建器与首次准备（2026-11-16）
+
+NCL Builder 的应用资源包含受控源码树与 bundle-manifest.json，不包含游戏、缓存或签名材料；无需原开发者的仓库路径或 .git。安装后需 ARM64 Python 3.11+，实际 iOS 编译需 Xcode/iPhoneOS SDK。首次启动后台自动取得并校验锁定工具链，设置页可重试；当前下载清单 602,860,639 字节（574.9 MiB），游戏客户端/资源另外在明确确认所有权后从官方源取得。仅下载/解包不执行第三方构建脚本，也不自动把技术 Gate 标为通过。
+
+工具链源码与原生编译前置产物仍按下文准备：特别是 OpenJDK JNI 头文件、caps、iOS Java 运行库、图形桥接与 mcfao 配置，下载完成并不代表这些均已构建。任何执行上游构建脚本的步骤仍须审计并隔离；首次准备不会运行它们。
+
+GUI 设置提供四类目录：编译缓存、产物根、任务根、Rust target。源码默认保留既有路径，分发应用默认使用用户 Library 目录。支持 MCFAO_STORAGE_CONFIG 与 MCFAO_CACHE_DIR / MCFAO_BUILDS_DIR / MCFAO_JOBS_DIR / MCFAO_RUST_DIR；npm run build:mac 会把所选 Rust 目录传给 CARGO_TARGET_DIR，并把桌面 .app / ZIP 放入所选产物根的 desktop/ 下。直接调用 cargo 时可用 CARGO_TARGET_DIR 指向同一位置。更改配置不迁移数据；保存、空间预算及旧任务规则见 DESKTOP.md / EXTERNAL_STORAGE.md。
+
+```bash
+python3 -B tools/storage_config.py --check
+```
+
+上面的检查包括原有挂载守卫及所选目录的空间预算。不要删除 external-storage.json 或更换符号链接来绕过检查。
+
+外部客户端下载完成后，用真实校验清单准备第一方 B0 输入：
+
+```bash
+python3 -B tools/prepare_b0.py --client-dir "$CLIENT_INPUTS" --graalvm-home "$GRAALVM_HOME" --output "$PREPARED_OUTPUT"
+```
+
+CLIENT_INPUTS 应包含 client-inputs.json / meta/versions / meta/libraries；每个条目重新校验 SHA-256，Fabric 引擎还对照 fabric.lock.json。此模式不依赖本机历史 A0 目录，也不会生成虚假的 A0 PASS。已有真实 A0 仍可通过 --baseline 或 MCFAO_A0 指定。方法拆分器的 asm / asm-tree / asm-analysis / asm-util / asm-commons 全部从 Maven 按 compiler/asm.lock.json 校验，不再依赖本机 Gradle 缓存。
+
+CLI --unsigned 已由 GUI 开关接入：跳过签名资料检查和 Xcode exportArchive，直接验证构建输出中的 FabricAOT-game.ipa；不能直接安装，须另行签名。签名模式维持原有开发导出。构建器仍校验 AOT 来源、iPhoneOS/arm64、应用文件和 IPA 内容，不能用任意 ZIP 冒充构建结果。
+
+Xcode 工具从 DEVELOPER_DIR / xcode-select 及 xcrun --find 发现，支持改名或非 /Applications 路径；可选 Main Thread Checker 缺失时记录降级，实际编译必需的 SDK/clang 缺失则明确失败。AAR 从 PATH 查找，缺失时留下 REGISTRATION_PENDING 请求。ci/patch_src.py 现为只读契约检查，已验证的 ASM、外部客户端、TMPDIR、Xcode 和 Objective-C 语法修改已在主代码中，CI 不再改写源码或创建 Xcode 系统链接。CI 游戏下载需显式 MCFAO_CONFIRM_OWNERSHIP=1。
 
 ## 统一 CLI
 

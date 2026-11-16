@@ -40,7 +40,7 @@ function compileBuilderIcon() {
     throw new Error("找不到 Builder 图标源：" + source);
   }
   const out = path.join(desktopRoot, "src-tauri", "icon-build");
-  fs.rmSync(out, { recursive: true, force: true });
+  if (fs.existsSync(out)) fs.renameSync(out, out + "-previous-" + Date.now());
   fs.mkdirSync(out, { recursive: true });
   run("xcrun", [
     "actool",
@@ -84,6 +84,8 @@ function assertIconIdentity(app) {
 }
 
 requireExternalDisk();
+const storage = JSON.parse(capture('python3', ['-B', 'tools/storage_config.py', '--check']));
+process.env.CARGO_TARGET_DIR = storage.rust;
 compileBuilderIcon();
 run("npm", ["run", "tauri", "--", "build", "--debug", "--bundles", "app"]);
 
@@ -99,10 +101,11 @@ for (const key of ["CFBundleIconFile", "CFBundleIconName"]) {
 }
 assertIconIdentity(builtApp);
 
-const deliverDir = path.join(repoRoot, "artifacts/desktop/ncl-builder-ncb-icon");
+const version = JSON.parse(fs.readFileSync(path.join(desktopRoot, "package.json"), "utf8")).version;
+const defaultDeliverDir = path.join(storage.builds, "desktop", `ncl-builder-${version}`);
+const deliverDir = fs.existsSync(defaultDeliverDir) ? defaultDeliverDir + '-' + Date.now() : defaultDeliverDir;
 fs.mkdirSync(deliverDir, { recursive: true });
 const app = path.join(deliverDir, "NCL Builder.app");
-fs.rmSync(app, { recursive: true, force: true });
 run("/usr/bin/rsync", [
   "-a",
   "--exclude", "._*",
@@ -122,9 +125,7 @@ run("/usr/bin/codesign", [
 run("/usr/bin/codesign", ["--verify", "--deep", "--strict", app]);
 
 const zip = path.join(deliverDir, "NCL Builder.app.zip");
-fs.rmSync(zip, { force: true });
 run("/usr/bin/ditto", ["-c", "-k", "--norsrc", "--noextattr", "--noacl", "--keepParent", app, zip]);
 
 console.log("本地工作台已打包并完成临时签名：" + app);
 console.log("压缩交付包：" + zip);
-

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Fetch checksum-pinned STB headers only; never execute an upstream build script."""
 from __future__ import annotations
+from storage_config import cache_path
 import json
 import subprocess
 import sys
@@ -9,7 +10,7 @@ from bootstrap_toolchain import sha256
 from capture import ROOT
 from graphics_common import register_tree
 
-CACHE=ROOT/".cache/graphics/stb-lwjgl-3.4.1"
+CACHE=cache_path('graphics/stb-lwjgl-3.4.1')
 LOCK=ROOT/"compiler/stb.lock.json"
 
 def verify_sources(directory: Path=CACHE,lock: dict|None=None)->Path:

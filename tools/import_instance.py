@@ -10,12 +10,13 @@ import urllib.request
 from urllib.parse import urljoin, urlsplit
 from zipfile import ZipFile
 from preflight import scan_pack, scan_mod_bytes, read_json_limited, validate_zip_members, safe_archive_path, tls_context
+from mod_file_policy import is_metadata, content_paths, clean_staged_metadata
 
 MAX_FILE = 96 * 1024**2
 MAX_TOTAL = 2 * 1024**3
 HOSTS = {"cdn.modrinth.com"}
 def allowed_file(name):
-    return safe_archive_path(name) and (name == "options.txt" or name.split("/",1)[0] in ("mods","config","resourcepacks"))
+    return not is_metadata(name) and safe_archive_path(name) and (name == "options.txt" or name.split("/",1)[0] in ("mods","config","resourcepacks"))
 
 def public_endpoint(url):
     parsed = urlsplit(url)
@@ -49,6 +50,7 @@ def import_instance(source: Path, output: Path, fetch=download):
     records={};skipped=[];total=0;seen=set(); imported_mods=[]; mod_findings=[]
     def save(name,data,expected=None,size=None):
         nonlocal total
+        if is_metadata(name): return
         if not allowed_file(name):
             raise ValueError("Only mods/config/resourcepacks/options.txt can be imported: "+name)
         key=unicodedata.normalize("NFC",name).casefold()
@@ -72,6 +74,7 @@ def import_instance(source: Path, output: Path, fetch=download):
                 manifest=read_json_limited(archive,"modrinth.index.json",2*1024**2)
                 for row in manifest["files"]:
                     name=row["path"]
+                    if is_metadata(name): continue
                     if row.get("env",{}).get("client")=="unsupported":
                         skipped.append({"path":name,"reason":"server-only as declared by manifest"});continue
                     if not allowed_file(name):
@@ -79,7 +82,7 @@ def import_instance(source: Path, output: Path, fetch=download):
                     data=fetch(row["downloads"][0],min(MAX_FILE,MAX_TOTAL-total))
                     save(name,data,row["hashes"],row.get("fileSize"))
                 for info in archive.infolist():
-                    if info.is_dir():continue
+                    if info.is_dir() or is_metadata(info.filename):continue
                     for prefix in ("overrides/","client-overrides/"):
                         if info.filename.startswith(prefix):
                             name=info.filename[len(prefix):]
@@ -90,7 +93,7 @@ def import_instance(source: Path, output: Path, fetch=download):
             for directory in ("mods","config","resourcepacks"):
                 root=base/directory
                 if root.is_symlink():raise ValueError("Symlink instance directory")
-                for path in sorted(root.rglob("*")) if root.is_dir() else []:
+                for path in sorted(content_paths(root)) if root.is_dir() else []:
                     if path.is_symlink():raise ValueError("Symlink instance file")
                     if path.is_file():
                         if path.stat().st_size>MAX_FILE:raise ValueError("Instance file exceeds budget")
@@ -101,6 +104,7 @@ def import_instance(source: Path, output: Path, fetch=download):
                 if options.stat().st_size > MAX_FILE: raise ValueError("Instance options exceed budget")
                 save("options.txt", options.read_bytes())
         (output/"mods").mkdir(exist_ok=True)
+        clean_staged_metadata(output)
         result={"status":"INSTANCE_FILES_IMPORTED","root":str(output.resolve()),"mods":str((output/"mods").resolve()),"files":records,"skipped":skipped,
                 "preflight":report,"importedMods":imported_mods,"modFindings":mod_findings,
                 "validation":"STATIC_ONLY; dependency resolution / MDAF / AOT / runtime not yet executed"}

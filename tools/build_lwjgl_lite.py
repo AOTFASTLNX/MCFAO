@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Build explicit iOS LWJGL overlays and a JNI library with precompiled callback functions."""
 from __future__ import annotations
+from storage_config import cache_path
 import argparse
 import json
 import os
@@ -24,7 +25,7 @@ def main(argv=None):
     p.add_argument("--glfw-library",type=Path,default=ROOT/"artifacts/graphics/glfw-sim-01/libglfw.dylib")
     args=p.parse_args(argv)
     out=args.output.resolve();out.mkdir(parents=True,exist_ok=False)
-    home=(ROOT/".cache/toolchains/graalvm-25.0.2/graalvm-community-openjdk-25.0.2+10.1/Contents/Home").resolve(strict=True)
+    home=(cache_path('toolchains/graalvm-25.0.2/graalvm-community-openjdk-25.0.2+10.1/Contents/Home')).resolve(strict=True)
     manifest=json.loads((ROOT/"artifacts/b0/prepared-04/result.json").read_text())
     libraries={}
     for entry in manifest["referenceLibraries"]:

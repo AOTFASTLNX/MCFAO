@@ -45,6 +45,8 @@ void glfwDefaultWindowHints(void);
 void glfwWindowHint(int, int);
 int glfwGetPlatform(void);
 int glfwPlatformSupported(int);
+/* Queried by the host before entering Java; changes only with the native renderer ABI. */
+const char *faot_glfw_client_api_contract(void);
 const char *glfwGetVersionString(void);
 void glfwGetVersion(int *, int *, int *);
 GLFWerrorfun glfwSetErrorCallback(GLFWerrorfun);

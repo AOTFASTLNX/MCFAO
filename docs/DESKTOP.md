@@ -1,22 +1,47 @@
 # 本地 IPA 构建工作台
 
-Last reviewed: 2026-11-15
+Last reviewed: 2026-11-16
 
 状态：Tauri 2 / React / TypeScript 实验版构建工具。工作台可直接启动本机完整构建与 IPA 导出；游戏的真机、整合包与性能 Gate 仍按 ACCEPTANCE.md 独立验收。
 
 ## 操作流程
 
 1. **游戏内容**：选择或拖入 .mrpack / Prism 实例，运行静态检查；也可选择原版 26.1.2。当前 Fabric 构建器使用 Loader 0.19.3；来源声明不同版本时，可在来源卡片勾选「强制编译（忽略 Loader 版本差异）」继续。原包保持不变，实际使用的 Loader 版本写入任务记录与暂存清单。
-2. **构建环境**：选择完整 NCL 源码目录，自动识别 artifacts/mcfao-local.json 或 mcfao.local.json。可选已有配置，也能在高级配置中逐项选择前置路径并保存独立 JSON。选择产物根目录后，每次构建会创建独立目录。
-3. **开发签名**：Team ID 可选，默认读取本机有效描述文件的团队；导出配置默认使用 ios/C0Harness/ExportOptions.plist。证书与私钥交由系统钥匙串和 Xcode 管理。
-4. **确认构建**：Fabric 来源必须由使用者明确确认已审计构建期代码。点击「构建 IPA」实际运行 doctor、build、export；不生成待用户复制执行的 shell 命令。
+2. **构建环境**：分发应用默认使用包内完整源码，开发模式也可选择 FabricAOT 源码目录；自动识别 artifacts/mcfao-local.json 或 mcfao.local.json。可选已有配置，也能在高级配置中逐项选择前置路径并保存独立 JSON。选择产物根目录后，每次构建会创建独立目录。
+3. **开发签名**：可启用「导出未签名 IPA」，此时隐藏并跳过团队、证书、描述文件与 ExportOptions 检查，不执行 archive / exportArchive。未签名 IPA 不能直接装机，需另行签名。签名模式下 Team ID 可选，默认读取本机有效描述文件的团队；导出配置默认使用 ios/C0Harness/ExportOptions.plist。证书与私钥交由系统钥匙串和 Xcode 管理。
+4. **确认构建**：Fabric 来源必须由使用者明确确认已审计构建期代码。点击「构建 IPA」实际运行 doctor、build，签名模式继续 export；不生成待用户复制执行的 shell 命令。
 
-「构建记录」也支持选择含 result.json 的已完成 SIGNED_DEVICE_APP 目录，重新核验原包，再执行归档、开发签名、IPA 导出及解包验签。此路径复用既有 AOT，不表示本次重新编译。
+「构建记录」也支持选择含 result.json 的已完成 SIGNED_DEVICE_APP 目录（未签名模式选择 UNSIGNED_DEVICE_APP），重新核验原包，再执行归档、开发签名、IPA 导出及解包验签。此路径复用既有 AOT，不表示本次重新编译。
+
+
+## 可配置存储与空间预检（2026-11-16）
+
+设置页分别选择编译缓存、构建产物根目录、任务记录、Rust target 缓存。配置写入用户 Library/Application Support/NCL Builder 下的 storage.json；源码开发按项目路径隔离，包内源码使用 bundled 配置。支持 MCFAO_STORAGE_CONFIG 指定配置文件及 MCFAO_CACHE_DIR / MCFAO_BUILDS_DIR / MCFAO_JOBS_DIR / MCFAO_RUST_DIR 显式覆盖。选择 Rust 缓存只改变构建器的 target 产物位置，不迁移用户全局 Cargo/Rustup 安装与下载缓存。
+
+保存只更新路径，不创建目标树、不移动或删除数据；旧任务根写入 previousJobRoots，历史任务、重试、日志与 Finder 定位继续使用原记录。运行中的构建或工具链准备会阻止更改位置；启动与设置写入通过同一控制锁串行化。源码仓库继续强制核验 external-storage.json 的五条既有链接，不能通过选择新路径跳过守卫。分发应用不附带这份个人机器清单，改为检查所选卷与悬空链接。
+
+构建前按物理文件系统合计预算：编译缓存 8 GiB、产物 24 GiB、任务 4 GiB、Rust 4 GiB，同盘需合计 40 GiB 空闲。这是最低预留，不保证大型整合包一定足够。CLI build、GUI 启动/重试/环境检查、桌面打包与首次下载均检查；空间不足会在创建构建输出前停止。
+
+设置自定义位置后，「统计占用」只读统计四个目录；清理与迁移需另列逐文件计划确认，不会沿用旧盘清理范围。
+
+## 未签名 IPA 的校验
+
+GUI 把 --unsigned 传给原 CLI。CLI 生成 UNSIGNED_DEVICE_APP / signature=UNSIGNED 后，工作台重验输入指纹、无 fallback 的可重定位 AOT 命令、arm64 iPhoneOS 链接目标、应用文件指纹及原生库/ABI，再逐条核对构建自带 IPA 与应用树的内容、CRC、大小及 SHA-256。IPA 必须位于本次构建目录内。完成页与确认页均明确标注未签名，不能直接装机；签名路径保留原有开发导出与验签。
+
+## 应用源码与首次准备
+
+Tauri 打包前通过 tools/bundle_source.py 生成受控源码树，覆盖 tools / compiler / interop / ios / tests / ci 及文档，放在 Contents/Resources/source。bundle-manifest.json 记录所有文件 SHA-256、源码提交与工作区差异指纹；构建前验证整棵源码树，脱离原开发机路径和 .git 仍可工作。缓存、产物、游戏 JAR、资源、存档、凭据和签名材料不进入应用包。旧交付包保留，新打包输出到所选产物根的 desktop/ncl-builder-<版本> 目录（已有同名交付时使用新的后缀）。
+
+分发应用首次启动自动运行持久下载任务；设置页可看进度、错误及重试，关闭 UI 后任务继续。当前锁定下载清单为 **602,860,639 字节（574.9 MiB）**，包括 GraalVM 25.0.2、仅作数据保留的 iOS candidate ZIP、固定 OpenJDK/Graal 源码、图形工具源/运行库、STB、OpenAL 源码与全部五个 Maven ASM 依赖。实际量小于最初估计的约 1.1 GB；游戏文件另计。每次下载校验 HTTPS 源及重定向、字节上限、固定 SHA-256；失败的 .part 和日志保留，重试复用已校验文件。解包采用受限 data filter；此步骤不执行下载的 Gradle、CMake、configure、Mod 或构建脚本。
+
+「我合法拥有 Minecraft Java Edition」每会话默认不勾选。明确确认后才允许从 Mojang 官方元数据、客户端、依赖和资源源下载；版本元数据及客户端/资源使用官方 SHA-1，Fabric 引擎使用仓库固定 SHA-256。仅保存客户端输入，不读取账户、密码或令牌，不执行游戏，不伪造 A0 PASS；所有权自我确认不等于微软账户资格认证。下载目录必须位于源码仓库外。生成 client-inputs.json 后可把该目录传给 prepare_b0.py --client-dir。
+
+首次准备完成表示下载、校验与解包完成，**不表示全部 AOT 前置产物已编译**。仍需本机 ARM64 Python 3.11+、已选择且有 iPhoneOS SDK 的 Xcode，以及 BUILDING.md 所列 JNI 头文件、caps、运行库、桥接和配置。缺 Xcode 时界面、存储、下载与静态检查可用；真实 iOS 编译仍须明确报告所缺 SDK，不能伪造产物。AAR 缺失仅保留待登记请求，不阻断编译。
 
 ## 真实执行与持久任务
 
 - Rust 仅允许固定 workbench 操作，使用参数数组启动第一方 tools/desktop_workbench.py，无 shell 文本执行。桌面宿主可以是 Intel，但 macOS 构建服务显式使用 ARM64 Python，避免 Rosetta 继承。
-- supervisor 将 job.json、参数、输出与取消标记保存在 artifacts/desktop-jobs/<id>。构建目录位于用户选择的产物根下。关闭 UI 后进程继续运行，重开工作台读取持久记录。
+- supervisor 将 job.json、参数、输出与取消标记保存在所选任务记录目录的 <id>/ 下（源码开发默认 artifacts/desktop-jobs）。构建目录位于用户选择的产物根下。关闭 UI 后进程继续运行，重开工作台读取持久记录。
 - 每个项目同时只允许一个任务。取消会终止任务的子进程树，包括原 CLI 新建会话的编译子进程；中断和失败保留日志。重试复用原始请求、暂存文件与构建路径，CLI 仍核对输入、参数和产物指纹才复用检查点。
 - GUI 轮询阶段输出及嵌套编译日志，显示真实阶段，不伪造百分比。可导出当前日志快照，完整日志保留在任务目录；可分别在 Finder 定位 IPA 或任务文件夹。
 - 只有 export 的 DEVELOPMENT_IPA_VERIFIED 结果、IPA 路径和 SHA-256 再次匹配后才显示「IPA 已验证」。不会由退出码 0 单独推断成功。
@@ -54,7 +79,7 @@ macOS 使用 Overlay 标题栏并隐藏原生标题文字，保留系统红黄�
 
 2026-11-15 滚动归属修正：窗口外壳固定为视口高度且不滚动，顶栏不再吸顶，滚动条改由顶栏下方的 `.main-content` 承担，因此从顶栏下沿开始、到窗口底边结束。双滚动条的根因是 `.visually-hidden` 隐藏文件输入框没有已定位的祖先，绝对定位后落到内容下方，把文档撑到 1016 pt（视口 855 pt），于是窗口外层又多出一条滚动条；现已把该元素锚定到 `.text-button` 并加 `clip-path`，同时在宽布局下锁定 `html` / `body` / `#root` 高度，避免其它绝对定位元素再次撑开窗口。浏览器回归新增三条断言：文档不滚动且内容容器可滚动、滚动容器右缘贴住窗口右缘、载入报告与四个页面在 1100 × 760 下都不产生外层滚动条。原生窗口截图 `artifacts/desktop/scroll-pane/native-light-1100.png` 中只有一条滚动条（2× 截图的 x=2172–2193、y=218–1513，窗口高 1520 px）。打包后的 `.app` 位于 exFAT 外接盘，`codesign` 无法写入；本轮从本地签名副本启动验证，盘上产物未重新签名，摘要见 `artifacts/desktop/scroll-pane/verification.json`。
 
-顶栏提供「跟随系统 / 浅色 / 深色」一键切换，设置页可固定选择并说明当前跟随结果。偏好写入 `ncl.theme.v1`（继续兼容读取 `fabricaot.theme.v1`），启动前即应用，避免浅色用户看到深色闪烁；桌面模式通过第一方 `set_window_theme` 命令把同一外观应用到 macOS 原生窗口：标题栏、红黄绿按钮、菜单和滚动条会与页面一起切换，窗口底色同时更新，不再只换网页内容。
+顶栏提供「跟随系统 / 浅色 / 深色」一键切换，设置页可固定选择并说明当前跟随结果。偏好写入 `fabricaot.theme.v1`，启动前即应用，避免浅色用户看到深色闪烁；桌面模式通过第一方 `set_window_theme` 命令把同一外观应用到 macOS 原生窗口：标题栏、红黄绿按钮、菜单和滚动条会与页面一起切换，窗口底色同时更新，不再只换网页内容。
 
 视觉体系为 System Neutral：浅色使用 `#F5F5F7` 窗口、`#FFFFFF` 内容、`#ECEDEF` 侧栏，深色使用 `#18191B` / `#27282B` / `#222326`，全部通过 `desktop/src/system-neutral.css` 的语义令牌消费，页面不再硬编码品牌绿。交互强调色默认读取 macOS `controlAccentColor`（第一方 `system_accent` 命令），也可在设置中固定蓝、紫、红、橙或绿；浅色模式会在保持色相的前提下调深填充色，使白色按钮文字达到正常文本对比度，深色模式则保留可读的系统色。成功、警告、错误保持独立语义，不随强调色变化。构建日志使用等宽字体，并按 INFO / WARN / ERROR 分级着色，同时保留文字级别标签，避免只靠颜色传达状态。
 
@@ -96,6 +121,26 @@ macOS 使用 Overlay 标题栏并隐藏原生标题文字，保留系统红黄�
 - 2026-11-15: “游戏内容”步骤中完成来源检查后，可点击“查看 Mod 列表”，搜索名称、ID 或文件名，并按状态筛选。展开单项可查看版本、来源路径、运行侧、Mixin/入口点/嵌套依赖等机制及具体诊断。列表包含包内、本地和清单引用文件；待下载文件的 ID/版本保持未知，可选、仅服务端和已禁用项目分别标注。所有 iOS / AOT 状态仍为未测试；旧报告可重新检查来源以补齐清单。
 
 - 2026-11-15: 整合包构建流程现为：游戏内容 → 资源管理 → 构建环境 → 开发签名 → 确认构建。资源管理按 Mod、材质包、光影包、配置与脚本、其他资源分类，支持搜索、逐项勾选、批量保留/排除和恢复默认。可选资源默认不勾选，可手动加入；所选文件真正参与下载/复制，排除项不进入本次构建。文件夹形式的材质包/光影包整体保留。原包不改动，选择保存到任务及导入清单。光影包仅保留资源，不代表当前可启用；依赖与重复版本仍在后续构建检查中验证。
-- 2026-11-15: 工作台新增「跟随系统 / 浅色 / 深色」外观，顶栏按钮一键切换，设置页可固定选择；偏好写入 `ncl.theme.v1`（继续兼容读取 `fabricaot.theme.v1`），启动前应用避免闪白/闪黑，macOS 标题栏同步（`core:window:allow-set-theme`）。浅色配色覆盖侧栏、卡片、表单、诊断、日志、弹窗与移动布局；`desktop/src/theme.test.ts` 和浏览器回归验证切换、跟随系统、刷新保留、375 / 768 / 1440 无横向溢出及全部页面文字对比度。截图见 artifacts/desktop/light-theme/。
+- 2026-11-15: 工作台新增「跟随系统 / 浅色 / 深色」外观，顶栏按钮一键切换，设置页可固定选择；偏好写入 `fabricaot.theme.v1`，启动前应用避免闪白/闪黑，macOS 标题栏同步（`core:window:allow-set-theme`）。浅色配色覆盖侧栏、卡片、表单、诊断、日志、弹窗与移动布局；`desktop/src/theme.test.ts` 和浏览器回归验证切换、跟随系统、刷新保留、375 / 768 / 1440 无横向溢出及全部页面文字对比度。截图见 artifacts/desktop/light-theme/。
 
 - 2026-11-15: 资源管理支持按客户端必需、客户端可选、待确认、仅服务端、不可导入分级筛选，并与资源分类和搜索组合。必需/可选来自整合包清单声明，包内或本地未声明资源列为待确认；不等同于 iOS 兼容性或依赖解析结果。排除必需资源会显示提示及恢复按钮，不阻止手动调整。
+
+## 磁盘清理
+
+设置页「磁盘空间」按四组统计并清理，全部基于只读的 `plan` 结果：编译缓存（`cache/` 下的上游源码、图形工具链、GraalVM、Apple Metal）、Rust `target`、构建中间产物（每个构建的 `aot`/`split`/`link`/`stage`/`package` 等阶段）、旧构建目录。
+
+- 先「统计占用」得到可回收总量与剩余空间，再勾选分组；默认勾选缓存与中间产物。清理前弹窗列出精确大小并二次确认。
+- 永不删除 `result.json`、`inputs.json`、`job.json`、`checkpoint.json`、`.ipa` 与 `.xcarchive`；带 IPA 的构建目录整体跳过。
+- 有构建任务在运行（`job.json` 状态为 running/queued/awaiting-exclusions 且进程仍存活）时拒绝清理。进程已退出的残留记录不阻止清理。
+- `apply` 会重新计算计划，只删除本次计划内的路径；不跟随符号链接，路径必须位于数据根目录内。
+- 实现：`tools/cleanup_storage.py`（`plan` / `apply`），工作台动作 `storage-plan` / `storage-clean`。回归：`tests/test_cleanup_storage.py`（14 项）与 `tests/test_desktop_workbench.py` 中的两项存储测试。
+
+2026-11-16 实测（外接盘 /Volumes/K）：cache 16.65 GiB、Rust target 17.85 GiB、中间产物 43.18 GiB（195 项）、旧构建 44.23 GiB（46 项），合计可回收 121.9 GiB，剩余 547 GiB。
+
+## 本轮回归与验证边界（2026-11-16）
+
+- Python 全套：465 项通过；专项 tests/test_desktop_portability.py 32 项，覆盖四类路径、共享磁盘预算、断盘与悬空链接、旧任务发现、未签名 CLI/worker/IPA 校验、下载大小/哈希/源策略、首次准备数据解包、所有权阻断、外部客户端与包内源码独立运行。
+- 前端 npm test：69 项通过；cargo test：9 项通过；Playwright：40 项通过，含目录保存的固定动作、所有权默认关闭、未签名流程、主题与窄窗。
+- ci/patch_src.py 只读验证与两份 CI shell 语法检查通过。桌面包按 Apple Silicon 构建，源树清单和临时签名另行复核；交付路径与哈希保存在本轮验证记录。
+
+首次准备的完整流程用第一方小型归档与下载响应夹具验证；本轮未在全新用户目录执行一次完整约 575 MiB 的真实首次下载，也未下载或执行用户游戏。没有执行新整合包 AOT、导出新游戏 IPA 或进行模拟器/真机安装运行，技术 Gate 不提升。

@@ -5,6 +5,7 @@
 set -euo pipefail
 
 WORK="${WORK:-$HOME/mcfao-sim}"
+CLIENT_DIR="$WORK/client-inputs"
 CI_REPO="${CI_REPO:-https://github.com/zhangrongxue/mc-aot-ios}"
 UPSTREAM="${UPSTREAM:-https://github.com/AOTFASTLNX/MCFAO}"
 SOURCE_REF="${SOURCE_REF:-}"
@@ -25,22 +26,18 @@ if [ ! -d src/.git ]; then
   if [ -n "$SOURCE_REF" ]; then
     git clone --depth 1 --branch "$SOURCE_REF" "$UPSTREAM" src
   else
-    git clone --depth 1 "https://x-access-token:${MCFAO_TOKEN}@${UPSTREAM#https://}" src
+    git clone --depth 1 "$UPSTREAM" src
   fi
 fi
 cd repo && git pull --ff-only -q || true
 cd "$WORK"
 python3 "$WORK/repo/ci/patch_src.py" src
-mkdir -p .ci/bin
-printf '#!/bin/sh\necho "{}"\n' > .ci/bin/aar
-chmod +x .ci/bin/aar
-export PATH="$WORK/.ci/bin:$PATH"
+# Missing AAR retains registration requests through the first-party tools.
 
-XC=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
-[ -n "$XC" ] || die "no Xcode"
-if [ ! -e /Applications/Xcode.app ]; then sudo -n ln -sfn "$XC" /Applications/Xcode.app 2>/dev/null || true; fi
-sudo -n xcode-select -s "$XC" 2>/dev/null || true
-log "xcode: $XC"
+# Respect the operator's selected Xcode, including installations outside /Applications.
+export DEVELOPER_DIR="${DEVELOPER_DIR:-$(xcode-select -p)}"
+xcrun --sdk iphoneos --show-sdk-path >/dev/null || die "selected Xcode has no iPhoneOS SDK"
+log "xcode: $DEVELOPER_DIR"
 
 need=()
 command -v autoconf >/dev/null || need+=(autoconf)
@@ -70,13 +67,13 @@ make CONF=fabricaot-host JOBS="$JOBS" java.base-java >/dev/null 2>"$WORK/make.er
 popd >/dev/null
 
 log "MC inputs / B0 / splitter / assets"
-time python3 -B "$WORK/repo/ci/fetch_minecraft.py" --out artifacts/ci/mc --src-root .
-export MCFAO_A0="$PWD/artifacts/ci/mc/a0"
-time python3 -B tools/prepare_b0.py --graalvm-home "$GRAALVM_HOME" --output artifacts/b0/prepared-04
+[ "${MCFAO_CONFIRM_OWNERSHIP:-0}" = "1" ] || die "confirm game ownership with MCFAO_CONFIRM_OWNERSHIP=1"
+time python3 -B "$WORK/repo/ci/fetch_minecraft.py" --out "$CLIENT_DIR" --src-root . --confirm-owned
+time python3 -B tools/prepare_b0.py --graalvm-home "$GRAALVM_HOME" --client-dir "$CLIENT_DIR" --output artifacts/b0/prepared-04
 python3 -B tools/build_method_splitter.py --output artifacts/compiler/method-splitter-01 --fetch-missing
 mkdir -p artifacts/ci/empty-assets
-time python3 -B tools/stage_game_assets.py --source artifacts/ci/empty-assets \
-  --version-metadata artifacts/ci/mc/26.1.2.json --output artifacts/graphics/game-assets-01 --fetch-missing
+time python3 -B tools/stage_game_assets.py --source "$CLIENT_DIR/assets" \
+  --version-metadata "$CLIENT_DIR/26.1.2.json" --output artifacts/graphics/game-assets-01 --fetch-missing
 
 log "runtime (device variant is fine for the AOT object)"
 time python3 -B tools/build_ios_runtime.py --sdk iphoneos --with-extnet \
@@ -103,7 +100,7 @@ import json
 prepared = json.load(open("artifacts/b0/prepared-04/result.json", encoding="utf-8"))
 print(":".join(row["path"] for row in prepared["referenceLibraries"]))
 PY
-time python3 -B tools/split_methods.py --jar artifacts/ci/mc/meta/versions/26.1.2/26.1.2.jar \
+time python3 -B tools/split_methods.py --jar "$CLIENT_DIR/meta/versions/26.1.2/26.1.2.jar" \
   --output-jar artifacts/ci/client-split.jar --report artifacts/ci/split-report.json \
   --tool artifacts/compiler/method-splitter-01 --min-sites 200 --target-sites 64 \
   --max-parts 64 --trigger-cost 50000 --classpath-file /tmp/cp.txt

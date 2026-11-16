@@ -2,12 +2,15 @@
 /.cache
 /artifacts/*
 !/artifacts/desktop/
+/artifacts/desktop/**/*.app/
+/artifacts/desktop/**/*.zip
 /desktop/src-tauri/target
 /logs/
 /config/
 /docs/.codex/
 /.workbuddy/
 /build/
+/.local-build/
 /ios/C0Harness/build/
 .venv/
 __pycache__/

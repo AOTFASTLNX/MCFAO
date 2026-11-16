@@ -40,17 +40,35 @@ def select_libraries(inventory: dict, lock: dict) -> list[dict]:
     return selected
 
 
+def preparation_inputs(client_dir=None, baseline=None):
+    baseline = Path(baseline or os.environ.get('MCFAO_A0') or ROOT / 'artifacts/evidence/a0-desktop-reference')
+    if client_dir:
+        client_dir = Path(client_dir).resolve(strict=True)
+        inventory = json.loads((client_dir / 'client-inputs.json').read_text())
+        if inventory.get('status') != 'OWNED_CLIENT_INPUTS_VERIFIED':
+            raise ValueError('Expected a verified external client directory')
+        shared_meta = client_dir / 'meta'
+        for row in inventory['jars']:
+            path = Path(row['path'])
+            if path.is_symlink() or not path.resolve().is_relative_to(shared_meta) or sha256(path) != row['sha256']:
+                raise ValueError('External client library changed or escaped its directory')
+        return inventory, shared_meta
+    inventory = json.loads((baseline / 'dependencies.json').read_text())
+    result = json.loads((baseline / 'result.json').read_text())
+    if result['gateA0'] != 'PASS': raise ValueError('A0 is not passed')
+    return inventory, Path(result['profile']).parent.parent / 'meta'
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--graalvm-home", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument('--client-dir', type=Path, help='External hash-verified client input directory; does not assert A0 PASS')
+    parser.add_argument('--baseline', type=Path, help='Existing real A0 evidence directory (or MCFAO_A0)')
     args = parser.parse_args(argv)
     home = args.graalvm_home.resolve(strict=True)
-    baseline = ROOT / "artifacts/evidence/a0-desktop-reference"
     lock = json.loads((ROOT / "compiler/fabric.lock.json").read_text())
-    inventory = json.loads((baseline / "dependencies.json").read_text())
-    if json.loads((baseline / "result.json").read_text())["gateA0"] != "PASS":
-        parser.error("A0 is not passed")
+    inventory, shared_meta = preparation_inputs(args.client_dir, args.baseline)
     engine = select_libraries(inventory, lock)
     output = args.output.absolute()
     output.mkdir(parents=True, exist_ok=False)
@@ -80,7 +98,6 @@ def main(argv=None):
     bootstrap["META-INF/MANIFEST.MF"] = b"Manifest-Version: 1.0\r\nPremain-Class: fabricaot.b0.bootstrap.CaptureAgent\r\n\r\n"
     (output / "driver.jar").write_bytes(jar_bytes(bootstrap))
     libraries = []
-    shared_meta = Path(json.loads((baseline / "result.json").read_text())["profile"]).parent.parent / "meta"
     for entry in inventory["jars"]:
         path = Path(entry["path"])
         if path.is_relative_to(shared_meta):

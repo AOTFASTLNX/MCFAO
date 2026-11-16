@@ -99,9 +99,12 @@ void glfwWindowHint(int hint, int value) {
 }
 int glfwGetPlatform(void) { return ready() ? FAOT_GLFW_PLATFORM_IOS : 0; }
 int glfwPlatformSupported(int platform) { return platform == FAOT_GLFW_PLATFORM_IOS; }
+const char *faot_glfw_client_api_contract(void) {
+    return "FAOT_GLFW_CLIENT_APIS:v1:NO_API,OPENGL_OSMESA";
+}
 const char *glfwGetVersionString(void) {
 #if defined(__ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__)
-    return "3.4.0 Native Craft iOS UIKit Metal (experimental)";
+    return "3.4.0 Native Craft iOS UIKit GL41/Metal (experimental)";
 #else
     return "3.4.0 Native Craft host test surface (fixture only)";
 #endif

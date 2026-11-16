@@ -19,6 +19,7 @@
 #import <signal.h>
 #import <execinfo.h>
 #import <mach/mach.h>
+#import <mach-o/loader.h>
 #import <os/proc.h>
 #import <stdio.h>
 #import <string.h>
@@ -26,6 +27,7 @@
 #import <sys/sysctl.h>
 #import <unistd.h>
 #include "log_file.h"
+#include "renderer_preflight.h"
 #import "FAOTLauncherViewController.h"
 
 // A single process can only ever host one Graal isolate; later attempts return an error.
@@ -36,6 +38,26 @@ static const unsigned long long FAOTReservedSpaceDefault = 4ULL * 1024 * 1024 * 
 typedef int (*faot_create_isolate_t)(void *params, void **isolate, void **thread);
 typedef int (*faot_run_main_t)(int argc, char **argv);
 typedef int (*faot_tear_down_t)(void *thread);
+
+static NSString *FAOTImageUUID(const void *entry) {
+    Dl_info image = {0};
+    if (!dladdr(entry, &image) || !image.dli_fbase) return @"unavailable";
+    const struct mach_header_64 *header = image.dli_fbase;
+    if (header->magic != MH_MAGIC_64) return @"unavailable";
+    const uint8_t *cursor = (const uint8_t *)(header + 1);
+    const uint8_t *end = cursor + header->sizeofcmds;
+    for (uint32_t index = 0; index < header->ncmds; index++) {
+        if ((size_t)(end - cursor) < sizeof(struct load_command)) break;
+        const struct load_command *command = (const void *)cursor;
+        if (command->cmdsize < sizeof(*command) || command->cmdsize > (size_t)(end - cursor)) break;
+        if (command->cmd == LC_UUID && command->cmdsize >= sizeof(struct uuid_command)) {
+            const struct uuid_command *uuid = (const void *)cursor;
+            return [[NSUUID alloc] initWithUUIDBytes:uuid->uuid].UUIDString;
+        }
+        cursor += command->cmdsize;
+    }
+    return @"unavailable";
+}
 
 
 /* Clamped so a 4 GiB phone keeps its native/Metal headroom. */
@@ -260,7 +282,7 @@ static void FAOTInstallCrashHandlers(int fd) {
 
     unsigned long long reserved = [self reservedBytes];
     NSTimeInterval stamp = NSDate.date.timeIntervalSince1970;
-    NSString *name = [NSString stringWithFormat:@"run-%.0f.log", stamp * 1000];
+    NSString *name = [NSString stringWithFormat:@"run-%.0f-%@.log", stamp * 1000, FAOTTestBuildMarker];
     NSString *logPath = [FAOTLogDirectory() stringByAppendingPathComponent:name];
 
     // Java's tmpdir and HOME are read from the environment by the image's runtime.
@@ -281,6 +303,7 @@ static void FAOTInstallCrashHandlers(int fd) {
     setvbuf(stdout, NULL, _IONBF, 0);
     setvbuf(stderr, NULL, _IONBF, 0);
     FAOTInstallCrashHandlers(fd);
+    fprintf(stdout, "[FAOT] testBuild=%s log=%s\n", FAOTTestBuildMarker.UTF8String, name.UTF8String);
 
     self.status.text = [NSString stringWithFormat:@"启动中 · 预留 %llu GiB · 日志 %@",
                         reserved >> 30, name];
@@ -339,6 +362,15 @@ static void FAOTProbeReservations(FILE *logFile) {
         emit([NSString stringWithFormat:@"[FAOT] physicalMemory=%@ reserved=%llu MiB",
               FAOTPhysicalMemoryText(), reserved >> 20]);
 
+        if ([NSFileManager.defaultManager fileExistsAtPath:[frameworks stringByAppendingPathComponent:@"libOSMesa.8.dylib"]]) {
+            char reason[1024] = {0};
+            if (!FAOTRequireGL41Bridge(frameworks.fileSystemRepresentation, reason, sizeof reason)) {
+                emit([NSString stringWithFormat:@"[FAOT] renderer preflight failed: %s", reason]);
+                if (logFile) fclose(logFile);
+                [self finishWithStatus:@"图形运行库不匹配" logPath:logPath];
+                return;
+            }
+        }
         void *handle = dlopen(library.fileSystemRepresentation, RTLD_NOW | RTLD_LOCAL);
         if (!handle) {
             emit([NSString stringWithFormat:@"[FAOT] dlopen failed: %s", dlerror()]);
@@ -357,6 +389,10 @@ static void FAOTProbeReservations(FILE *logFile) {
             return;
         }
 
+        emit([NSString stringWithFormat:@"[FAOT] imageUUID=%@ appVersion=%@ build=%@",
+              FAOTImageUUID((const void *)runMain),
+              [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"],
+              [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleVersion"]]);
         if (logFile) FAOTProbeReservations(logFile);
 
         // run_main creates the isolate itself (JavaMainWrapper's prologue). Creating one here first

@@ -8,6 +8,7 @@
 set -euo pipefail
 
 WORK="${WORK:-$HOME/mcfao-build}"
+CLIENT_DIR="$WORK/client-inputs"
 CI_REPO="${CI_REPO:-https://github.com/AOTFASTLNX/MCFAO}"
 UPSTREAM="${UPSTREAM:-https://github.com/AOTFASTLNX/MCFAO}"
 SOURCE_REF="${SOURCE_REF:-main}"
@@ -48,19 +49,14 @@ if [ -n "$SOURCE_SHA" ] && [ "$REPO_HEAD" != "$SOURCE_SHA" ]; then
 fi
 log "pinned source commit: $SRC_HEAD"
 python3 "$WORK/repo/ci/patch_src.py" src
-# All source changes are CI portability patches, never pushed upstream.
+# Portability is integrated in source; validation makes no source changes.
 git -C src diff --stat
 
 # Missing AAR produces pending registration records, never a fake executable.
 
-# some tools spawn an absolute /Applications/Xcode.app
-XC=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1 || true)
-[ -n "$XC" ] || die "no Xcode found in /Applications"
-if [ ! -e /Applications/Xcode.app ]; then
-  sudo -n ln -sfn "$XC" /Applications/Xcode.app 2>/dev/null || echo "warn: cannot link /Applications/Xcode.app"
-fi
-sudo -n xcode-select -s "$XC" 2>/dev/null || true
-log "xcode: $XC ($(xcode-select -p))"
+# Respect the operator's selected Xcode, including installations outside /Applications.
+export DEVELOPER_DIR="${DEVELOPER_DIR:-$(xcode-select -p)}"
+xcrun --sdk iphoneos --show-sdk-path >/dev/null || die "selected Xcode has no iPhoneOS SDK"
 
 # ---------------------------------------------------------------- host tools
 log "host tools"
@@ -106,17 +102,17 @@ time python3 -B tools/build_ios_runtime.py --sdk iphoneos --with-extnet \
   --graalvm-home "$GRAALVM_HOME" --output artifacts/b1/runtime-ios
 
 log "stage 2c: Minecraft 26.1.2 inputs (Mojang CDN)"
-time python3 -B "$WORK/repo/ci/fetch_minecraft.py" --out artifacts/ci/mc --src-root .
-export MCFAO_A0="$PWD/artifacts/ci/mc/a0"
+[ "${MCFAO_CONFIRM_OWNERSHIP:-0}" = "1" ] || die "confirm game ownership with MCFAO_CONFIRM_OWNERSHIP=1"
+time python3 -B "$WORK/repo/ci/fetch_minecraft.py" --out "$CLIENT_DIR" --src-root . --confirm-owned
 
 log "stage 2d: B0 prepared reference"
-time python3 -B tools/prepare_b0.py --graalvm-home "$GRAALVM_HOME" --output artifacts/b0/prepared-04
+time python3 -B tools/prepare_b0.py --graalvm-home "$GRAALVM_HOME" --client-dir "$CLIENT_DIR" --output artifacts/b0/prepared-04
 
 
 # Fabric mode must transform the supplied mods BEFORE method splitting and Metal injection.
 # Caller provides a local, previously audited mod directory on this isolated Mac. Mod
 # JARs and configs must not be committed to the source repository.
-CLIENT_INPUT="artifacts/ci/mc/meta/versions/26.1.2/26.1.2.jar"
+CLIENT_INPUT="$CLIENT_DIR/meta/versions/26.1.2/26.1.2.jar"
 if [ "${FAOT_BUILD_LOADER:-vanilla}" = "fabric" ]; then
   if [ "${FAOT_FETCH_RECOLLECTION3:-0}" = "1" ]; then
     log "fetch 53 hash-locked public Recollection3 mod jars"
@@ -144,8 +140,8 @@ fi
 log "stage 2e: method splitter + game assets"
 python3 -B tools/build_method_splitter.py --output artifacts/compiler/method-splitter-01 --fetch-missing
 mkdir -p artifacts/ci/empty-assets
-time python3 -B tools/stage_game_assets.py --source artifacts/ci/empty-assets \
-  --version-metadata artifacts/ci/mc/26.1.2.json \
+time python3 -B tools/stage_game_assets.py --source "$CLIENT_DIR/assets" \
+  --version-metadata "$CLIENT_DIR/26.1.2.json" \
   --output artifacts/graphics/game-assets-01 --fetch-missing
 
 # ---------------------------------------------------------------- stage 3
@@ -217,7 +213,7 @@ python3 -B "$WORK/repo/ci/verify_interface_classes.py" \
 DUMP="$WORK/repo/ci/classdump.py"
 if [ -f "$DUMP" ]; then
   log "diagnostic: EnvironmentAttributes field flags"
-  python3 "$DUMP" artifacts/ci/mc/meta/versions/26.1.2/26.1.2.jar EnvironmentAttributes || true
+  python3 "$DUMP" "$CLIENT_DIR/meta/versions/26.1.2/26.1.2.jar" EnvironmentAttributes || true
   python3 "$DUMP" artifacts/ci/client-split.jar EnvironmentAttributes || true
   python3 "$DUMP" artifacts/ci/injected/client-26.1.2-metal.jar EnvironmentAttributes || true
 fi

@@ -10,6 +10,7 @@ import subprocess
 from pathlib import Path
 
 from capture import ROOT
+from storage_config import cache_path
 
 
 def escaping_symlinks(path: Path) -> list[Path]:
@@ -38,7 +39,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if os.environ.get("AAR_HOME"):
         parser.error("AAR_HOME must be unset; only the configured central registry is allowed")
-    aar = shutil.which("aar") or str(Path.home() / "Documents/Codex/monitor/bin/aar")
+    aar = shutil.which("aar") or "aar"
     specs = [
         (".cache/toolchains", "CACHE", False, None, ["python3", "-B", "tools/bootstrap_toolchain.py"], True),
         # Register downloaded archives and the extracted JDK directory separately.
@@ -54,7 +55,7 @@ def main(argv=None):
         ("artifacts/c0", "BUILD", True, None, [], False),
         ("artifacts/evidence", "GENERATED", True, None, [], False),
     ]
-    entries = [(ROOT / relative, ROOT, kind, recursive, pattern, command, regenerable)
+    entries = [((cache_path(relative.removeprefix(".cache/")) if relative.startswith(".cache/") else ROOT / relative), ROOT, kind, recursive, pattern, command, regenerable)
                for relative, kind, recursive, pattern, command, regenerable in specs]
     for external in args.external_build_root:
         path = external.resolve()
@@ -91,6 +92,11 @@ def main(argv=None):
         if args.accept_modified:
             argv.append("--accept-modified")
         print(f"Registering {path} ({kind}{', selected children' if pattern else ''})", flush=True)
+        if not shutil.which('aar'):
+            pending = (path if path.is_dir() else path.parent) / 'registration-pending.json'
+            pending.write_text(json.dumps({'status':'REGISTRATION_PENDING','argv':argv},indent=2)+'\n')
+            print('AAR unavailable; registration request retained: ' + str(pending))
+            continue
         completed = subprocess.run(argv, cwd=ROOT, capture_output=True, text=True)
         if completed.returncode:
             print(completed.stdout)

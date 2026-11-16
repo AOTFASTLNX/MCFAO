@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   buildProblems,
   defaultForm,
+  explainError,
   isActive,
   mergeJob,
   restoreForm,
@@ -28,6 +29,25 @@ const form = {
   audited: true,
 };
 describe("executable workflow", () => {
+  it("unsigned mode skips signing fields while retaining build and audit requirements", () => {
+    const unsigned = {
+      ...form,
+      unsigned: true,
+      exportOptions: "",
+      team: "BAD",
+    };
+    expect(buildProblems(unsigned, report, true)).toEqual([]);
+    expect(
+      buildProblems({ ...unsigned, audited: false }, report, true).join(),
+    ).toContain("审计");
+    expect(
+      buildProblems({ ...unsigned, config: "" }, report, true).join(),
+    ).toContain("构建配置");
+    const restored = restoreForm(JSON.stringify(unsigned));
+    expect(restored.unsigned).toBe(true);
+    expect(restored.audited).toBe(false);
+    expect(() => restoreForm(JSON.stringify({ unsigned: "yes" }))).toThrow();
+  });
   it("requires selection for resource-aware reports and retains user choices on reopen", () => {
     const resourceReport = {
       ...report,
@@ -98,11 +118,7 @@ describe("executable workflow", () => {
   });
   it("warns about mismatched Loader versions without blocking", () =>
     expect(
-      buildProblems(
-        form,
-        { ...report, fabric_loader_version: "0.1" },
-        true,
-      ),
+      buildProblems(form, { ...report, fabric_loader_version: "0.1" }, true),
     ).toEqual([]));
   it("requires valid team identifiers", () =>
     expect(
@@ -156,5 +172,70 @@ describe("executable workflow", () => {
   it("treats cancellation as active until the worker stops", () => {
     expect(isActive({ state: "cancelling" } as BuildJob)).toBe(true);
     expect(isActive({ state: "cancelled" } as BuildJob)).toBe(false);
+  });
+
+  it("explains an AOT heap exhaustion instead of echoing the raw error", () => {
+    const error = [
+      "aot 失败（退出码 2）",
+      "Terminating due to java.lang.OutOfMemoryError: Java heap space",
+      " - 6.68GB of memory (34.6% of system memory, set via '-Xmx7g')",
+    ].join("\n");
+    const explained = explainError(error, "aot");
+    expect(explained?.title).toBe("Java 25 原生编译内存不足");
+    expect(explained?.cause).toContain("7 GiB");
+    expect(explained?.next.length).toBeGreaterThan(1);
+    expect(explained?.retryHelps).toBe(false);
+  });
+
+  it("explains the native-image failure the compiler now reports", () => {
+    const error = [
+      "aot 失败（退出码 2）",
+      "Native Image stopped before producing an image (exit 2). Logs: /x/analysis",
+      "com.oracle.svm.driver.NativeImage$NativeImageError",
+      "Terminating due to java.lang.OutOfMemoryError: Java heap space",
+      "The Native Image build process ran out of memory.",
+    ].join("\n");
+    expect(explainError(error, "aot")?.title).toBe("Java 25 原生编译内存不足");
+  });
+
+  it("marks input fingerprint conflicts as retryable", () => {
+    const explained = explainError(
+      "build 失败（退出码 2）\nmcfao build: Build inputs changed. Use a new output.",
+      "fabric",
+    );
+    expect(explained?.title).toBe("构建输入与旧目录不一致");
+    expect(explained?.retryHelps).toBe(true);
+  });
+
+  it("recognises a truncated download as a network problem", () => {
+    const explained = explainError(
+      "<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1016)>",
+      "source",
+    );
+    expect(explained?.title).toContain("网络中断");
+    expect(explained?.retryHelps).toBe(true);
+  });
+
+  it("leaves unrecognised failures to the raw output", () => {
+    expect(explainError("something unexpected", "aot")).toBeNull();
+    expect(explainError("   ", "aot")).toBeNull();
+  });
+
+  it("explains an ambiguous export directory", () => {
+    const explained = explainError(
+      "export 失败（退出码 2）\nmcfao export: Expected one exported IPA: /x/export",
+      "archive",
+    );
+    expect(explained?.title).toBe("导出目录里不止一个 IPA");
+    expect(explained?.retryHelps).toBe(true);
+  });
+
+  it("explains a legacy exclusion check that recorded no cause", () => {
+    const explained = explainError(
+      "失败原因不是可确认的静态 AOT 排除项",
+      "fabric",
+    );
+    expect(explained?.title).toBe("构建在 Fabric 检查阶段停止");
+    expect(explained?.retryHelps).toBe(true);
   });
 });

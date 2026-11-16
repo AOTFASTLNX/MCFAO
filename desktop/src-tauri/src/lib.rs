@@ -197,9 +197,19 @@ fn development_workspace() -> Option<PathBuf> {
         .to_path_buf();
     root.join("tools/preflight.py").is_file().then_some(root)
 }
+fn runtime_workspace(resources: &Path, development: Option<PathBuf>) -> Option<PathBuf> {
+    let bundled = resources.join("source");
+    if bundled.join("bundle-manifest.json").is_file()
+        && bundled.join("tools/desktop_workbench.py").is_file() {
+        Some(bundled)
+    } else {
+        development
+    }
+}
 #[tauri::command]
-fn default_workspace() -> Option<String> {
-    development_workspace().map(|p| p.to_string_lossy().into_owned())
+fn default_workspace(app: tauri::AppHandle) -> Option<String> {
+    runtime_workspace(&app.path().resource_dir().ok()?, development_workspace())
+        .map(|p| p.to_string_lossy().into_owned())
 }
 
 // The macOS title bar, traffic lights and overlay scroll bars are drawn by the
@@ -454,6 +464,12 @@ async fn workbench_action(
             "save-config",
             "reveal",
             "reveal-folder",
+            "storage-plan",
+            "storage-clean",
+            "storage-settings",
+            "save-storage",
+            "setup-start",
+            "setup-status",
         ]
         .contains(&action.as_str())
         {
@@ -492,12 +508,14 @@ async fn workbench_action(
         // The desktop host may be Intel while running on Apple Silicon. Universal
         // Python otherwise inherits Rosetta and cannot satisfy the AOT host gate.
         let python = python_program(&python);
-        let output = native_capture_with_script(
-            &python,
-            &args,
-            Duration::from_secs(110),
-            &script,
-        )?;
+        // Scanning a 60 GB tree on an exFAT volume takes far longer than a status poll;
+        // the cleanup tool is read-only for the plan step and refuses while a build runs.
+        let deadline = if action == "storage-plan" || action == "storage-clean" {
+            Duration::from_secs(900)
+        } else {
+            Duration::from_secs(110)
+        };
+        let output = native_capture_with_script(&python, &args, deadline, &script)?;
         let value: Value = serde_json::from_str(&output.stdout)
             .map_err(|_| format!("构建服务未返回有效结果：{}", output.stderr))?;
         if output.code != Some(0) {
@@ -544,6 +562,15 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn distributed_source_takes_precedence_over_compile_machine_path() {
+        let root = std::env::temp_dir().join(format!("ncl-runtime-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("source/tools")).unwrap();
+        std::fs::write(root.join("source/bundle-manifest.json"), "{}").unwrap();
+        std::fs::write(root.join("source/tools/desktop_workbench.py"), "").unwrap();
+        assert_eq!(runtime_workspace(&root, Some(PathBuf::from("/old/build/machine"))), Some(root.join("source")));
+        std::fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn arguments_are_literal_and_unicode_is_preserved() {
         let value = "中文 path ' $(echo BAD) ; echo BAD";
