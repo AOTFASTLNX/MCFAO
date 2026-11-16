@@ -160,3 +160,22 @@ test("desktop setup and directory changes use bounded actions after account veri
     calls.find((c) => c.action === "setup-start")?.request.fields?.owned,
   ).toBe(true);
 });
+
+test("optional test version survives reload and can be cleared", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "原版 26.1.2", exact: true }).click();
+  await page.getByRole("button", { name: "3 开发签名", exact: true }).click();
+  await page.getByLabel(/测试版本/).fill("LAN-r5-20261117");
+  await page.getByRole("button", { name: "下一步", exact: true }).click();
+  await expect(
+    page.getByText("LAN-r5-20261117", { exact: true }),
+  ).toBeVisible();
+  await page.reload();
+  await page.getByRole("button", { name: "3 开发签名", exact: true }).click();
+  await expect(page.getByLabel(/测试版本/)).toHaveValue("LAN-r5-20261117");
+  await page.getByLabel(/测试版本/).fill("");
+  await page.getByRole("button", { name: "下一步", exact: true }).click();
+  await expect(page.getByText("未设置", { exact: true })).toBeVisible();
+});

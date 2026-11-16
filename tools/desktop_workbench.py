@@ -33,6 +33,7 @@ from storage_inventory import inventory as storage_inventory
 from storage_config import storage_paths, job_roots, require_space, save_paths, reset_paths, space_report, control_lock
 import native_dependencies
 import app_icon
+from test_version import test_version
 
 ROOT = Path(__file__).resolve().parents[1]
 KEYS = ('prepared', 'caps', 'bootstrapRuntime', 'splitter', 'versionMetadata', 'assets',
@@ -306,6 +307,7 @@ def resource_selection(report, selection):
 
 def validate_request(request):
     workspace = workspace_path(request['workspace'])
+    if not request.get('existingBuild'): test_version(request.get('testVersion', ''))
     if not isinstance(request.get('unsigned', False), bool): raise ValueError('未签名选项必须为布尔值')
     if not isinstance(request.get('forceCompile', False), bool): raise ValueError('强制编译选项必须为布尔值')
     if request.get('icon') and not isinstance(request.get('icon'), str): raise ValueError('图标路径必须是文本')
@@ -319,6 +321,7 @@ def validate_request(request):
     if request.get('loader') not in ('fabric', 'vanilla'): raise ValueError('请选择 Fabric 或原版')
     if request.get('existingBuild'):
         result = read_json(resolve(request['existingBuild']) / 'result.json')
+        request['testVersion'] = test_version(result.get('testVersion', ''))
         expected = 'UNSIGNED_DEVICE_APP' if request.get('unsigned') else 'SIGNED_DEVICE_APP'
         if result.get('status') != expected or result.get('target') != 'ios-arm64':
             raise ValueError('请选择已完成的 iPhoneOS 构建目录')
@@ -683,6 +686,8 @@ def compile_build(command, folder, request, build, mods, game, update, env, prev
             if request.get('iconBackground', 'transparent') != 'transparent':
                 args += ['--icon-background', request['iconBackground']]
             if request.get('iconPadding'): args += ['--icon-padding', str(request['iconPadding'])]
+        label = test_version(request.get('testVersion', ''))
+        if label: args += ['--test-version', label]
         try:
             execute(args, folder, 'build', update, 'fabric' if request['loader'] == 'fabric' else 'split', env)
             return None, build

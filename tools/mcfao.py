@@ -24,6 +24,7 @@ from bootstrap_toolchain import sha256
 from build_c0_harness import binary_platform, validate_dylib, validate_shader_bundle
 from capture import ROOT, capture
 from bundle_source import source_identity
+from test_version import test_version, ipa_filename
 from graphics_common import bridge_overlays, verify_gl41_bridge
 from native_game_checks import verify_game_image
 from build_glfw_lite import exported_symbols, validate_input_exports
@@ -60,7 +61,7 @@ BACKEND_TOOLS = (
     "config_reflection", "mdaf", "verify_aot_classpath", "patch_gl41_client", "renderer_profile",
     "cleanup_storage",
     "storage_config", "bundle_source", "host_tools", "verified_download", "glfw_runtime_contract",
-    "native_game_checks", "app_icon",
+    "native_game_checks", "app_icon", "test_version",
 )
 
 
@@ -561,7 +562,8 @@ def resolve_development_team(bundle_identifier: str = BUNDLE_IDENTIFIER,
 
 
 def device_xcode(staged: Path, assets: Path, team: str | None = None, *, renderer="metal", unsigned=False,
-                 bundle_id=BUNDLE_IDENTIFIER, icon: Path | None = None, icon_name: str | None = None) -> list:
+                 bundle_id=BUNDLE_IDENTIFIER, icon: Path | None = None, icon_name: str | None = None,
+                 test_version_label="") -> list:
     team = ("" if unsigned else resolve_development_team(bundle_id)) if team is None else team
     icon_settings = ([f"FAOT_APP_ICON_DIR={icon}", f"FAOT_APP_ICON_NAME={icon_name}"]
                      if icon and icon_name else [])
@@ -571,6 +573,7 @@ def device_xcode(staged: Path, assets: Path, team: str | None = None, *, rendere
         f"FAOT_GRAPHICS_NATIVE_DIR={staged}", f"FAOT_CLIENT_LIBRARY={staged / 'client-graph.dylib'}",
         f"FAOT_GAME_ASSETS_DIR={assets}", f"DEVELOPMENT_TEAM={team}", f"FAOT_RENDERER={renderer}",
         f"PRODUCT_BUNDLE_IDENTIFIER={bundle_id}",
+        f"FAOT_TEST_VERSION={test_version(test_version_label)}",
         *icon_settings,
         *(["CODE_SIGNING_ALLOWED=NO", "CODE_SIGNING_REQUIRED=NO"] if unsigned else []),
     ]
@@ -597,6 +600,8 @@ def verify(output: Path, device: str | None) -> dict:
     icon = report.get("appIcon")
     if icon and icon.get("assetName"):
         verify_icon(app, icon["assetName"])
+    if test_version(plistlib.loads((app / "Info.plist").read_bytes()).get("FAOTTestVersion", "")) != test_version(report.get("testVersion", "")):
+        raise ValueError("Packaged test version differs from recorded build")
     logs = output / "verify" / uuid4().hex
     if report.get("ipa") and (sha256(Path(report["ipa"])) != report["sha256"] or Path(report["ipa"]).stat().st_size != report["bytes"]):
         raise ValueError("IPA changed since packaging")
@@ -643,7 +648,8 @@ def export_ipa(args) -> dict:
     renderer = manifest.get("renderer", "metal")
     bundle_id = evidence.get("bundleID", BUNDLE_IDENTIFIER)
     seed = build / "instance-seed"
-    step("archive", [*device_xcode(staged, assets, renderer=renderer, bundle_id=bundle_id, **icon_settings),
+    step("archive", [*device_xcode(staged, assets, renderer=renderer, bundle_id=bundle_id,
+                                   test_version_label=evidence.get("testVersion", ""), **icon_settings),
                      *([f"FAOT_INSTANCE_DATA_DIR={seed}"] if seed.is_dir() else []), "-derivedDataPath", output / "DerivedData",
                      "-archivePath", archive, "archive"])
     step("export-log", ["/usr/bin/xcodebuild", "-exportArchive", "-archivePath", archive,
@@ -655,6 +661,13 @@ def export_ipa(args) -> dict:
     if len(ipas) != 1:
         raise ValueError(f"Expected one exported IPA: {output / 'export'}")
     ipa = ipas[0]
+    label = test_version(evidence.get("testVersion", ""))
+    if label:
+        named = ipa.with_name(ipa_filename(label))
+        if named != ipa:
+            if named.exists(): raise ValueError("IPA output already exists")
+            ipa.rename(named)
+            ipa = named
     unpacked = output / "unpacked"
     step("unpack", ["/usr/bin/ditto", "--norsrc", "--noextattr", "--noqtn", "-x", "-k", ipa, unpacked])
     apps = [p for p in (unpacked / "Payload").glob("*.app") if not is_metadata(p.name)]
@@ -663,9 +676,11 @@ def export_ipa(args) -> dict:
     validate_package(apps[0], staged, evidence["assetsSHA256"], renderer)
     if icon and icon.get("assetName"):
         verify_icon(apps[0], icon["assetName"])
+    if test_version(plistlib.loads((apps[0] / "Info.plist").read_bytes()).get("FAOTTestVersion", "")) != label:
+        raise ValueError("Exported test version differs from build inputs")
     result = {"status": "DEVELOPMENT_IPA_VERIFIED", "target": TARGET, "ipa": str(ipa),
               "sha256": sha256(ipa), "bytes": ipa.stat().st_size, "build": str(build),
-              "exportOptionsSHA256": sha256(options),
+              "exportOptionsSHA256": sha256(options), "testVersion": label,
               "renderer": renderer, "sourceCommit": manifest.get("sourceCommit"),
               "verification": app_facts(apps[0], args.device, output / "verify", renderer)}
     write_json(output / "result.json", result)
@@ -702,7 +717,7 @@ def build(args, config):
             raise ValueError("Completed build is immutable. Use verify or select a new output.")
         renderer = getattr(args, "renderer", "metal")
         manifest, client, libraries = inputs(config, renderer)
-        manifest.update({"unsigned": getattr(args, "unsigned", False), "bundleID": getattr(args, "bundle_id", BUNDLE_IDENTIFIER),
+        manifest.update({"testVersion": test_version(getattr(args, "test_version", "")), "unsigned": getattr(args, "unsigned", False), "bundleID": getattr(args, "bundle_id", BUNDLE_IDENTIFIER),
                          "heapGiB": getattr(args, "heap_gib", 9), "parallelism": getattr(args, "parallelism", 4)})
         manifest["loader"] = args.loader
         icon = getattr(args, "icon", None)
@@ -827,7 +842,8 @@ def build(args, config):
                 *icon_options(args)), timeout=900)
             pipeline_icon = icon_build / "compiled"
         app = pipeline.step("package", [
-            *device_xcode(staged, config["assets"], renderer=renderer, unsigned=manifest["unsigned"], bundle_id=manifest["bundleID"],
+            *device_xcode(staged, config["assets"], renderer=renderer, unsigned=manifest["unsigned"],
+                          bundle_id=manifest["bundleID"], test_version_label=manifest["testVersion"],
                           icon=pipeline_icon, icon_name=icon_name),
             *([f"FAOT_INSTANCE_DATA_DIR={seed}"] if seed else []), "-derivedDataPath", "{product}", "build"],
             outputs=lambda attempt: attempt / "product/Build/Products/World Device-iphoneos/C0Harness.app")
@@ -836,14 +852,17 @@ def build(args, config):
             verify_icon(app, icon_name)
         if seed and tree_files(seed) != tree_files(app / "instance-seed"):
             raise ValueError("Packaged instance seed changed")
+        if test_version(plistlib.loads((app / "Info.plist").read_bytes()).get("FAOTTestVersion", "")) != manifest["testVersion"]:
+            raise ValueError("Packaged test version differs from build inputs")
         facts = app_facts(app, args.device, output / "verify" / uuid4().hex, renderer, not manifest["unsigned"])
-        ipa = output / "NCL-game.ipa"
+        ipa = output / ipa_filename(manifest["testVersion"])
         write_payload_ipa(app, ipa)
         write_json(output / "result.json", {
             "status": "UNSIGNED_DEVICE_APP" if manifest["unsigned"] else "SIGNED_DEVICE_APP", "target": TARGET, "buildKey": key,
             "renderer": renderer, "sourceCommit": manifest["sourceCommit"],
             "ipa": str(ipa), "bytes": ipa.stat().st_size, "sha256": sha256(ipa),
             "signature": "UNSIGNED" if manifest["unsigned"] else "DEVELOPMENT_SIGNED",
+            "testVersion": manifest["testVersion"],
             "appIcon": ({"assetName": icon_name, **manifest["appIcon"]} if icon_name else None),
             "loader": args.loader, "loaderReport": str(loader_report) if loader_report else None,
             "inputsSHA256": sha256(saved), "aotCommand": str(aot / "analysis/command.json"),
@@ -869,6 +888,7 @@ def main(argv=None):
     compile_command.add_argument("--instance-data", type=Path, help="Verified first-party import root; seed config/resourcepacks without overwriting device files")
     compile_command.add_argument("--renderer", choices=("metal", "gl41"), default=os.environ.get("FAOT_RENDERER", "metal"))
     compile_command.add_argument("--unsigned", action="store_true")
+    compile_command.add_argument("--test-version", type=test_version, default="", help="Optional test label shown in the launcher, logs and IPA filename")
     compile_command.add_argument("--bundle-id", default=BUNDLE_IDENTIFIER)
     compile_command.add_argument("--icon", type=Path,
                                  help="Own artwork for the app icon: an .icon document or a supported image")

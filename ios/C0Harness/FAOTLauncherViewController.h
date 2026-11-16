@@ -6,9 +6,10 @@
 #import <UIKit/UIKit.h>
 #import "FAOTControlLayout.h"
 
+#import "test_version.h"
+
 NS_ASSUME_NONNULL_BEGIN
 
-FOUNDATION_EXPORT NSString *const FAOTTestBuildMarker;
 
 extern NSString *const FAOTPlayerNameDefaultsKey;   // NSString
 extern NSString *const FAOTMemoryGiBDefaultsKey;    // NSNumber

@@ -15,6 +15,13 @@
 5. 支持 `.mrpack` 和 Prism Launcher 实例导入；按兼容性报告处理 Mod，不要宣传无条件支持所有 Fabric Mod。
 6. 做到可玩版本的定义以 docs/ACCEPTANCE.md 为准，不准用“构建成功”代替真机可玩证据。
 
+## 测试阶段版本标记
+
+- Agent 为测试阶段构建或交付 IPA 时，必须在构建命令中传入 `--test-version <当前测试阶段标识>`（例如 `--test-version LAN-r5-20261117`）；GUI 构建填写相同的「测试版本」字段。标识须能区分本轮测试阶段，不能沿用不匹配的旧标识。
+- 标识统一由构建参数写入包内配置，驱动 iOS 启动页「测试版本」、日志首行/文件名及 IPA 文件名。禁止通过修改源码常量硬编码阶段名称；不得把测试标识当作 Bundle ID，以免影响存档延续。
+- 交付前核对构建记录、包内 `FAOTTestVersion` 与 IPA 文件名一致，并在交付说明中写明测试标识；设备回传日志时据此关联测试包。重新导出已有构建沿用原构建标识，不能只改文件名冒充新的测试阶段。
+- 常规、未标记为测试阶段的构建可省略此参数；此时启动页不显示「测试版本」文字，日志不含测试版本字段或后缀。应用自身版本号和 build 号独立保留。
+
 ## 开发行为
 
 - 先阅读 docs/REVIEW_REPORT.md、docs/TECHNICAL_GATES.md、docs/SECURITY_AND_DISTRIBUTION.md、docs/PRODUCT.md、docs/ARCHITECTURE.md、docs/ACCEPTANCE.md；持续更新状态和原始实验日志。

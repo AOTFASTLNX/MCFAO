@@ -28,6 +28,19 @@ const form = {
   source: "/fixture",
 };
 describe("executable workflow", () => {
+  it("persists optional test labels and validates labels before launch", () => {
+    expect(
+      restoreForm(JSON.stringify({ ...form, testVersion: "LAN-r5" }))
+        .testVersion,
+    ).toBe("LAN-r5");
+    expect(restoreForm(null).testVersion).toBe("");
+    expect(
+      buildProblems({ ...form, testVersion: "bad/name" }, report, true).join(),
+    ).toContain("测试版本");
+    expect(
+      buildProblems({ ...form, testVersion: "LAN-r5" }, report, true),
+    ).toEqual([]);
+  });
   it("unsigned mode skips signing fields while retaining build requirements", () => {
     const unsigned = {
       ...form,

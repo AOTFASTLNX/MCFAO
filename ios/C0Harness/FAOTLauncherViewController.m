@@ -74,7 +74,7 @@ NSString *FAOTPojavDefaultLayoutJSON(void) {
 @property (nonatomic, copy) NSString *layoutName;
 @end
 
-NSString *const FAOTTestBuildMarker = @"LAN-r4-20261117";
+
 
 @implementation FAOTLauncherViewController
 
@@ -160,7 +160,7 @@ NSString *const FAOTTestBuildMarker = @"LAN-r4-20261117";
     title.textColor = [UIColor colorWithRed:0.6 green:0.95 blue:0.82 alpha:1];
 
     UILabel *subtitle = [UILabel new];
-    subtitle.text = [NSString stringWithFormat:@"你的方块世界，随身出发。\nMinecraft Java 26.1.2 · Fabric\n测试版本：%@", FAOTTestBuildMarker];
+    subtitle.text = FAOTTestVersionSubtitle(FAOTCurrentTestVersion());
     subtitle.font = [UIFont systemFontOfSize:13 weight:UIFontWeightRegular];
     subtitle.textColor = [UIColor colorWithWhite:1.0 alpha:0.6];
     subtitle.numberOfLines = 0;
