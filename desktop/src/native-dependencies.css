@@ -29,10 +29,33 @@
   margin-left: auto;
 }
 .dependency-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   border-radius: 20px;
   padding: 4px 10px;
   font-size: 12px;
   background: var(--control-bg);
+  transition:
+    background-color var(--motion-normal) var(--motion-ease-out),
+    color var(--motion-normal) var(--motion-ease-out);
+}
+
+.dependency-state .status-mark {
+  margin: 0;
+}
+
+.dependency-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.dependency-current {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
 }
 .dependency-state.current {
   color: var(--success-text);

@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { ChevronRight, Package, Search } from "lucide-react";
 import { findingLabels, type ModInventoryEntry, type Report } from "./model";
 import { SelectMenu } from "./SelectMenu";
+import { AnimatedNumber, Reveal } from "./MotionPrimitives";
 
 export function inventoryRows(report: Report): ModInventoryEntry[] {
   return (
@@ -97,7 +98,9 @@ export default function ModList({ report }: { report: Report }) {
         <Package size={18} aria-hidden="true" />
         <span>
           {open ? "收起 Mod 列表" : "查看 Mod 列表"}
-          <small>{rows.length} 个文件 · 名称、版本与状态</small>
+          <small>
+            <AnimatedNumber value={rows.length} /> 个文件 · 名称、版本与状态
+          </small>
         </span>
         <ChevronRight
           size={18}
@@ -105,7 +108,7 @@ export default function ModList({ report }: { report: Report }) {
           aria-hidden="true"
         />
       </button>
-      {open && (
+      <Reveal open={open}>
         <div id="mod-list-content" className="mod-list-content">
           <p className="mod-list-hint">
             状态来自本次静态检查；已读取不代表已通过 iOS / AOT
@@ -152,8 +155,9 @@ export default function ModList({ report }: { report: Report }) {
             </div>
           </div>
           <p className="mod-result-count" role="status">
-            显示 {Math.min(filtered.length, limit)} / {filtered.length} 个文件 ·
-            共 {rows.length} 个
+            显示 <AnimatedNumber value={Math.min(filtered.length, limit)} /> /{" "}
+            <AnimatedNumber value={filtered.length} /> 个文件 · 共{" "}
+            <AnimatedNumber value={rows.length} /> 个
           </p>
           {filtered.length === 0 && (
             <p className="mod-empty">
@@ -253,7 +257,7 @@ export default function ModList({ report }: { report: Report }) {
             </button>
           )}
         </div>
-      )}
+      </Reveal>
     </section>
   );
 }
