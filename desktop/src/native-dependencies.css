@@ -1,0 +1,100 @@
+.dependency-manager {
+  min-width: 0;
+  margin-bottom: 24px;
+}
+.dependency-manager + .settings-layout > .flat:first-child {
+  border-top: 1px solid var(--control-bg);
+}
+.dependency-list {
+  padding: 0;
+  list-style: none;
+  margin: 20px 0 0;
+}
+.dependency-list > li {
+  padding: 20px 0;
+  border-top: 1px solid var(--input-border);
+  min-width: 0;
+}
+.dependency-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.dependency-heading h3 {
+  margin: 0;
+  font-size: 15px;
+}
+.dependency-heading button {
+  margin-left: auto;
+}
+.dependency-state {
+  border-radius: 20px;
+  padding: 4px 10px;
+  font-size: 12px;
+  background: var(--control-bg);
+}
+.dependency-state.current {
+  color: var(--success-text);
+  background: var(--success-bg);
+}
+.dependency-state.stale {
+  color: var(--warning-text);
+  background: var(--warning-bg);
+}
+.dependency-state.invalid,
+.dependency-state.missing {
+  color: var(--danger-text);
+  background: var(--danger-bg);
+}
+.dependency-list dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 8px 16px;
+  margin: 16px 0;
+  font-size: 13px;
+}
+.dependency-list dt,
+.dependency-list p,
+.dependency-heading small {
+  color: var(--muted);
+}
+.dependency-list dd {
+  margin: 0;
+}
+.dependency-path,
+.dependency-list code {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.dependency-list details {
+  font-size: 13px;
+}
+.dependency-list summary {
+  cursor: pointer;
+  padding: 8px 0;
+}
+.dependency-error {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--danger-text);
+}
+.dependency-task {
+  min-width: 0;
+  padding: 20px;
+  margin-bottom: 20px;
+  border: 1px solid var(--input-border);
+  border-radius: 16px;
+}
+.dependency-log {
+  max-height: 320px;
+  overflow: auto;
+  margin-top: 16px;
+}
+
+.dependency-preflight {
+  margin: 16px 0;
+  padding: 16px;
+  background: var(--raised);
+  border-radius: 12px;
+}
