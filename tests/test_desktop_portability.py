@@ -107,7 +107,7 @@ class StorageConfigurationTests(TemporaryInputs):
 
 class UnsignedWorkflowTests(TemporaryInputs):
     def test_unsigned_request_needs_no_export_plist_or_team(self):
-        with patch.object(w, 'workspace_path', return_value=self.root), patch.object(w, 'config_summary'):
+        with patch.object(w, 'workspace_path', return_value=self.root), patch.object(w, 'config_summary'), patch.object(w.native_dependencies, 'preflight'):
             request = dict(workspace=str(self.root), loader='vanilla', unsigned=True, team='invalid', config='unused', output=str(self.root / 'output'))
             self.assertEqual(w.validate_request(request), self.root)
             with self.assertRaises(KeyError): w.validate_request(dict(request, unsigned=False))

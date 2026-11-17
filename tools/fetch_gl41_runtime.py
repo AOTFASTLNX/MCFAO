@@ -8,15 +8,14 @@ provenance, hashes and license links are recorded next to the downloaded files.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import struct
 import sys
-import urllib.request
 from pathlib import Path
 
 from capture import ROOT
 from graphics_common import register_tree
+from verified_download import fetch
 
 COMMIT = "54d20f9a7b22c8cadc026cbad8eb1a386a1e6efe"
 BASE = f"https://raw.githubusercontent.com/Taylen27/Amethyst-iOS/{COMMIT}/Natives/resources/Frameworks/"
@@ -31,26 +30,10 @@ APACHE = ("https://www.apache.org/licenses/LICENSE-2.0.txt",
 
 
 def download(url: str, destination: Path, expected_bytes: int, expected_sha: str) -> str:
-    request = urllib.request.Request(url, headers={"User-Agent": "NCL-renderer/0.1"})
-    with urllib.request.urlopen(request, timeout=120) as response:
-        chunks = []
-        remaining = expected_bytes + 1
-        while remaining > 0:
-            chunk = response.read(min(remaining, 1024 * 1024))
-            if not chunk:
-                break
-            chunks.append(chunk)
-            remaining -= len(chunk)
-        data = b"".join(chunks)
-    if len(data) != expected_bytes:
-        raise ValueError(f"size mismatch for {url}: {len(data)} != {expected_bytes}")
-    digest = hashlib.sha256(data).hexdigest()
-    if digest != expected_sha:
-        raise ValueError(f"sha256 mismatch for {url}: {digest}")
-    temporary = destination.with_suffix(destination.suffix + ".part")
-    temporary.write_bytes(data)
-    temporary.replace(destination)
-    return digest
+    # Share the bounded HTTPS transport, redirect allowlist and system CA roots
+    # with the other desktop dependency downloads. TLS verification stays on.
+    fetch({'url': url, 'size': expected_bytes, 'sha256': expected_sha}, destination.resolve())
+    return expected_sha
 
 
 def macho_platform(path: Path) -> tuple[int, int, int]:

@@ -28,10 +28,15 @@ from mod_file_policy import is_metadata, content_paths, mod_candidates, copy_ign
 from external_storage import ExternalStorageUnavailable, require_mount
 import cleanup_storage
 from storage_config import storage_paths, job_roots, require_space, save_paths, space_report, control_lock
+import native_dependencies
 
 ROOT = Path(__file__).resolve().parents[1]
 KEYS = ('prepared', 'caps', 'bootstrapRuntime', 'splitter', 'versionMetadata', 'assets',
         'glfw', 'lwjgl', 'gl41', 'openal', 'lwjglOpengl', 'b1Evidence')
+OPTIONAL_KEYS = {'openjdkSource', 'graalSource', 'metal', 'shaders'}
+PUBLIC_ACTIONS = ('bootstrap', 'check', 'dependencies', 'start', 'status', 'cancel', 'history', 'retry',
+                  'resolve-exclusions', 'save-config', 'storage-plan',
+                  'storage-clean', 'storage-settings', 'save-storage', 'setup-start', 'setup-status')
 ACTIVE = {'queued', 'running', 'cancelling', 'awaiting-exclusions'}
 STAGES = ['validate', 'source', 'doctor', 'fabric', 'split', 'gl41-patch', 'aot',
           'runtime', 'link', 'stage', 'package', 'archive', 'export-log', 'verify']
@@ -110,7 +115,7 @@ def history(workspace):
 def config_summary(value):
     config = resolve(value)
     data = read_json(config)
-    if not isinstance(data, dict) or not set(KEYS) <= data.keys() or data.keys() - set(KEYS) - {'openjdkSource', 'graalSource'}:
+    if not isinstance(data, dict) or not set(KEYS) <= data.keys() or data.keys() - set(KEYS) - OPTIONAL_KEYS:
         raise ValueError('构建配置字段不完整，请选择 mcfao 配置或补全高级配置')
     paths = {k: resolve(v, config.parent) for k, v in data.items()}
     missing = [k + ': ' + str(v) for k, v in paths.items() if not v.exists()]
@@ -165,6 +170,7 @@ def check(request):
             return first + ' 与记录中的 GraalVM CE 25.0.2 不同，构建仍会继续', True
         return '全部前置路径存在 · ' + first
     add('AOT 工具链与游戏资源', configuration)
+    add('原生依赖库', lambda: native_dependencies.preflight(ROOT, resolve(request['config'])) and '源码与依赖哈希一致')
     def signing():
         from mcfao import resolve_development_team
         team = request.get('team', '').strip()
@@ -185,7 +191,7 @@ def check(request):
 def save_config(request):
     workspace = workspace_path(request['workspace'])
     values = request['fields']
-    if not isinstance(values, dict) or not set(KEYS) <= values.keys() or values.keys() - set(KEYS) - {'openjdkSource', 'graalSource'}:
+    if not isinstance(values, dict) or not set(KEYS) <= values.keys() or values.keys() - set(KEYS) - OPTIONAL_KEYS:
         raise ValueError('配置字段不完整')
     values = {k: str(resolve(v)) for k, v in values.items() if v}
     if not set(KEYS) <= values.keys(): raise ValueError('请填写所有必需路径')
@@ -258,6 +264,7 @@ def validate_request(request):
             request['loader'] = result['loader']
         return workspace
     config_summary(request['config'])
+    native_dependencies.preflight(ROOT, resolve(request['config']))
     if not request.get('unsigned'):
         if plistlib.loads(resolve(request['exportOptions']).read_bytes()).get('method') != 'debugging': raise ValueError('请选择 debugging 导出配置')
         if request.get('team') and not re.fullmatch('[A-Z0-9]{10}', request['team']): raise ValueError('Team ID 无效')
@@ -698,6 +705,17 @@ def run_job(path):
     try:
         request = job['request']
         update(state='running', pid=os.getpid(), stage='validate')
+        if job.get('kind') == 'dependencies':
+            require_mount('native dependency rebuild')
+            env = dict(os.environ, PYTHONUNBUFFERED='1', MCFAO_STREAM_LOGS='1')
+            for name in ('JAVA_TOOL_OPTIONS', 'JDK_JAVA_OPTIONS', '_JAVA_OPTIONS', 'CLASSPATH'):
+                env.pop(name, None)
+            native_dependencies.rebuild(ROOT, resolve(request['config']), request['dependencyKeys'],
+                Path(job['build']),
+                lambda argv, key: execute(argv, folder, key, update, 'dependency-' + key, env),
+                lambda: CANCELLED or (folder / 'cancel').exists(), update, write_json)
+            update(state='succeeded', stage='dependencies-complete', finishedAt=now())
+            return
         validate_request(request)
         if job.get('compatibilityOverrides'):
             for override in job['compatibilityOverrides']: print('版本提示：' + override['message'], flush=True)
@@ -791,6 +809,8 @@ def start(request, retry=None):
         return _start(request, retry)
 
 def _start(request, retry=None):
+    if request.get('kind') == 'dependencies':
+        return start_dependencies(request)
     workspace = validate_request(request)
     require_mount('desktop build')
     require_space({**storage_paths(workspace), 'builds': resolve(request['output'])})
@@ -826,6 +846,37 @@ def _start(request, retry=None):
         (folder / 'launch').touch()
         return job
 
+def start_dependencies(request):
+    workspace = workspace_path(request['workspace'])
+    keys = native_dependencies.plan(request.get('dependencyKeys'))
+    config = resolve(request.get('config', ''))
+    native_dependencies.config_paths(config)
+    require_mount('native dependency rebuild')
+    graphics = (workspace / 'artifacts/graphics').resolve(strict=True)
+    require_space({**storage_paths(workspace), 'builds': graphics})
+    root = storage_paths(workspace)['jobs']
+    root.mkdir(parents=True, exist_ok=True)
+    with (root / '.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if any(j['state'] in ACTIVE for j in history(workspace)):
+            raise ValueError('已有构建在运行，请等待完成或先取消')
+        ident = uuid4().hex
+        folder = root / ident
+        folder.mkdir()
+        output = graphics / ('dependencies-' + datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ-') + ident[:8])
+        job = dict(id=ident, kind='dependencies', name='原生依赖库重建', request={**request, 'dependencyKeys': keys},
+                   state='queued', stage='validate', startedAt=now(), updatedAt=now(), build=str(output),
+                   folder=str(folder), error='')
+        path = folder / 'job.json'
+        write_json(path, job)
+        with (folder / 'worker.log').open('ab') as log:
+            child = subprocess.Popen([sys.executable, '-B', str(Path(__file__).resolve()), 'run-job', '--job', str(path)],
+                cwd=workspace, stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
+        job['pid'] = child.pid
+        write_json(path, job)
+        (folder / 'launch').touch()
+        return job
+
 def cancel(workspace, ident):
     path = job_path(workspace, ident)
     job = snapshot(path, False)
@@ -837,7 +888,7 @@ def cancel(workspace, ident):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['bootstrap', 'check', 'start', 'status', 'cancel', 'history', 'retry', 'resolve-exclusions', 'save-config', 'run-job', 'storage-plan', 'storage-clean', 'storage-settings', 'save-storage', 'setup-start', 'setup-status'])
+    parser.add_argument('action', choices=[*PUBLIC_ACTIONS, 'run-job'])
     parser.add_argument('--request', default='{}')
     parser.add_argument('--workspace', default=str(ROOT))
     parser.add_argument('--id')
@@ -851,6 +902,7 @@ def main():
             require_mount(f'desktop workbench {args.action}')
         if args.action == 'bootstrap': result = bootstrap(workspace)
         elif args.action == 'check': result = check(request)
+        elif args.action == 'dependencies': result = native_dependencies.inventory(workspace, resolve(request['config']))
         elif args.action == 'save-config': result = save_config(request)
         elif args.action == 'storage-settings': result = space_report(storage_paths(workspace))
         elif args.action == 'save-storage':

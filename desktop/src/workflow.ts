@@ -12,6 +12,8 @@ export interface StoragePaths {
   rust: string;
 }
 export interface BuildForm {
+  kind?: "dependencies";
+  dependencyKeys?: string[];
   unsigned?: boolean;
   resourceSelection: ResourceSelection | null;
   existingBuild?: string;
@@ -27,6 +29,9 @@ export interface BuildForm {
   forceCompile: boolean;
 }
 export interface BuildJob {
+  kind?: "dependencies";
+  configFields?: Record<string, string>;
+  dependencyProgress?: { completed: number; total: number; key?: string };
   id: string;
   name: string;
   state:
@@ -124,6 +129,8 @@ export const configurationFields = [
   ["gl41", "OpenGL 兼容运行库", "folder"],
   ["lwjglOpengl", "OpenGL 原生桥接", "folder"],
   ["openal", "OpenAL 音频", "folder"],
+  ["metal", "Metal 后端（可选）", "folder"],
+  ["shaders", "Metal 着色器（可选）", "folder"],
   ["b1Evidence", "B1 运行验证记录", "file"],
 ] as const;
 export const stages = [
@@ -143,9 +150,13 @@ export const stages = [
   ["verify", "验证签名与产物"],
 ] as const;
 export const stageName = (value: string) =>
-  value === "mod-exclusion-review"
-    ? "等待排除确认"
-    : (stages.find((s) => s[0] === value)?.[1] ?? value);
+  value.startsWith("dependency-")
+    ? "重建 " + (dependencyNames[value.slice(11)] ?? value.slice(11))
+    : value === "dependencies-complete"
+      ? "依赖库重建完成"
+      : value === "mod-exclusion-review"
+        ? "等待排除确认"
+        : (stages.find((s) => s[0] === value)?.[1] ?? value);
 export const isActive = (job?: BuildJob | null) =>
   !!job &&
   ["queued", "running", "cancelling", "awaiting-exclusions"].includes(
@@ -161,6 +172,39 @@ export const stateNames: Record<BuildJob["state"], string> = {
   failed: "构建失败",
   succeeded: "IPA 已验证",
 };
+
+export const dependencyNames: Record<string, string> = {
+  glfw: "GLFW-lite",
+  lwjgl: "LWJGL-lite",
+  gl41: "OSMesa / MoltenVK",
+  lwjglOpengl: "LWJGL OpenGL shim",
+  metal: "Metal 后端",
+  openal: "OpenAL Soft",
+  shaders: "着色器",
+};
+export interface NativeDependency {
+  key: string;
+  name: string;
+  path: string;
+  builtAt: string | null;
+  target: string;
+  state: "current" | "stale" | "missing" | "invalid";
+  changedFiles: string[];
+  reasons: string[];
+  dependsOn: string[];
+  required: boolean;
+  mode: "build" | "fetch";
+  timeBasis?: string;
+}
+export interface DependencyInventory {
+  ready: boolean;
+  libraries: NativeDependency[];
+  checkedAt: string;
+}
+export const jobStateName = (job: BuildJob) =>
+  job.kind === "dependencies" && job.state === "succeeded"
+    ? "依赖库已重建"
+    : stateNames[job.state];
 
 export interface ErrorExplanation {
   /** Short headline naming the failing stage and the kind of problem. */
@@ -260,7 +304,7 @@ export function explainError(
       cause:
         "Xcode 已导出 IPA，但导出目录中出现了额外的 .ipa 文件，构建器无法判断哪个是本次产物。",
       next: [
-        "重试即可；已修复的版本会忽略外接盘生成的 ._ 元数据文件。",
+        "重试即可；已修复的版本会忽略 macOS 在外部卷上生成的 ._ 元数据文件。",
         "若仍出现，请检查导出目录里是否有你手动放入的 IPA。",
       ],
       retryHelps: true,

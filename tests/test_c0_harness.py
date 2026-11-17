@@ -48,6 +48,16 @@ class ShaderBundleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             directory,_=self.fixture(Path(temp));(directory/'unrelated').write_text('unexpected')
             with self.assertRaisesRegex(ValueError,'Unexpected'):validate_shader_bundle(directory,True)
+    def test_exfat_sidecars_do_not_hide_modified_or_missing_shader_content(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory,binary=self.fixture(Path(temp))
+            (directory/('._'+binary.name)).write_bytes(b'AppleDouble metadata')
+            (directory/'.DS_Store').write_bytes(b'Finder metadata')
+            self.assertEqual(validate_shader_bundle(directory,True)['programs'],1)
+            binary.write_bytes(b'modified real shader')
+            with self.assertRaisesRegex(ValueError,'fingerprint changed'):validate_shader_bundle(directory,True)
+            binary.unlink()
+            with self.assertRaises(FileNotFoundError):validate_shader_bundle(directory,True)
 
 
 class OutputPreservationTests(unittest.TestCase):

@@ -70,7 +70,6 @@ import {
   restoreForm,
   stageName,
   stages,
-  stateNames,
   type Bootstrap,
   type BuildForm,
   type BuildJob,
@@ -108,6 +107,8 @@ import {
   migrateLegacyKeys,
   readWithLegacy,
 } from "./storage";
+import { NativeDependencies, DependencyTask } from "./NativeDependencies";
+import { jobStateName, type DependencyInventory } from "./workflow";
 type Page = "builder" | "history" | "environment" | "settings";
 
 interface StorageItem {
@@ -408,6 +409,12 @@ export default function App() {
   const [step, setStep] = useState(0);
   const [report, setReport] = useState<Report | null>(null);
   const [checks, setChecks] = useState<Checks | null>(null);
+  const [dependencies, setDependencies] = useState<DependencyInventory | null>(
+    null,
+  );
+  const [dependencyError, setDependencyError] = useState("");
+  const [checkingDependencies, setCheckingDependencies] = useState(false);
+  const [dependencyRevision, setDependencyRevision] = useState(0);
   const [fields, setFields] = useState<Record<string, string>>({});
   const [jobs, setJobs] = useState<BuildJob[]>([]);
   const [selected, setSelected] = useState("");
@@ -446,6 +453,58 @@ export default function App() {
     form.resourceSelection?.source === form.source &&
     form.resourceSelection?.fingerprint === currentReport.resources_fingerprint;
   const problems = buildProblems(form, report, native);
+  const dependencyJob = jobs.find(
+    (j) => j.kind === "dependencies" && j.request.config === form.config,
+  );
+  useEffect(() => {
+    setDependencies(null);
+    setDependencyError("");
+    if (!native || !form.config || !form.workspace) return;
+    let stopped = false;
+    setCheckingDependencies(true);
+    const timer = setTimeout(() => {
+      void workbench<DependencyInventory>(formRef.current, "dependencies")
+        .then((result) => {
+          if (!stopped) setDependencies(result);
+        })
+        .catch((e) => {
+          if (!stopped) setDependencyError(String(e));
+        })
+        .finally(() => {
+          if (!stopped) setCheckingDependencies(false);
+        });
+    }, 300);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [form.workspace, form.config, dependencyRevision, dependencyJob?.state]);
+  useEffect(() => {
+    if (dependencyJob?.state === "succeeded" && dependencyJob.configFields) {
+      setFields(dependencyJob.configFields);
+      setChecks(null);
+    }
+  }, [dependencyJob?.id, dependencyJob?.state]);
+  async function rebuildDependencies(keys: string[]) {
+    if (active) return;
+    await attempt("正在创建依赖库重建任务", async () => {
+      const next = await workbench<BuildJob>(
+        { ...form, kind: "dependencies", dependencyKeys: keys },
+        "start",
+      );
+      setJobs((old) => mergeJob(old, next));
+      setSelected(next.id);
+      setRefresh((v) => v + 1);
+      setPage("environment");
+    });
+  }
+  async function cancelDependencies(target: BuildJob) {
+    await attempt("正在取消依赖库重建", async () => {
+      const next = await workbench<BuildJob>(form, "cancel", target.id);
+      setJobs((old) => mergeJob(old, next));
+      setRefresh((v) => v + 1);
+    });
+  }
   useEffect(() => {
     applyTheme(resolvedTheme);
     void syncWindowTheme(resolvedTheme);
@@ -784,6 +843,13 @@ export default function App() {
   async function begin() {
     if (problems.length || active) return;
     await attempt("正在创建构建任务", async () => {
+      const result = await workbench<DependencyInventory>(form, "dependencies");
+      setDependencies(result);
+      if (!result.ready) {
+        setNotice("原生依赖已过期、缺失或校验失败，请先一键重建所需依赖。");
+        setPage("environment");
+        return;
+      }
       const j = await workbench<BuildJob>(form, "start");
       setJobs((old) => mergeJob(old, j));
       setSelected(j.id);
@@ -1358,6 +1424,72 @@ export default function App() {
                           }
                         />
                       )}
+                      {(step === environmentStep || step === reviewStep) && (
+                        <section
+                          className="dependency-preflight"
+                          aria-label="原生依赖预检"
+                        >
+                          <h3>原生依赖预检</h3>
+                          <p>
+                            {checkingDependencies
+                              ? "正在比对源码与依赖哈希…"
+                              : dependencies?.ready
+                                ? "所需依赖与当前源码一致"
+                                : "构建前需检查原生依赖库。"}
+                          </p>
+                          {dependencyError && (
+                            <Note error>{dependencyError}</Note>
+                          )}
+                          {dependencies && !dependencies.ready && (
+                            <Note error>
+                              {dependencies.libraries
+                                .filter(
+                                  (r) => r.required && r.state !== "current",
+                                )
+                                .map(
+                                  (r) =>
+                                    r.name +
+                                    "：" +
+                                    [...r.reasons, ...r.changedFiles].join(
+                                      "；",
+                                    ),
+                                )
+                                .join("\n")}
+                            </Note>
+                          )}
+                          <div className="button-line">
+                            <button
+                              className="secondary"
+                              onClick={() => setPage("environment")}
+                            >
+                              管理依赖库
+                            </button>
+                            <button
+                              className="primary"
+                              disabled={
+                                !native ||
+                                !!busy ||
+                                !!active ||
+                                !dependencies ||
+                                dependencies.ready
+                              }
+                              onClick={() =>
+                                dependencies &&
+                                void rebuildDependencies(
+                                  dependencies.libraries
+                                    .filter(
+                                      (r) =>
+                                        r.required && r.state !== "current",
+                                    )
+                                    .map((r) => r.key),
+                                )
+                              }
+                            >
+                              一键重建所需依赖
+                            </button>
+                          </div>
+                        </section>
+                      )}
                       {step === environmentStep && (
                         <>
                           {paths}
@@ -1767,7 +1899,7 @@ export default function App() {
                             <div>
                               <strong>{j.name}</strong>
                               <small>{date(j.startedAt)}</small>
-                              <span>{stateNames[j.state]}</span>
+                              <span>{jobStateName(j)}</span>
                             </div>
                             <ChevronRight size={15} />
                           </button>
@@ -1790,6 +1922,12 @@ export default function App() {
                           <ArrowRight size={16} />
                         </button>
                       </div>
+                    ) : job.kind === "dependencies" ? (
+                      <DependencyTask
+                        job={job}
+                        disabled={!native || !!busy}
+                        onCancel={() => void cancelDependencies(job)}
+                      />
                     ) : (
                       <>
                         <div className="job-detail-head">
@@ -1814,7 +1952,7 @@ export default function App() {
                                   : ""
                             }
                           >
-                            {stateNames[job.state]}
+                            {jobStateName(job)}
                           </Pill>
                         </div>
                         {job.request.forceCompile &&
@@ -2015,7 +2153,7 @@ export default function App() {
                                   "ncl-build-" + job.id.slice(0, 8) + ".txt",
                                   [
                                     job.name,
-                                    stateNames[job.state],
+                                    jobStateName(job),
                                     job.build,
                                     job.error,
                                     job.log ?? "",
@@ -2093,6 +2231,21 @@ export default function App() {
                     检测环境
                   </button>
                 </div>
+                {dependencyJob && (
+                  <DependencyTask
+                    job={dependencyJob}
+                    disabled={!native || !!busy}
+                    onCancel={() => void cancelDependencies(dependencyJob)}
+                  />
+                )}
+                <NativeDependencies
+                  report={dependencies}
+                  error={dependencyError}
+                  checking={checkingDependencies}
+                  disabled={!native || !!busy || !!active || !form.config}
+                  onRefresh={() => setDependencyRevision((v) => v + 1)}
+                  onRebuild={(keys) => void rebuildDependencies(keys)}
+                />
                 <div className="settings-layout">
                   <section className="panel flat">
                     <h2>构建资源</h2>

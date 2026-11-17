@@ -209,7 +209,7 @@ class WorkbenchTests(unittest.TestCase):
         lock = self.root / 'compiler'; lock.mkdir(); w.write_json(lock / 'fabric.lock.json', {'fabricLoader':'0.19.3'})
         export = self.root / 'export.plist'; export.write_bytes(plistlib.dumps({'method':'debugging'}))
         request = dict(workspace=str(self.root), loader='fabric', source=str(source), output=str(self.root/'output'), config='unused', exportOptions=str(export), audited=True)
-        with patch.object(w, 'workspace_path', return_value=self.root), patch.object(w, 'config_summary'):
+        with patch.object(w, 'workspace_path', return_value=self.root), patch.object(w, 'config_summary'), patch.object(w.native_dependencies, 'preflight'):
             self.assertEqual(w.validate_request(request), self.root)
             with self.assertRaisesRegex(ValueError, '审计'): w.validate_request(dict(request, audited=False))
             with self.assertRaisesRegex(ValueError, '布尔'): w.validate_request(dict(request, forceCompile='true'))

@@ -32,6 +32,7 @@ BUNDLE_ID = "org.fabricaot.research.c0.kexin"
 DEFAULT_DYLIB = ROOT / "artifacts/c0/client-link-02/client-graph.dylib"
 
 def validate_shader_bundle(directory: Path,simulator: bool)->dict:
+    from mod_file_policy import is_metadata
     if directory.is_symlink():raise ValueError("Shader bundle must not be a symlink")
     directory=directory.resolve(strict=True);report=json.loads((directory.parent/'result.json').read_text());index=directory/'index.json'
     if report.get('status')!='VANILLA_SHADERS_PRECOMPILED' or report.get('sdk')!=('iphonesimulator' if simulator else 'iphoneos') or sha256(index)!=report.get('indexSHA256'):
@@ -44,7 +45,7 @@ def validate_shader_bundle(directory: Path,simulator: bool)->dict:
         path=directory/name
         if path.is_symlink() or sha256(path)!=entry['metallibSHA256']:raise ValueError("Shader library fingerprint changed: "+name)
         files[name]=entry['metallibSHA256']
-    if any(p.is_symlink() for p in directory.rglob('*')) or {p.name for p in directory.iterdir()}!=set(files):raise ValueError("Unexpected shader bundle content")
+    if any(p.is_symlink() for p in directory.rglob('*')) or {p.name for p in directory.iterdir() if not is_metadata(p.name)}!=set(files):raise ValueError("Unexpected shader bundle content")
     return {'path':str(directory),'filesSHA256':files,'programs':len(data['programs'])}
 HARNESS_DIR = ROOT / "artifacts/c0/harness"
 

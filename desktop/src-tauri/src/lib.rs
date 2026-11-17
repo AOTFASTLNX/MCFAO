@@ -443,6 +443,12 @@ async fn save_document(
     .await
     .map_err(|e| e.to_string())?
 }
+fn workbench_action_allowed(action: &str) -> bool {
+    ["bootstrap", "check", "dependencies", "start", "status", "cancel", "history", "retry",
+     "resolve-exclusions", "save-config", "reveal", "reveal-folder", "storage-plan", "storage-clean",
+     "storage-settings", "save-storage", "setup-start", "setup-status"].contains(&action)
+}
+
 #[tauri::command]
 async fn workbench_action(
     workspace: String,
@@ -452,29 +458,10 @@ async fn workbench_action(
     id: Option<String>,
 ) -> Result<Value, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        if ![
-            "bootstrap",
-            "check",
-            "start",
-            "status",
-            "cancel",
-            "history",
-            "retry",
-            "resolve-exclusions",
-            "save-config",
-            "reveal",
-            "reveal-folder",
-            "storage-plan",
-            "storage-clean",
-            "storage-settings",
-            "save-storage",
-            "setup-start",
-            "setup-status",
-        ]
-        .contains(&action.as_str())
-        {
+        if !workbench_action_allowed(&action) {
             return Err("不支持的工作台操作".into());
         }
+        // Check fixed actions before resolving paths or invoking Python.
         let root = PathBuf::from(&workspace)
             .canonicalize()
             .map_err(|e| e.to_string())?;
@@ -562,6 +549,15 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn dependency_actions_use_the_fixed_workbench_allowlist() {
+        for action in ["dependencies", "start", "status", "cancel"] {
+            assert!(workbench_action_allowed(action));
+        }
+        for action in ["run-job", "sh", "build_glfw_lite", "start; touch /tmp/unsafe", ""] {
+            assert!(!workbench_action_allowed(action));
+        }
+    }
     #[test]
     fn distributed_source_takes_precedence_over_compile_machine_path() {
         let root = std::env::temp_dir().join(format!("ncl-runtime-{}", std::process::id()));
