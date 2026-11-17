@@ -4,7 +4,7 @@ GL41 构建必须使用支持 OpenGL/OSMesa 的 GLFW 二进制；历史 `glfw-io
 
 最后复核于 2026-11-16。状态见 [STATUS](STATUS.md)，实验结论见 [ADR-001](evidence/ADR-001.md)。以下均在项目根执行，日志输出目录要求新建。
 
-> 前置条件：先接上并挂载外接盘 K。大体积产物与工具链缓存位于 /Volumes/K/MCFAO-data/，项目内是符号链接；断盘时 mcfao 会在创建输出前暂停（退出码 3），GUI 工作台显示「暂停」。检查与恢复见 EXTERNAL_STORAGE.md。
+> 前置条件：构建目录所在磁盘要有足够空间。CLI 与工作台会在创建输出前做空间预检，空间不足直接失败；编译缓存与构建产物按整合包规模可能占用数十 GiB。默认使用项目内目录；如需把大体积产物放到外接盘，可用未跟踪的 external-storage.json 声明映射，见 EXTERNAL_STORAGE.md。
 
 
 ## 可分发构建器与首次准备（2026-11-16）
@@ -19,7 +19,7 @@ GUI 设置提供四类目录：编译缓存、产物根、任务根、Rust targe
 python3 -B tools/storage_config.py --check
 ```
 
-上面的检查包括原有挂载守卫及所选目录的空间预算。不要删除 external-storage.json 或更换符号链接来绕过检查。
+上面的检查包括所选目录的空间预算；若仓库根存在维护者本机的 external-storage.json，还会一并核验其挂载与链接。不要删除该清单或更换符号链接来绕过检查。
 
 外部客户端下载完成后，用真实校验清单准备第一方 B0 输入：
 
@@ -290,30 +290,30 @@ python3 -B tools/dedup_artifacts.py --suffix .jar                  # mod/客户�
 
 `--min-age` 默认 900 秒，构建正在写的文件不会被替换；已处理的路径记进 `artifacts/.dedup-state.json`，重跑不会重复计数。测量有两个坑：`du` 看不见 clone 共享块（3 份 100 MB 克隆仍报 300 MB），只有 `df` 反映真实回收；并发 AOT 构建时 `df` 波动可达 1.8 GB/分钟，验证必须在构建停下后做。副本来源不同结果也不同：`ditto` 本来就是克隆（0 成本），`cp` 与 `shutil.copy2` 是真复制（每份 222 MB 真占盘）。
 
-### 归档旧构建到外接盘
+### 归档旧构建到另一块盘
 
 `mcfao build` 每跑一次就新建 `artifacts/mcfao/fabric-pack-NN`（2.6–2.9 GB）与可选的 `fabric-pack-NN-simulator`（约 0.95 GB），编号单调递增且没有自动轮转。一天几十次构建就能把本地盘吃满（2026-11-11：25.8 GB → 99.9 GB，磁盘 99%）。
 
-历史构建仍有价值（`result.json` 含完整 AOT 命令与所有产物 sha256），因此**优先迁到外接盘而不是删掉**。归档在 `/Volumes/K/Xcode-备份/buildAOT/`，每个目录一份 `README.md` 说明来源、恢复命令与已知差异。
+历史构建仍有价值（`result.json` 含完整 AOT 命令与所有产物 sha256），因此**优先迁到另一块盘而不是删掉**。下面以挂载在 `/Volumes/<卷名>` 的外接盘为例，`<归档根>` 换成你实际选定的归档目录，每个目录放一份 `README.md` 说明来源、恢复命令与已知差异。
 
 ```bash
 # 1. 逐目录复制（-L 解引用符号链接，ExFAT 存不了 symlink）
 rsync -rltL --no-perms --no-owner --no-group \
-  artifacts/mcfao/<dir>/ "/Volumes/K/Xcode-备份/buildAOT/<dir>/"
+  artifacts/mcfao/<dir>/ "<归档根>/<dir>/"
 
 # 2. 校验通过后才删本地（脚本只删 (文件数, 字节, 抽样 sha256) 全部一致的目录）
 python3 -B tools/verify_moved_builds.py --manifest <清单.json> \
-  --src artifacts/mcfao --dst "/Volumes/K/Xcode-备份/buildAOT"
+  --src artifacts/mcfao --dst "<归档根>"
 python3 -B tools/verify_moved_builds.py ... --delete
 ```
 
-外接盘是 **ExFAT**，有三个必知代价：
+外接盘常用 **ExFAT**，有三个必知代价：
 
 | 项 | 影响 |
 |---|---|
 | 扩展属性 | `rsync`/`ditto` 都会把 xattr 写成 `._name` 伴生文件，实测 14.8 万文件产生 16.2 万个伴生文件、20.3 GB。复制后必须 `find <dst> -name "._*" -delete`，并让校验忽略它们 |
 | 符号链接 | 只能解引用；断链会被跳过 |
-| 簇大小 | 87 GiB 实际占用对应 78 GiB 逻辑，小文件簇内碎片约占 12% |
+| 簇大小 | 本次迁移中 87 GiB 实际占用对应 78 GiB 逻辑，小文件簇内碎片约占 12% |
 
 **删之前必须查引用**，且要用词边界匹配（`fabric-pack-4` 会误命中 `fabric-pack-44`）。`artifacts/mcfao/curated-verification-mods-01` 是 `mcfao build --mods` 的输入，文档引用的实验目录（`docs/FABRIC_AOT.md`、`docs/STATUS.md` 等）一旦删除会让文档断链。
 

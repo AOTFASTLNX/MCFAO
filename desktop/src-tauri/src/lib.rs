@@ -446,7 +446,29 @@ async fn save_document(
 fn workbench_action_allowed(action: &str) -> bool {
     ["bootstrap", "check", "dependencies", "start", "status", "cancel", "history", "retry",
      "resolve-exclusions", "save-config", "reveal", "reveal-folder", "storage-plan", "storage-clean",
-     "storage-settings", "save-storage", "setup-start", "setup-status"].contains(&action)
+     "storage-settings", "storage-change-plan", "storage-change-apply", "reset-storage", "save-storage", "setup-start", "setup-status"].contains(&action)
+}
+
+fn reveal_target(path: &str) -> Result<PathBuf, String> {
+    let target = PathBuf::from(path);
+    if !target.is_absolute() || path.chars().any(char::is_control) {
+        return Err("请选择有效的绝对路径".into());
+    }
+    target.canonicalize().map_err(|e| format!("路径不可用：{e}"))
+}
+
+#[tauri::command]
+async fn reveal_path(path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let target = reveal_target(&path)?;
+        if !cfg!(target_os = "macos") {
+            return Err("此操作需要 macOS".into());
+        }
+        let result = Command::new("/usr/bin/open").arg("-R").arg(target)
+            .status().map_err(|e| e.to_string())?;
+        if !result.success() { return Err("无法在 Finder 中显示此路径".into()); }
+        Ok(())
+    }).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -497,7 +519,9 @@ async fn workbench_action(
         let python = python_program(&python);
         // Scanning a 60 GB tree on an exFAT volume takes far longer than a status poll;
         // the cleanup tool is read-only for the plan step and refuses while a build runs.
-        let deadline = if action == "storage-plan" || action == "storage-clean" {
+        let deadline = if action == "storage-change-apply" {
+            Duration::from_secs(21600)
+        } else if action == "storage-plan" || action == "storage-clean" || action == "storage-change-plan" {
             Duration::from_secs(900)
         } else {
             Duration::from_secs(110)
@@ -537,6 +561,7 @@ pub fn run() {
             default_workspace,
             set_window_theme,
             system_accent,
+            reveal_path,
             workbench_action,
             inspect_pack,
             check_environment,
@@ -549,6 +574,13 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn finder_paths_must_be_existing_absolute_paths() {
+        assert!(reveal_target("relative/path").is_err());
+        assert!(reveal_target("/tmp/invalid\npath").is_err());
+        assert!(reveal_target("/nonexistent/ncl-storage-fixture").is_err());
+        assert!(reveal_target(std::env::temp_dir().to_str().unwrap()).is_ok());
+    }
     #[test]
     fn dependency_actions_use_the_fixed_workbench_allowlist() {
         for action in ["dependencies", "start", "status", "cancel"] {

@@ -71,7 +71,7 @@ arch -arm64 python3 -B tools/mcfao.py build \
 
 ## 复现命令
 
-先执行外接盘检查：
+先执行存储检查（本机若存在未跟踪的 external-storage.json，会一并核验其挂载）：
 
 ```sh
 python3 -B tools/external_storage.py --json

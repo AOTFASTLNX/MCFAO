@@ -1,0 +1,49 @@
+{
+  "status": "STORAGE_PLAN",
+  "scannedAt": "2026-11-17T11:19:03.860294+00:00",
+  "managedBytes": 151820828672,
+  "reclaimBytes": 87745363968,
+  "warnings": [],
+  "volumes": [
+    {
+      "id": "16777242",
+      "path": "/Volumes/K",
+      "totalBytes": 1023966052352,
+      "freeBytes": 567541760000,
+      "roles": [
+        "cache",
+        "builds",
+        "jobs",
+        "rust"
+      ],
+      "managedBytes": 151820828672,
+      "otherBytes": 304603463680
+    }
+  ],
+  "usage": [
+    {
+      "role": "cache",
+      "bytes": 17878351872,
+      "itemCount": 7,
+      "available": true
+    },
+    {
+      "role": "builds",
+      "bytes": 77187514368,
+      "itemCount": 3,
+      "available": true
+    },
+    {
+      "role": "jobs",
+      "bytes": 33232519168,
+      "itemCount": 36,
+      "available": true
+    },
+    {
+      "role": "rust",
+      "bytes": 23522443264,
+      "itemCount": 4,
+      "available": true
+    }
+  ]
+}

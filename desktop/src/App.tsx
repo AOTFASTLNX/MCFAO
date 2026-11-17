@@ -21,6 +21,7 @@ import {
   FileJson2,
   FolderOpen,
   Hammer,
+  HardDrive,
   History,
   Layers3,
   LoaderCircle,
@@ -56,6 +57,7 @@ import {
   inspectSource,
   native,
   pickSource,
+  revealPath,
   saveDocument,
   workbench,
 } from "./bridge";
@@ -109,44 +111,19 @@ import {
 } from "./storage";
 import { NativeDependencies, DependencyTask } from "./NativeDependencies";
 import { jobStateName, type DependencyInventory } from "./workflow";
-type Page = "builder" | "history" | "environment" | "settings";
-
-interface StorageItem {
-  path: string;
-  bytes: number;
-  reason: string;
-}
-interface StorageGroup {
-  id: string;
-  label: string;
-  detail: string;
-  count: number;
-  bytes: number;
-  items: StorageItem[];
-}
-interface StoragePlan {
-  status: string;
-  dataRoot: string;
-  freeBytes: number;
-  reclaimBytes: number;
-  groups: StorageGroup[];
-  blocked: boolean;
-  reason?: string;
-  usage?: { role: string; path: string; bytes: number }[];
-  activeJobs: { id: string; state: string; alive: boolean }[];
-}
-function size(bytes: number): string {
-  const units = ["B", "KiB", "MiB", "GiB", "TiB"];
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return unit === 0
-    ? `${value} ${units[unit]}`
-    : `${value.toFixed(1)} ${units[unit]}`;
-}
+import { StorageManager } from "./StorageManager";
+import {
+  StorageChangeDialog,
+  type StorageChangePlan,
+  type StoragePolicy,
+} from "./StorageChangeDialog";
+import { QuickStorageDirectory } from "./QuickStorageDirectory";
+import {
+  formatBytes as size,
+  unifiedStoragePaths,
+  type StoragePlan,
+} from "./storageManagement";
+type Page = "builder" | "history" | "environment" | "storage" | "settings";
 
 const date = (s: string) =>
   new Date(s).toLocaleString("zh-CN", {
@@ -399,6 +376,9 @@ export default function App() {
     rust: "",
   });
   const [storageStatus, setStorageStatus] = useState("");
+  const [storageChange, setStorageChange] = useState<StorageChangePlan | null>(
+    null,
+  );
   const [setup, setSetup] = useState<import("./workflow").SetupState | null>(
     null,
   );
@@ -428,9 +408,12 @@ export default function App() {
   const [refresh, setRefresh] = useState(0);
   const [reset, setReset] = useState(false);
   const [storage, setStorage] = useState<StoragePlan | null>(null);
-  const [storageChoice, setStorageChoice] = useState<string[]>([]);
-  const [storageConfirm, setStorageConfirm] = useState(false);
   const [storageDone, setStorageDone] = useState("");
+  useEffect(() => {
+    setStorage(null);
+    setStorageDone("");
+    setStorageStatus("");
+  }, [form.workspace]);
   const pendingExclusionJob = jobs.find(
     (item) => item.state === "awaiting-exclusions" && item.exclusionChallenge,
   );
@@ -589,26 +572,111 @@ export default function App() {
         "storage-plan",
       );
       setStorage(plan);
-      setStorageChoice(
-        plan.groups
-          .filter((g) => g.id === "cache" || g.id === "intermediates")
-          .map((g) => g.id),
-      );
       setStorageDone("");
     });
   }
-  async function cleanStorage() {
-    setStorageConfirm(false);
+  async function resetStorageDirectories() {
+    await attempt("正在重置目录设置", async () => {
+      const result = await workbench<{
+        ready: boolean;
+        storage: typeof storagePaths;
+      }>(formRef.current, "reset-storage");
+      setStoragePaths(result.storage);
+      update({ output: result.storage.builds });
+      setStorage(null);
+      setStorageDone("");
+      setStorageStatus(
+        "已恢复默认目录设置，已有文件保留原位。" +
+          (result.ready
+            ? "空间预检通过。"
+            : "默认目录剩余空间不足，请更换目录后再构建。"),
+      );
+    });
+  }
+  async function quickStorageDirectory() {
+    await attempt("正在选择储存目录", async () => {
+      const directory = await choosePath("选择统一储存目录", true);
+      if (!directory) return;
+      const paths = unifiedStoragePaths(directory);
+      setBusy("正在统计已有文件");
+      const plan = await workbench<StorageChangePlan>(
+        formRef.current,
+        "storage-change-plan",
+        undefined,
+        { paths },
+      );
+      setStorageChange(plan);
+    });
+  }
+  async function applyStorageChange(policy: StoragePolicy) {
+    if (!storageChange) return;
+    const plan = storageChange;
+    await attempt(
+      policy === "migrate"
+        ? "正在迁移并校验文件"
+        : policy === "delete"
+          ? "正在删除已有文件"
+          : "正在保存储存设置",
+      async () => {
+        const result = await workbench<{
+          ready: boolean;
+          warnings?: string[];
+          pathMappings?: Record<string, string>;
+        }>(formRef.current, "storage-change-apply", undefined, {
+          paths: plan.paths,
+          policy,
+          token: plan.token,
+        });
+        const patch: Partial<BuildForm> = { output: plan.paths.builds };
+        for (const key of ["config", "exportOptions", "source"] as const) {
+          const value = formRef.current[key];
+          for (const [source, destination] of Object.entries(
+            result.pathMappings || {},
+          ).sort((a, b) => b[0].length - a[0].length)) {
+            if (value === source || value.startsWith(source + "/")) {
+              patch[key] = destination + value.slice(source.length);
+              break;
+            }
+          }
+        }
+        setStoragePaths(plan.paths);
+        update(patch);
+        setStorage(null);
+        setStorageDone("");
+        setStorageChange(null);
+        const outcome = {
+          keep: "已有文件保留原位。",
+          migrate: "已有文件已迁移并完成校验。",
+          delete: "已处理原目录内的文件。",
+        }[policy];
+        setStorageStatus(
+          "储存设置已更新。" +
+            outcome +
+            (result.ready
+              ? "空间预检通过。"
+              : "剩余空间不足，请更换目录后再构建。") +
+            (result.warnings?.length
+              ? "部分原文件已保留：" + result.warnings.join("；")
+              : ""),
+        );
+        workbench<BuildJob[]>(formRef.current, "history")
+          .then(setJobs)
+          .catch((e) => setPollError(String(e)));
+      },
+    );
+  }
+  async function cleanStorage(groups: string[]) {
     await attempt("正在清理", async () => {
       const result = await workbench<{ freedBytes: number }>(
         formRef.current,
         "storage-clean",
         undefined,
-        { groups: storageChoice, keepBuilds: 2 },
+        { groups, keepBuilds: 2 },
       );
       setStorageDone("已释放 " + size(result.freedBytes));
       setNotice("已释放 " + size(result.freedBytes));
       setStorage(null);
+      setStorage(await workbench<StoragePlan>(formRef.current, "storage-plan"));
     });
   }
   async function attempt<T>(
@@ -879,6 +947,7 @@ export default function App() {
   }
   function nav(p: Page) {
     setPage(p);
+    if (p === "storage" && !storage && native && !busy) void loadStorage();
     setError("");
     setNotice("");
   }
@@ -966,6 +1035,7 @@ export default function App() {
               ["builder", "构建 IPA", Hammer],
               ["history", "构建记录", History],
               ["environment", "环境与资源", Cpu],
+              ["storage", "存储管理", HardDrive],
               ["settings", "设置", Settings2],
             ] as const
           ).map(([id, label, Icon]) => (
@@ -1008,6 +1078,7 @@ export default function App() {
                   builder: "构建 IPA",
                   history: "构建记录",
                   environment: "环境与资源",
+                  storage: "存储管理",
                   settings: "设置",
                 }[page]
               }
@@ -1036,7 +1107,7 @@ export default function App() {
         <div className="main-content">
           <div className="page-column">
             {storageIssue && <Note error>{storageIssue}</Note>}
-            {error && (
+            {error && !storageChange && (
               <div className="error-banner" role="alert">
                 <CircleAlert size={19} />
                 <span>{error}</span>
@@ -2285,6 +2356,78 @@ export default function App() {
                 </div>
               </>
             )}
+            {page === "storage" && (
+              <StorageManager
+                plan={storage}
+                busy={busy}
+                available={native}
+                active={
+                  !!active || ["queued", "running"].includes(setup?.state || "")
+                }
+                done={storageDone}
+                onScan={() => void loadStorage()}
+                onClean={(groups) => void cleanStorage(groups)}
+                onReveal={(path) =>
+                  void attempt("正在打开 Finder", async () => {
+                    await revealPath(path);
+                  })
+                }
+                locations={
+                  <>
+                    {(
+                      [
+                        ["cache", "编译缓存目录"],
+                        ["builds", "构建产物根目录"],
+                        ["jobs", "任务记录目录"],
+                        ["rust", "Rust 缓存目录"],
+                      ] as const
+                    ).map(([key, label]) => (
+                      <PathField
+                        key={key}
+                        label={label}
+                        directory
+                        value={storagePaths[key]}
+                        onChange={(v) =>
+                          setStoragePaths((p) => ({ ...p, [key]: v }))
+                        }
+                      />
+                    ))}
+                    <div className="sm-location-save">
+                      <button
+                        className="button secondary"
+                        disabled={
+                          !native ||
+                          !!busy ||
+                          !!active ||
+                          ["queued", "running"].includes(setup?.state || "")
+                        }
+                        onClick={() =>
+                          void attempt("正在保存存储位置", async () => {
+                            const result = await workbench<{ ready: boolean }>(
+                              formRef.current,
+                              "save-storage",
+                              undefined,
+                              storagePaths,
+                            );
+                            update({ output: storagePaths.builds });
+                            setStorage(null);
+                            setStorageDone("");
+                            setStorageStatus(
+                              result.ready
+                                ? "存储位置已保存，空间预检通过。现有数据未迁移。"
+                                : "存储位置已保存，剩余空间不足，请更换目录后再构建。",
+                            );
+                          })
+                        }
+                      >
+                        保存存储位置并检查空间
+                      </button>
+                      {storageStatus && <p role="status">{storageStatus}</p>}
+                    </div>
+                  </>
+                }
+              />
+            )}
             {page === "settings" && (
               <section className="settings-page">
                 <div className="settings-group">
@@ -2440,54 +2583,6 @@ export default function App() {
                 </div>
 
                 <div className="settings-group">
-                  <h2>存储位置</h2>
-                  <p className="section-description">
-                    分别选择编译缓存、构建产物、任务记录与 Rust
-                    缓存目录。保存仅影响后续任务，现有数据保留在原位置；旧任务仍可查看。
-                  </p>
-                  {(
-                    [
-                      ["cache", "编译缓存目录"],
-                      ["builds", "构建产物根目录"],
-                      ["jobs", "任务记录目录"],
-                      ["rust", "Rust 缓存目录"],
-                    ] as const
-                  ).map(([key, label]) => (
-                    <PathField
-                      key={key}
-                      label={label}
-                      directory
-                      value={storagePaths[key]}
-                      onChange={(v) =>
-                        setStoragePaths((p) => ({ ...p, [key]: v }))
-                      }
-                    />
-                  ))}
-                  <button
-                    className="button secondary"
-                    disabled={!native || !!busy || !!active}
-                    onClick={() =>
-                      void attempt("正在保存存储位置", async () => {
-                        const result = await workbench<{ ready: boolean }>(
-                          formRef.current,
-                          "save-storage",
-                          undefined,
-                          storagePaths,
-                        );
-                        update({ output: storagePaths.builds });
-                        setStorageStatus(
-                          result.ready
-                            ? "存储位置已保存，空间预检通过。现有数据未迁移。"
-                            : "存储位置已保存，剩余空间不足，请更换目录后再构建。",
-                        );
-                      })
-                    }
-                  >
-                    保存存储位置并检查空间
-                  </button>
-                  {storageStatus && <p role="status">{storageStatus}</p>}
-                </div>
-                <div className="settings-group">
                   <h2>来源记录</h2>
                   <p className="section-description">
                     移除记录只影响工作台列表，原始文件与产物仍保留。
@@ -2521,96 +2616,18 @@ export default function App() {
                   )}
                 </div>
 
-                <div className="settings-group">
-                  <h2>磁盘空间</h2>
-                  <p className="section-description">
-                    编译缓存、构建中间产物和旧构建会占用大量空间。清理前先统计，只删除勾选的内容；IPA、result.json
-                    与证据日志始终保留。
-                  </p>
-                  <div className="setting-row">
-                    <div className="setting-label">
-                      <strong>空间占用</strong>
-                      <small>
-                        {storage
-                          ? `可回收 ${size(storage.reclaimBytes)} · 剩余 ${size(storage.freeBytes)}`
-                          : storageDone || "尚未统计"}
-                      </small>
-                    </div>
-                    <div className="setting-control button-line">
-                      <button
-                        className="secondary"
-                        disabled={!native || !!busy}
-                        onClick={() => void loadStorage()}
-                      >
-                        <RefreshCw size={16} />
-                        统计占用
-                      </button>
-                    </div>
-                  </div>
-                  {storage?.blocked && (
-                    <p className="muted">
-                      {storage.reason ||
-                        "有构建任务正在运行，完成或取消后才能清理。"}
-                    </p>
-                  )}
-                  {storage?.usage?.map((row) => (
-                    <p key={row.role}>
-                      {row.path} · {size(row.bytes)}
-                    </p>
-                  ))}
-                  {storage?.groups.map((group) => (
-                    <div className="setting-row" key={group.id}>
-                      <div className="setting-label">
-                        <label className="storage-choice">
-                          <input
-                            type="checkbox"
-                            checked={storageChoice.includes(group.id)}
-                            onChange={(e) =>
-                              setStorageChoice((old) =>
-                                e.target.checked
-                                  ? [...old, group.id]
-                                  : old.filter((id) => id !== group.id),
-                              )
-                            }
-                          />
-                          <span>
-                            <strong>{group.label}</strong>
-                            <small>
-                              {size(group.bytes)} · {group.count} 项
-                            </small>
-                          </span>
-                        </label>
-                        <small>{group.detail}</small>
-                      </div>
-                    </div>
-                  ))}
-                  {!!storage?.groups.length && (
-                    <div className="setting-row">
-                      <div className="setting-label">
-                        <strong>清理所选内容</strong>
-                        <small>
-                          删除后无法撤销；下次构建需要重新下载或编译。
-                        </small>
-                      </div>
-                      <div className="setting-control button-line">
-                        <button
-                          className="danger"
-                          disabled={
-                            !native ||
-                            !!busy ||
-                            storage.blocked ||
-                            !storageChoice.length
-                          }
-                          onClick={() => setStorageConfirm(true)}
-                        >
-                          <Trash2 size={16} />
-                          清理所选
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
+                <QuickStorageDirectory
+                  busy={busy}
+                  disabled={
+                    !native ||
+                    !!busy ||
+                    !!active ||
+                    ["queued", "running"].includes(setup?.state || "")
+                  }
+                  status={storageStatus}
+                  onChoose={() => void quickStorageDirectory()}
+                  onReset={() => void resetStorageDirectories()}
+                />
                 <div className="settings-group">
                   <h2>本地记录</h2>
                   <div className="setting-row">
@@ -2694,54 +2711,23 @@ export default function App() {
           {busy}
         </div>
       )}
+      {storageChange && (
+        <StorageChangeDialog
+          plan={storageChange}
+          busy={busy}
+          error={error}
+          onCancel={() => {
+            setStorageChange(null);
+            setError("");
+          }}
+          onApply={(policy) => void applyStorageChange(policy)}
+        />
+      )}
       <ExclusionDialog
         challenge={pendingExclusionJob?.exclusionChallenge ?? null}
         busy={!!busy}
         onResolve={(accepted) => void resolveStaticExclusions(accepted)}
       />
-      {storageConfirm && storage && (
-        <dialog
-          open
-          className="confirm-dialog"
-          aria-labelledby="storage-title"
-          onCancel={(e) => {
-            e.preventDefault();
-            setStorageConfirm(false);
-          }}
-        >
-          <h2 id="storage-title">清理磁盘空间？</h2>
-          <p>
-            将删除以下内容，共约{" "}
-            {size(
-              storage.groups
-                .filter((g) => storageChoice.includes(g.id))
-                .reduce((sum, g) => sum + g.bytes, 0),
-            )}
-            。IPA、result.json、任务日志与证据目录不会被删除。
-          </p>
-          <ul className="storage-list">
-            {storage.groups
-              .filter((g) => storageChoice.includes(g.id))
-              .map((g) => (
-                <li key={g.id}>
-                  {g.label} · {size(g.bytes)}（{g.count} 项）
-                </li>
-              ))}
-          </ul>
-          <p>下次构建需要重新下载工具链或重新编译，耗时约 30–60 分钟。</p>
-          <div className="button-line">
-            <button
-              className="secondary"
-              onClick={() => setStorageConfirm(false)}
-            >
-              取消
-            </button>
-            <button className="danger" onClick={() => void cleanStorage()}>
-              删除并释放空间
-            </button>
-          </div>
-        </dialog>
-      )}
       {reset && (
         <dialog
           ref={dialog}

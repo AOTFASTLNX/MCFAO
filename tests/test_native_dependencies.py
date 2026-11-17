@@ -214,6 +214,16 @@ class DependencyTests(unittest.TestCase):
             self.assertEqual(w._start({'kind': 'dependencies'}), {'id': 'fixture'})
             start.assert_called_once()
 
+    def test_dependency_job_uses_selected_storage_for_outputs_and_records(self):
+        paths = dict(builds=self.root / 'chosen/builds', jobs=self.root / 'chosen/jobs')
+        request = dict(workspace=str(self.root), config=str(self.config), dependencyKeys=['glfw'])
+        with patch.object(w, 'workspace_path', return_value=self.root), patch.object(w, 'storage_paths', return_value=paths), patch.object(w, 'require_mount'), patch.object(w, 'require_space'), patch.object(w, 'history', return_value=[]), patch.object(w.subprocess, 'Popen') as spawn:
+            spawn.return_value.pid = 12345
+            job = w.start_dependencies(request)
+        self.assertTrue(Path(job['build']).is_relative_to(paths['builds'] / 'native-dependencies'))
+        self.assertTrue(Path(job['folder']).is_relative_to(paths['jobs']))
+        self.assertTrue((Path(job['folder']) / 'job.json').is_file())
+
     def test_workbench_rejects_stale_dependencies_before_process_launch(self):
         (self.root / 'ios/glfw-lite/window.c').write_text('changed')
         request = dict(workspace=str(self.root), config=str(self.config), loader='vanilla', unsigned=True, output=str(self.root / 'ipa'))

@@ -1,0 +1,31 @@
+{
+  "date": "2026-11-17",
+  "feature": "Builder storage management page",
+  "checks": {
+    "frontendUnitTests": 71,
+    "browserRegressionTests": 47,
+    "storageBrowserTestsAfterFinalChanges": 6,
+    "rustUnitTests": 11,
+    "storageInventoryTests": 8,
+    "cleanupTests": 19,
+    "workbenchTests": 45,
+    "frontendProductionBuild": "PASS"
+  },
+  "screenshots": {
+    "data": "fixture",
+    "themes": [
+      "light",
+      "dark"
+    ],
+    "widths": [
+      375,
+      800,
+      1440
+    ]
+  },
+  "liveBackendScan": "read-only; see live-scan-summary.json",
+  "deletionTests": "temporary fixtures only",
+  "customDirectoryCleanup": "read-only; automatic deletion remains unavailable",
+  "nativeFinderUiRun": false,
+  "packagedApp": false
+}

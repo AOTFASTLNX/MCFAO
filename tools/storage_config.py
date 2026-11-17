@@ -30,7 +30,7 @@ def control_lock(root=ROOT):
         yield
 
 
-def storage_paths(root=ROOT):
+def default_paths(root=ROOT):
     root = Path(root)
     if (root / 'bundle-manifest.json').exists():
         base = Path.home() / 'Library/Application Support/NCL Builder'
@@ -40,6 +40,12 @@ def storage_paths(root=ROOT):
     else:
         defaults = dict(cache=root / '.cache', builds=root / 'artifacts/desktop-builds',
                         jobs=root / 'artifacts/desktop-jobs', rust=root / 'desktop/src-tauri/target')
+    return defaults
+
+
+def storage_paths(root=ROOT):
+    root = Path(root)
+    defaults = default_paths(root)
     saved = json.loads(config_path(root).read_text()) if config_path(root).is_file() else {}
     for role in ROLES:
         value = os.environ.get('MCFAO_' + role.upper() + '_DIR') or saved.get(role)
@@ -100,7 +106,7 @@ def require_space(paths=None, required=None):
     return report
 
 
-def save_paths(values, root=ROOT):
+def validate_paths(values, root=ROOT):
     if set(values) != set(ROLES) or not all(isinstance(v, str) and v.strip() for v in values.values()):
         raise ValueError('Choose all four storage directories')
     paths = {k: Path(v).expanduser() for k, v in values.items()}
@@ -114,6 +120,11 @@ def save_paths(values, root=ROOT):
     if any(a == b or a.is_relative_to(b) or b.is_relative_to(a) for i, a in enumerate(resolved) for b in resolved[i+1:]):
         raise ValueError('Storage directories must be separate and must not contain each other')
     report = space_report(paths)
+    return paths, report
+
+
+def save_paths(values, root=ROOT):
+    paths, report = validate_paths(values, root)
     previous = job_roots(root)
     target = config_path(root)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -122,6 +133,13 @@ def save_paths(values, root=ROOT):
                                     'previousJobRoots': list(map(str, previous))}, indent=2) + '\n')
     temporary.replace(target)
     return {**report, 'migration': 'NONE', 'config': str(target)}
+
+
+def reset_paths(root=ROOT):
+    if any(os.environ.get('MCFAO_' + role.upper() + '_DIR') for role in ROLES):
+        raise ValueError('环境变量固定了储存位置，请先移除路径覆盖后再重置。')
+    values = {role: str(path) for role, path in default_paths(root).items()}
+    return {**save_paths(values, root), 'storage': values}
 
 
 if __name__ == '__main__':

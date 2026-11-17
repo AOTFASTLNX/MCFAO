@@ -3,6 +3,9 @@ import { open } from "@tauri-apps/plugin-dialog";
 import type { Environment, Settings } from "./model";
 
 export const native = isTauri();
+export async function revealPath(path: string): Promise<void> {
+  return invoke("reveal_path", { path });
+}
 export async function pickSource(directory: boolean): Promise<string | null> {
   if (!native)
     throw new Error("请在桌面应用中选择整合包；浏览器中可导入预检 JSON 报告。");

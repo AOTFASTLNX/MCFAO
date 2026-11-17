@@ -1,20 +1,40 @@
-# 外接盘与本地构建守卫
+# 可选：把大体积目录放到外接盘
 
-> 2026-11-15：为释放内置盘空间，仓库里体积大、可由本地重建或保留为历史证据的目录已移到外接盘 /Volumes/K/MCFAO-data/，原位置改为符号链接。主仓库仍在 /Users/kexin/Documents/ChatGPT/MCFAO，git、worktree、Codex 项目登记都不变。
+> 2026-11-17：外接盘是本机可选的存储布局，不是仓库要求。默认克隆下来的项目使用项目内目录，任何一块空间足够的盘都能构建。本文描述的是把缓存与产物通过符号链接放到外接盘的配置方式，只对声明了这份映射的本机生效。
 
-## 硬性要求
+## 默认行为
 
-执行任何本地构建（mcfao doctor/build/export、desktop 工作台的启动/重试、Tauri 桌面应用构建）前，必须先接上并挂载卷标为 K 的外接盘。没有挂载时，构建命令会暂停并报错，不会创建输出目录、不会跑 AOT、不会把文件写回内置盘。
+仓库不含挂载清单。`external-storage.json` 属于本机个人配置，已在 `.gitignore` 中排除；没有这份文件时，`tools/external_storage.py` 报告 `available: true`，构建只受所选目录的空间预检约束。
+
+当仓库根存在这份清单时（例如为释放内置盘空间，把体积大、可由本地重建或保留为历史证据的目录移到外接盘，原位置改为符号链接），守卫才会启用：
 
 ```bash
 python3 -B tools/external_storage.py --json
 ```
 
-返回 available: true 才能构建。返回 volume-not-mounted 时请插入硬盘；返回 data-directory-missing 或 missing-links 时先按下面的映射表修复，不要绕过守卫。
+返回 available: true 才能构建。返回 volume-not-mounted 时请插入硬盘；返回 data-directory-missing 或 missing-links 时先按下面的映射表修复。启用了守卫就不要绕过它。
+
+## 本机示例配置
+
+按需创建 `external-storage.json`（不要提交），并建立对应的符号链接：
+
+```json
+{
+  "volume": "/Volumes/K",
+  "data": "/Volumes/K/MCFAO-data",
+  "directories": [
+    {"link": "artifacts/mcfao", "external": "artifacts/mcfao"},
+    {"link": "artifacts/graphics", "external": "artifacts/graphics"},
+    {"link": "artifacts/desktop-jobs", "external": "artifacts/desktop-jobs"},
+    {"link": "desktop/src-tauri/target", "external": "desktop/src-tauri/target"},
+    {"link": ".cache", "external": "cache"}
+  ]
+}
+```
 
 ## 目录映射
 
-映射清单见仓库根的 external-storage.json。
+映射条目完全由本机清单决定，下面只是上述示例的展开。
 
 | 项目内路径（符号链接） | 外接盘实际路径 | 内容 |
 | --- | --- | --- |
@@ -24,19 +44,19 @@ python3 -B tools/external_storage.py --json
 | desktop/src-tauri/target | MCFAO-data/desktop/src-tauri/target | Rust 构建缓存，可重建 |
 | .cache | MCFAO-data/cache | GraalVM/JDK、upstream 源码、GLFW/LWJGL/Apple Metal 缓存，可重建 |
 
-artifacts/desktop 内是已跟踪的界面截图证据，保持在主仓库不动。外接盘是 ExFAT：权限位和扩展属性不保真，复制时用 rsync -rlpt 并清理 ._* 伴生文件；符号链接虽然能创建，但只让主仓库这一侧持有链接。
+artifacts/desktop 内是已跟踪的界面截图证据，保持在主仓库不动。外接盘常用 ExFAT：权限位和扩展属性不保真，复制时用 rsync -rlpt 并清理 ._* 伴生文件；符号链接虽然能创建，但只让主仓库这一侧持有链接。
 
 ## 守卫实现
 
-- tools/external_storage.py 从 external-storage.json 读取 volume / data，检查卷是否为挂载点、数据目录是否存在、五条链接是否都指向对应目录；只读，不创建任何东西。
-- tools/mcfao.py 在参数解析之后、创建输出之前调用 require_mount；doctor/build/verify/export 全部受保护。
+- tools/external_storage.py 在清单缺失时直接返回可用，并按 tools/storage_config.py 做空间报告；清单存在时读取 volume / data，检查卷是否为挂载点、数据目录是否存在、每条链接是否都指向对应目录。只读，不创建任何东西。
+- tools/mcfao.py 在参数解析之后、创建输出之前调用 require_mount；doctor/build/verify/export 在有清单时全部受保护。
 - tools/desktop_workbench.py 在 start 和 retry 前调用，GUI 里会显示「暂停」错误而不是排队跑一个注定失败的构建。
-- 退出码 3 表示因外接盘缺失暂停，和普通的失败 2 区分。个人清单存在的源码克隆仍受此守卫保护；分发应用不包含个人挂载清单，使用所选目录的挂载与空间检查。
-- 回归测试：tests/test_external_storage.py 覆盖未挂载、缺数据目录、链接缺失和链接被普通目录替换等情形。
+- 退出码 3 表示因清单声明的卷缺失暂停，和普通的失败 2 区分。分发应用不包含个人挂载清单，改为检查所选卷与悬空链接。
+- 回归测试：tests/test_external_storage.py 覆盖未挂载、缺数据目录、链接缺失、链接被普通目录替换，以及清单缺失时不做挂载限制等情形。
 
 ## 断盘时的表现与恢复
 
-符号链接会变成悬空链接：浏览源码、读文档、运行 Python 单元测试仍然可用，但依赖这些目录的构建会在第一阶段暂停。重新插盘后 macOS 会挂载到 /Volumes/K，无需重建链接；再跑一次检查命令确认 available: true 即可继续。
+启用了清单时，断盘会让符号链接变成悬空链接：浏览源码、读文档、运行 Python 单元测试仍然可用，但依赖这些目录的构建会在第一阶段暂停。重新插盘后 macOS 会挂载回原路径，无需重建链接；再跑一次检查命令确认 available: true 即可继续。
 
 需要迁移时，先只读统计并列明源目录、目标目录、空间预算、复制与哈希复核步骤，经用户确认后再操作；保留现有 external-storage.json 与链接直到复制完成并再次确认，不要在断盘状态下删除悬空链接后直接新建目录，那会让本地与外接盘产生两份分叉的证据。
 
