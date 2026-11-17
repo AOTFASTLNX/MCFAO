@@ -119,11 +119,34 @@ import {
 } from "./StorageChangeDialog";
 import { QuickStorageDirectory } from "./QuickStorageDirectory";
 import {
+  useSlidingIndicator,
+  useStepContent,
+  usePageEnter,
+  useSelectionPulse,
+  formatDuration,
+} from "./motion";
+import {
+  AnimatedNumber,
+  MotionIndicator,
+  Reveal,
+  StatusMark,
+  StepBody,
+} from "./MotionPrimitives";
+import {
   formatBytes as size,
   unifiedStoragePaths,
   type StoragePlan,
 } from "./storageManagement";
+import { dragVerdict, dropMessage } from "./dropTarget";
 type Page = "builder" | "history" | "environment" | "storage" | "settings";
+
+const pages = [
+  ["builder", "构建 IPA", Hammer],
+  ["history", "构建记录", History],
+  ["environment", "环境与资源", Cpu],
+  ["storage", "存储管理", HardDrive],
+  ["settings", "设置", Settings2],
+] as const;
 
 const date = (s: string) =>
   new Date(s).toLocaleString("zh-CN", {
@@ -209,6 +232,27 @@ function JobErrorDetail({ error, stage }: { error: string; stage: string }) {
     </>
   );
 }
+
+function JobElapsed({ job }: { job: BuildJob }) {
+  const [now, setNow] = useState(() => Date.now());
+  const running = isActive(job);
+  useEffect(() => {
+    if (!running) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [running, job.id]);
+  const started = Date.parse(job.startedAt);
+  if (!Number.isFinite(started)) return null;
+  const ended = job.finishedAt ? Date.parse(job.finishedAt) : now;
+  const elapsed = Math.max(0, ended - started);
+  return (
+    <span className="job-elapsed" data-live={running ? "true" : "false"}>
+      {running ? "已用时 " : "用时 "}
+      {formatDuration(elapsed)}
+    </span>
+  );
+}
+
 function PathField({
   label,
   value,
@@ -262,13 +306,15 @@ function CheckList({ checks }: { checks: Checks }) {
     <div className="check-list">
       {checks.checks.map((c) => (
         <div className={"check-row " + c.status} key={c.name}>
-          {c.status === "ready" ? (
-            <CheckCircle2 size={19} />
-          ) : c.status === "warning" ? (
-            <TriangleAlert size={19} />
-          ) : (
-            <CircleAlert size={19} />
-          )}
+          <StatusMark state={c.status} size={19}>
+            {c.status === "ready" ? (
+              <CheckCircle2 size={19} />
+            ) : c.status === "warning" ? (
+              <TriangleAlert size={19} />
+            ) : (
+              <CircleAlert size={19} />
+            )}
+          </StatusMark>
           <div>
             <strong>{c.name}</strong>
             <p>{c.detail}</p>
@@ -387,6 +433,7 @@ export default function App() {
   const [storageIssue, setStorageIssue] = useState(saved.error);
   const [page, setPage] = useState<Page>("builder");
   const [step, setStep] = useState(0);
+  const [checkedStep, setCheckedStep] = useState(-1);
   const [report, setReport] = useState<Report | null>(null);
   const [checks, setChecks] = useState<Checks | null>(null);
   const [dependencies, setDependencies] = useState<DependencyInventory | null>(
@@ -399,11 +446,13 @@ export default function App() {
   const [jobs, setJobs] = useState<BuildJob[]>([]);
   const [selected, setSelected] = useState("");
   const [busy, setBusy] = useState("");
+  const [drag, setDrag] = useState<"none" | "accepted" | "rejected">("none");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [details, setDetails] = useState(false);
   const [search, setSearch] = useState("");
   const [follow, setFollow] = useState(true);
+  const [userScrolled, setUserScrolled] = useState(false);
   const [pollError, setPollError] = useState("");
   const [refresh, setRefresh] = useState(0);
   const [reset, setReset] = useState(false);
@@ -431,6 +480,57 @@ export default function App() {
       : ["游戏内容", "构建环境", "开发签名", "确认构建"];
   const environmentStep = form.loader === "fabric" ? 2 : 1;
   const reviewStep = steps.length - 1;
+  const stepView = useStepContent(step);
+  const stepper = useSlidingIndicator<HTMLDivElement>(step);
+  const pageIndex = pages.findIndex(([id]) => id === page);
+  const sidebar = useSlidingIndicator<HTMLElement>(pageIndex);
+  const pageEnter = usePageEnter(page);
+  const loaderMoving = useSelectionPulse(form.loader);
+  const visibleStep = stepView.phase === "idle" ? step : stepView.step;
+  function goToStep(target: number) {
+    const next = Math.max(0, Math.min(steps.length - 1, target));
+    if (next === step) return;
+    if (next > step && stepGate(step))
+      setCheckedStep((old) => Math.max(old, step));
+    setStep(next);
+  }
+  // A step only reads as completed after its own gate has been satisfied and
+  // the user has moved past it. Going back does not erase that fact, but a
+  // later edit that invalidates the gate does.
+  const stepGate = (index: number) =>
+    index === 0
+      ? form.loader === "vanilla" || (!!currentReport && !currentReport.fatal)
+      : form.loader === "fabric" && index === 1
+        ? resourceReady &&
+          !!currentReport?.resources?.some(
+            (r) =>
+              r.category === "mods" &&
+              r.path.toLowerCase().endsWith(".jar") &&
+              form.resourceSelection?.included.includes(r.id),
+          )
+        : index === environmentStep
+          ? !!form.workspace && !!form.config && !!form.output
+          : true;
+  useEffect(() => {
+    setCheckedStep((old) => {
+      if (old < 0) return old;
+      let highest = -1;
+      for (let index = 0; index <= old; index += 1)
+        if (stepGate(index)) highest = index;
+      return highest;
+    });
+    // stepGate is derived from these inputs; listing them keeps the check in
+    // sync when a source, resource choice or path is edited.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    form.loader,
+    form.source,
+    form.resourceSelection,
+    form.workspace,
+    form.config,
+    form.output,
+    report,
+  ]);
   const resourceReady =
     !!currentReport?.resources &&
     form.resourceSelection?.source === form.source &&
@@ -835,8 +935,12 @@ export default function App() {
     };
   }, [active?.id, job?.id]);
   useEffect(() => {
-    if (follow) end.current?.scrollIntoView({ block: "nearest" });
-  }, [job?.log, follow]);
+    if (!follow || userScrolled) return;
+    end.current?.scrollIntoView({ block: "nearest" });
+  }, [job?.log, follow, userScrolled]);
+  useEffect(() => {
+    setUserScrolled(false);
+  }, [job?.id]);
   useEffect(() => {
     if (!reset) return;
     const d = dialog.current!;
@@ -854,12 +958,31 @@ export default function App() {
     void import("@tauri-apps/api/webview")
       .then(({ getCurrentWebview }) =>
         getCurrentWebview().onDragDropEvent(async (e) => {
-          if (e.payload.type !== "drop" || active) return;
+          if (active) {
+            setDrag("none");
+            return;
+          }
+          if (e.payload.type === "leave") {
+            setDrag("none");
+            return;
+          }
+          if (e.payload.type === "enter" || e.payload.type === "over") {
+            const paths = e.payload.type === "enter" ? e.payload.paths : [];
+            setDrag(
+              e.payload.type === "over"
+                ? (current) => (current === "none" ? "accepted" : current)
+                : dragVerdict(paths),
+            );
+            return;
+          }
+          if (e.payload.type !== "drop") return;
           const source = e.payload.paths[0];
+          setDrag("none");
           if (source) {
             update({ source, loader: "fabric" });
             setStep(0);
             setPage("builder");
+            setNotice("已接收文件，正在读取来源。");
             await inspect(source);
           }
         }),
@@ -874,6 +997,28 @@ export default function App() {
       off?.();
     };
   }, [active?.id]);
+  useEffect(() => {
+    if (page !== "builder") return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey) return;
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.closest(
+          "input, textarea, select, dialog, [contenteditable='true']",
+        )
+      )
+        return;
+      if (
+        event.altKey &&
+        (event.key === "ArrowRight" || event.key === "ArrowLeft")
+      ) {
+        event.preventDefault();
+        goToStep(step + (event.key === "ArrowRight" ? 1 : -1));
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [page, step, steps.length]);
   async function chooseSource(directory: boolean) {
     try {
       const p = await pickSource(directory);
@@ -933,20 +1078,7 @@ export default function App() {
     setError("");
     setNotice("");
   }
-  const nextAllowed =
-    step === 0
-      ? form.loader === "vanilla" || (!!currentReport && !currentReport.fatal)
-      : form.loader === "fabric" && step === 1
-        ? resourceReady &&
-          !!currentReport?.resources?.some(
-            (r) =>
-              r.category === "mods" &&
-              r.path.toLowerCase().endsWith(".jar") &&
-              form.resourceSelection?.included.includes(r.id),
-          )
-        : step === environmentStep
-          ? !!form.workspace && !!form.config && !!form.output
-          : true;
+  const nextAllowed = stepGate(step);
   const paths = (
     <>
       <PathField
@@ -1011,18 +1143,19 @@ export default function App() {
         <div className="workspace-label">
           本地工作空间<span>EXPERIMENTAL</span>
         </div>
-        <nav aria-label="主导航">
-          {(
-            [
-              ["builder", "构建 IPA", Hammer],
-              ["history", "构建记录", History],
-              ["environment", "环境与资源", Cpu],
-              ["storage", "存储管理", HardDrive],
-              ["settings", "设置", Settings2],
-            ] as const
-          ).map(([id, label, Icon]) => (
+        <nav
+          aria-label="主导航"
+          ref={sidebar.containerRef}
+          data-motion-moving={sidebar.moving ? "true" : "false"}
+        >
+          <MotionIndicator
+            indicatorRef={sidebar.indicatorRef}
+            moving={sidebar.moving}
+          />
+          {pages.map(([id, label, Icon]) => (
             <button
               key={id}
+              data-motion-item
               className={"nav-item " + (page === id ? "selected" : "")}
               aria-current={page === id ? "page" : undefined}
               onClick={() => nav(id)}
@@ -1030,7 +1163,9 @@ export default function App() {
               <Icon size={19} aria-hidden="true" />
               {label}
               {id === "history" && jobs.length > 0 && (
-                <span className="nav-count">{jobs.length}</span>
+                <span className="nav-count">
+                  <AnimatedNumber value={jobs.length} />
+                </span>
               )}
             </button>
           ))}
@@ -1087,10 +1222,14 @@ export default function App() {
           </div>
         </header>
         <div className="main-content">
-          <div className="page-column">
+          <div
+            className="page-column"
+            data-enter={pageEnter.entered ? "true" : "false"}
+            data-direction={pageEnter.direction}
+          >
             {storageIssue && <Note error>{storageIssue}</Note>}
             {error && !storageChange && (
-              <div className="error-banner" role="alert">
+              <div className="error-banner banner-enter" role="alert">
                 <CircleAlert size={19} />
                 <span>{error}</span>
                 <button aria-label="关闭错误" onClick={() => setError("")}>
@@ -1099,13 +1238,13 @@ export default function App() {
               </div>
             )}
             {notice && (
-              <div className="success-banner" role="status">
+              <div className="success-banner banner-enter" role="status">
                 <CheckCircle2 size={18} />
                 {notice}
               </div>
             )}
             {!native && (
-              <div className="preview-banner">
+              <div className="preview-banner banner-enter">
                 <Cpu size={17} />
                 <span>
                   当前为浏览器预览。请启动桌面应用，使用本地文件选择、真实编译和开发签名。
@@ -1116,34 +1255,76 @@ export default function App() {
               <>
                 <div className="workflow-layout">
                   <section className="builder-panel">
-                    <div className="stepper" aria-label="构建步骤">
+                    <div
+                      className="stepper"
+                      aria-label="构建步骤"
+                      aria-keyshortcuts="Alt+ArrowLeft Alt+ArrowRight"
+                      ref={stepper.containerRef}
+                      data-motion-moving={stepper.moving ? "true" : "false"}
+                    >
+                      <MotionIndicator
+                        indicatorRef={stepper.indicatorRef}
+                        moving={stepper.moving}
+                      />
                       {steps.map((s, i) => (
                         <button
                           key={s}
+                          data-motion-item
+                          data-step-index={i}
+                          title={s}
                           className={
                             "step " +
                             (step === i
                               ? "current"
-                              : i < step
+                              : i <= checkedStep
                                 ? "complete"
                                 : "")
                           }
                           aria-current={step === i ? "step" : undefined}
-                          onClick={() => setStep(i)}
+                          onClick={() => goToStep(i)}
+                          data-locked={
+                            i > step &&
+                            !steps
+                              .slice(step, i)
+                              .every((_, offset) => stepGate(step + offset))
+                              ? "true"
+                              : undefined
+                          }
                         >
-                          <span className="step-number">
-                            {i < step ? <Check size={15} /> : i + 1}
+                          <span
+                            className="step-number"
+                            data-state={
+                              i <= checkedStep
+                                ? "complete"
+                                : step === i
+                                  ? "current"
+                                  : "pending"
+                            }
+                          >
+                            <span className="step-digit">{i + 1}</span>
+                            <Check
+                              className="step-check"
+                              size={14}
+                              aria-hidden="true"
+                            />
                           </span>
-                          <span>{s}</span>
+                          <span className="step-label">{s}</span>
                           {i < steps.length - 1 && (
                             <ChevronRight className="step-chevron" size={14} />
                           )}
                         </button>
                       ))}
                     </div>
-                    <div className="step-content">
+                    <StepBody
+                      step={visibleStep}
+                      phase={stepView.phase}
+                      direction={
+                        stepView.phase === "idle" ? "none" : stepView.direction
+                      }
+                      className="step-content"
+                    >
                       <div className="section-heading">
-                        <span className="eyebrow">STEP 0{step + 1}</span>
+                        <span className="eyebrow">STEP 0{visibleStep + 1}</span>
                         <h2>
                           {
                             [
@@ -1154,7 +1335,7 @@ export default function App() {
                               "准备你的构建环境",
                               "设置开发签名",
                               "准备好，开始构建。",
-                            ][step]
+                            ][visibleStep]
                           }
                         </h2>
                         <p>
@@ -1167,13 +1348,22 @@ export default function App() {
                               "复用本机已经准备好的客户端、编译工具链和图形资源。",
                               "使用本机 Xcode 的开发证书和描述文件完成签名。",
                               "核对输入后，自动完成原生编译、签名和 IPA 导出。",
-                            ][step]
+                            ][visibleStep]
                           }
                         </p>
                       </div>
-                      {step === 0 && (
+                      {visibleStep === 0 && (
                         <>
-                          <div className="segmented" aria-label="游戏类型">
+                          <div
+                            className="segmented"
+                            aria-label="游戏类型"
+                            data-selection={form.loader}
+                            data-motion-moving={loaderMoving ? "true" : "false"}
+                          >
+                            <span
+                              className="segment-plate"
+                              aria-hidden="true"
+                            />
                             <button
                               className={
                                 form.loader === "fabric" ? "selected" : ""
@@ -1197,7 +1387,33 @@ export default function App() {
                           </div>
                           {form.loader === "fabric" ? (
                             <>
-                              <div className="source-drop">
+                              <div
+                                className="source-drop"
+                                data-drag={drag}
+                                aria-label={
+                                  drag === "rejected"
+                                    ? "不支持的文件类型"
+                                    : undefined
+                                }
+                              >
+                                <div
+                                  className="drop-overlay"
+                                  aria-hidden="true"
+                                >
+                                  <Package size={22} />
+                                  <strong>
+                                    {drag === "rejected"
+                                      ? "此文件无法导入"
+                                      : "松开以导入"}
+                                  </strong>
+                                  <span>
+                                    {dropMessage(
+                                      drag === "rejected"
+                                        ? "rejected"
+                                        : "accepted",
+                                    )}
+                                  </span>
+                                </div>
                                 <div className="source-glyph">
                                   <Package size={31} strokeWidth={1.5} />
                                 </div>
@@ -1295,7 +1511,10 @@ export default function App() {
                                 </div>
                               )}
                               {currentReport && (
-                                <div className="source-report">
+                                <div
+                                  className="source-report"
+                                  key={currentReport.source}
+                                >
                                   <div className="report-top">
                                     <span>
                                       <FileCheck2 size={18} />
@@ -1315,23 +1534,34 @@ export default function App() {
                                   <div className="report-metrics">
                                     <span>
                                       <strong>
-                                        {currentReport.mods.length}
+                                        <AnimatedNumber
+                                          value={currentReport.mods.length}
+                                        />
                                       </strong>
                                       已读取的 Mod
                                     </span>
                                     <span>
                                       <strong>
-                                        {currentReport.manifest_files ?? "—"}
+                                        {currentReport.manifest_files ===
+                                        undefined ? (
+                                          "—"
+                                        ) : (
+                                          <AnimatedNumber
+                                            value={currentReport.manifest_files}
+                                          />
+                                        )}
                                       </strong>
                                       清单文件
                                     </span>
                                     <span>
                                       <strong>
-                                        {
-                                          currentReport.findings.filter(
-                                            (f) => f.severity === "error",
-                                          ).length
-                                        }
+                                        <AnimatedNumber
+                                          value={
+                                            currentReport.findings.filter(
+                                              (f) => f.severity === "error",
+                                            ).length
+                                          }
+                                        />
                                       </strong>
                                       阻断项
                                     </span>
@@ -1372,6 +1602,7 @@ export default function App() {
                                   />
                                   <button
                                     className="text-button"
+                                    aria-expanded={details}
                                     onClick={() => setDetails(!details)}
                                   >
                                     {details
@@ -1379,7 +1610,7 @@ export default function App() {
                                       : "查看兼容性与诊断详情"}
                                     <ChevronRight size={15} />
                                   </button>
-                                  {details && (
+                                  <Reveal open={details}>
                                     <div className="diagnostics">
                                       {currentReport.findings.map((f, i) => (
                                         <div
@@ -1400,7 +1631,7 @@ export default function App() {
                                         </div>
                                       ))}
                                     </div>
-                                  )}
+                                  </Reveal>
                                 </div>
                               )}
                               <div className="tertiary-row">
@@ -1467,7 +1698,7 @@ export default function App() {
                           )}
                         </>
                       )}
-                      {step === 1 && form.loader === "fabric" && (
+                      {visibleStep === 1 && form.loader === "fabric" && (
                         <ResourceManager
                           key={form.source}
                           report={currentReport}
@@ -1477,7 +1708,8 @@ export default function App() {
                           }
                         />
                       )}
-                      {(step === environmentStep || step === reviewStep) && (
+                      {(visibleStep === environmentStep ||
+                        visibleStep === reviewStep) && (
                         <section
                           className="dependency-preflight"
                           aria-label="原生依赖预检"
@@ -1543,7 +1775,7 @@ export default function App() {
                           </div>
                         </section>
                       )}
-                      {step === environmentStep && (
+                      {visibleStep === environmentStep && (
                         <>
                           {paths}
                           <details className="advanced">
@@ -1594,7 +1826,23 @@ export default function App() {
                               检测环境
                             </button>
                           </div>
-                          {checks ? (
+                          {busy === "正在检查构建环境" ? (
+                            <div className="check-list" role="status">
+                              <div className="check-row checking">
+                                <StatusMark state="checking" size={19}>
+                                  <LoaderCircle size={19} className="spin" />
+                                </StatusMark>
+                                <div>
+                                  <strong>正在检测本机构建环境</strong>
+                                  <p>
+                                    依次检查主机、SDK、AOT
+                                    工具链、原生依赖与签名准备情况。
+                                  </p>
+                                </div>
+                                <span>检测中</span>
+                              </div>
+                            </div>
+                          ) : checks ? (
                             <CheckList checks={checks} />
                           ) : (
                             <Note>
@@ -1603,7 +1851,7 @@ export default function App() {
                           )}
                         </>
                       )}
-                      {step === environmentStep + 1 && (
+                      {visibleStep === environmentStep + 1 && (
                         <>
                           <label className="setting-row">
                             <span className="setting-label">
@@ -1691,7 +1939,7 @@ export default function App() {
                           )}
                         </>
                       )}
-                      {step === reviewStep && (
+                      {visibleStep === reviewStep && (
                         <>
                           <div className="review-grid">
                             {[
@@ -1801,24 +2049,30 @@ export default function App() {
                           </div>
                         </>
                       )}
-                    </div>
+                    </StepBody>
                     <footer className="wizard-footer">
                       <button
                         className="text-button"
                         disabled={step === 0 || !!busy}
-                        onClick={() => setStep((s) => s - 1)}
+                        onClick={() => goToStep(step - 1)}
                       >
                         <ChevronLeft size={16} />
                         上一步
                       </button>
-                      <span>
-                        {step + 1} / {steps.length}
+                      <span
+                        className="wizard-count"
+                        aria-label={`第 ${step + 1} 步，共 ${steps.length} 步`}
+                      >
+                        <span aria-hidden="true">
+                          <AnimatedNumber value={step + 1} /> / {steps.length}
+                        </span>
                       </span>
                       {step < reviewStep ? (
                         <button
                           className="primary"
+                          data-action="next"
                           disabled={!nextAllowed || !!busy}
-                          onClick={() => setStep((s) => s + 1)}
+                          onClick={() => goToStep(step + 1)}
                         >
                           下一步
                           <ArrowRight size={17} />
@@ -1826,6 +2080,7 @@ export default function App() {
                       ) : (
                         <button
                           className="primary"
+                          data-action="build"
                           disabled={
                             problems.length > 0 ||
                             !!busy ||
@@ -1994,6 +2249,8 @@ export default function App() {
                               {job.finishedAt
                                 ? " · " + date(job.finishedAt) + " 结束"
                                 : ""}
+                              {" · "}
+                              <JobElapsed job={job} />
                             </p>
                           </div>
                           <Pill
@@ -2092,18 +2349,78 @@ export default function App() {
                             >
                               <FolderOpen size={16} />在 Finder 中显示
                             </button>
+                            <button
+                              className="secondary"
+                              disabled={!!busy}
+                              onClick={() =>
+                                void attempt("正在导出日志", () =>
+                                  saveDocument(
+                                    "ncl-build-" + job.id.slice(0, 8) + ".txt",
+                                    [
+                                      job.name,
+                                      jobStateName(job),
+                                      job.build,
+                                      job.error,
+                                      job.log ?? "",
+                                    ].join(String.fromCharCode(10)),
+                                  ),
+                                )
+                              }
+                            >
+                              <Download size={16} />
+                              查看构建日志
+                            </button>
                             <code>SHA-256 {job.sha256}</code>
                           </div>
                         )}
+                        <div className="job-stage-strip" aria-hidden="true">
+                          {["validate", "aot", "package", "verify"].map(
+                            (id) => {
+                              const i = stages.findIndex((s) => s[0] === id);
+                              const current = stages.findIndex(
+                                (s) => s[0] === job.stage,
+                              );
+                              const done =
+                                job.state === "succeeded" || i < current;
+                              const running = id === job.stage && isActive(job);
+                              return (
+                                <span
+                                  key={id}
+                                  data-state={
+                                    done
+                                      ? "done"
+                                      : running
+                                        ? "running"
+                                        : "pending"
+                                  }
+                                >
+                                  <i />
+                                  {stageName(id)}
+                                </span>
+                              );
+                            },
+                          )}
+                        </div>
                         <div className="pipeline-heading">
-                          <h3>
+                          <h3 key={job.stage} className="pipeline-live-stage">
                             {isActive(job)
                               ? stageName(job.stage)
                               : "构建流水线"}
                           </h3>
                           <span>阶段状态来自实际构建输出</span>
                         </div>
-                        <div className="pipeline">
+                        <div
+                          className="pipeline"
+                          data-state={
+                            job.state === "succeeded"
+                              ? "done"
+                              : ["failed", "cancelled", "interrupted"].includes(
+                                    job.state,
+                                  )
+                                ? "stopped"
+                                : "running"
+                          }
+                        >
                           {stages
                             .filter(
                               ([id]) =>
@@ -2129,14 +2446,26 @@ export default function App() {
                               const done =
                                 job.state === "succeeded" || i < current;
                               const running = id === job.stage && isActive(job);
+                              const stopped =
+                                id === job.stage &&
+                                job.state !== "awaiting-exclusions" &&
+                                ["failed", "cancelled", "interrupted"].includes(
+                                  job.state,
+                                );
                               return (
                                 <div
                                   key={id}
                                   className={
-                                    done ? "done" : running ? "running" : ""
+                                    done
+                                      ? "done"
+                                      : running
+                                        ? "running"
+                                        : stopped
+                                          ? "stopped"
+                                          : ""
                                   }
                                 >
-                                  <span>
+                                  <span className="pipeline-mark">
                                     {done ? (
                                       <Check size={13} />
                                     ) : running ? (
@@ -2144,15 +2473,19 @@ export default function App() {
                                         size={13}
                                         className="spin"
                                       />
+                                    ) : stopped ? (
+                                      <X size={13} />
                                     ) : (
                                       <span className="tiny-dot" />
                                     )}
                                   </span>
-                                  {job.request.unsigned && id === "package"
-                                    ? "构建未签名应用"
-                                    : job.request.unsigned && id === "verify"
-                                      ? "验证应用与 IPA"
-                                      : label}
+                                  <span className="pipeline-label">
+                                    {job.request.unsigned && id === "package"
+                                      ? "构建未签名应用"
+                                      : job.request.unsigned && id === "verify"
+                                        ? "验证应用与 IPA"
+                                        : label}
+                                  </span>
                                 </div>
                               );
                             })}
@@ -2163,11 +2496,17 @@ export default function App() {
                               <Terminal size={16} />
                               构建日志
                             </span>
-                            <label>
+                            <label
+                              className="follow-toggle"
+                              data-paused={userScrolled ? "true" : "false"}
+                            >
                               <input
                                 type="checkbox"
                                 checked={follow}
-                                onChange={(e) => setFollow(e.target.checked)}
+                                onChange={(e) => {
+                                  setFollow(e.target.checked);
+                                  if (e.target.checked) setUserScrolled(false);
+                                }}
                               />
                               自动跟随
                             </label>
@@ -2176,6 +2515,15 @@ export default function App() {
                             className="log-scroll"
                             tabIndex={0}
                             aria-label="构建日志"
+                            onScroll={(event) => {
+                              const element = event.currentTarget;
+                              const atEnd =
+                                element.scrollHeight -
+                                  element.scrollTop -
+                                  element.clientHeight <
+                                24;
+                              setUserScrolled(!atEnd);
+                            }}
                           >
                             <LogView
                               text={job.log ?? ""}
@@ -2385,7 +2733,9 @@ export default function App() {
                         }
                         onClick={() =>
                           void attempt("正在保存存储位置", async () => {
-                            const result = await workbench<{ ready: boolean }>(
+                            const result = await workbench<{
+                              ready: boolean;
+                            }>(
                               formRef.current,
                               "save-storage",
                               undefined,
