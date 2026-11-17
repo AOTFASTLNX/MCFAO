@@ -45,7 +45,7 @@
 - npm run test:e2e
 - npm run build
 - cargo test --manifest-path src-tauri/Cargo.toml --lib
-- cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
+- CARGO_TARGET_DIR=/tmp/ncl-clippy-target cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings（外接盘目标目录可能带 `._` 元数据，改用本机临时目录）
 - 仓库根执行 python3 -m unittest discover -s tests -p 'test_desktop_workbench.py'
 
 ## 实现
