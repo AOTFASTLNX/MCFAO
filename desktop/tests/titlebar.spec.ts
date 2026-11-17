@@ -91,24 +91,26 @@ test("sidebar navigation keeps a comfortable row rhythm", async ({ page }) => {
     expect(rows[i].top - rows[i - 1].bottom).toBeGreaterThanOrEqual(4);
 });
 
-test("sidebar selection uses its row background without a side marker", async ({
+test("sidebar selection is one moving block without a side marker", async ({
   page,
 }) => {
   await page.goto("/");
-  const selected = page.locator(".sidebar nav .nav-item.selected");
+  const nav = page.locator(".sidebar nav");
+  const selected = nav.locator(".nav-item.selected");
   await expect(selected).toHaveCount(1);
   expect(
-    await selected.evaluate((item) => {
-      const marker = getComputedStyle(item, "::before");
-      return {
-        content: marker.content,
-        rowBackground: getComputedStyle(item).backgroundColor,
-      };
-    }),
-  ).toEqual({
-    content: "none",
-    rowBackground: "color(srgb 0.184314 0.435294 0.745098 / 0.14)",
-  });
+    await selected.evaluate((item) => ({
+      content: getComputedStyle(item, "::before").content,
+      rowBackground: getComputedStyle(item).backgroundColor,
+    })),
+  ).toEqual({ content: "none", rowBackground: "rgba(0, 0, 0, 0)" });
+  const block = nav.locator(".motion-indicator");
+  await expect(block).toHaveCount(1);
+  expect(await block.evaluate((el) => getComputedStyle(el).opacity)).toBe("1");
+  const row = (await selected.boundingBox())!;
+  const layer = (await block.boundingBox())!;
+  expect(Math.abs(layer.y - row.y)).toBeLessThan(1.5);
+  expect(Math.abs(layer.height - row.height)).toBeLessThan(1.5);
 });
 
 test("the page scroll bar belongs to the pane below the title bar", async ({
@@ -302,6 +304,8 @@ test("environment and history drop the outer card for dividers", async ({
   for (const page_ of ["环境与资源", "构建记录"]) {
     await page.getByRole("button", { name: page_, exact: true }).click();
     const region = page_ === "环境与资源" ? ".panel.flat" : ".flat";
+    // Pages cross-fade before mounting, so wait for the destination regions.
+    await expect(page.locator(region).nth(1)).toBeVisible();
     const look_ = await look(region);
     expect(look_.first).toBe("rgba(0, 0, 0, 0)");
     expect(look_.second).toBe("rgba(0, 0, 0, 0)");

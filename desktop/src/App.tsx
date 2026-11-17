@@ -121,7 +121,7 @@ import { QuickStorageDirectory } from "./QuickStorageDirectory";
 import {
   useSlidingIndicator,
   useStepContent,
-  usePageEnter,
+  usePageCrossfade,
   useSelectionPulse,
   formatDuration,
 } from "./motion";
@@ -484,7 +484,8 @@ export default function App() {
   const stepper = useSlidingIndicator<HTMLDivElement>(step);
   const pageIndex = pages.findIndex(([id]) => id === page);
   const sidebar = useSlidingIndicator<HTMLElement>(pageIndex);
-  const pageEnter = usePageEnter(page);
+  const pageView = usePageCrossfade(page);
+  const visiblePage = pageView.page;
   const loaderMoving = useSelectionPulse(form.loader);
   const visibleStep = stepView.phase === "idle" ? step : stepView.step;
   function goToStep(target: number) {
@@ -1216,11 +1217,7 @@ export default function App() {
           </div>
         </header>
         <div className="main-content">
-          <div
-            className="page-column"
-            data-enter={pageEnter.entered ? "true" : "false"}
-            data-direction={pageEnter.direction}
-          >
+          <div className="page-column" data-phase={pageView.phase}>
             {storageIssue && <Note error>{storageIssue}</Note>}
             {error && !storageChange && (
               <div className="error-banner banner-enter" role="alert">
@@ -1245,7 +1242,7 @@ export default function App() {
                 </span>
               </div>
             )}
-            {page === "builder" && (
+            {visiblePage === "builder" && (
               <>
                 <div className="workflow-layout">
                   <section className="builder-panel">
@@ -2097,7 +2094,7 @@ export default function App() {
                 </div>
               </>
             )}
-            {page === "history" && (
+            {visiblePage === "history" && (
               <>
                 <div className="page-toolbar">
                   <div className="page-toolbar-actions">
@@ -2619,7 +2616,7 @@ export default function App() {
                 </div>
               </>
             )}
-            {page === "environment" && (
+            {visiblePage === "environment" && (
               <>
                 <div className="page-toolbar">
                   <button
@@ -2685,7 +2682,7 @@ export default function App() {
                 </div>
               </>
             )}
-            {page === "storage" && (
+            {visiblePage === "storage" && (
               <StorageManager
                 plan={storage}
                 busy={busy}
@@ -2759,7 +2756,7 @@ export default function App() {
                 }
               />
             )}
-            {page === "settings" && (
+            {visiblePage === "settings" && (
               <section className="settings-page">
                 <div className="settings-group">
                   <h2>外观</h2>

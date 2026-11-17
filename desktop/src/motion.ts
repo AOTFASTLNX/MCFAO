@@ -137,10 +137,11 @@ export function useSlidingIndicator<T extends HTMLElement>(
   const activeRef = useRef(activeIndex);
   activeRef.current = activeIndex;
   const timer = useRef<number | undefined>(undefined);
+  const movingRef = useRef(false);
   const duration = options.duration ?? MOTION.smooth;
   const enabled = options.enabled !== false;
 
-  const position = useCallback((animate: boolean, hide: boolean) => {
+  const position = useCallback((animate: boolean) => {
     const container = containerRef.current;
     const indicator = indicatorRef.current;
     if (!container || !indicator) return;
@@ -158,7 +159,7 @@ export function useSlidingIndicator<T extends HTMLElement>(
     indicator.style.transform = `translate3d(${rect.left - box.left}px, ${rect.top - box.top}px, 0)`;
     indicator.style.width = `${rect.width}px`;
     indicator.style.height = `${rect.height}px`;
-    indicator.style.opacity = hide ? "0" : "1";
+    indicator.style.opacity = "1";
     if (!animate) {
       // Force the new geometry to be the transition origin before restoring
       // the CSS transition for the next selection change.
@@ -172,7 +173,7 @@ export function useSlidingIndicator<T extends HTMLElement>(
     if (!container) return;
     window.clearTimeout(timer.current);
     if (!ready) {
-      position(false, true);
+      position(false);
       setReady(true);
       return;
     }
@@ -181,21 +182,25 @@ export function useSlidingIndicator<T extends HTMLElement>(
       // play an entrance move or briefly suppress the settled row colour.
       firstPass.current = false;
       setMoving(false);
-      position(false, true);
+      position(false);
       return;
     }
     if (reduced || !enabled) {
       setMoving(false);
-      position(false, true);
+      position(false);
       return;
     }
     setMoving(true);
+    movingRef.current = true;
     // Retargeting mid-flight must not restart from the old row: let the
     // browser interpolate from the current painted position.
-    position(true, false);
+    position(true);
     timer.current = window.setTimeout(() => {
+      movingRef.current = false;
       setMoving(false);
-      position(false, true);
+      // Re-measure once settled so the block keeps an exact fit after the
+      // spring has finished, without replaying the move.
+      position(false);
     }, duration + 20);
     return () => window.clearTimeout(timer.current);
   }, [activeIndex, ready, reduced, enabled, duration, position]);
@@ -204,7 +209,10 @@ export function useSlidingIndicator<T extends HTMLElement>(
     if (!ready) return;
     const container = containerRef.current;
     if (!container) return;
-    const measure = () => position(false, true);
+    // A resize during a selection move (page cross-fade, scroll bar, window
+    // resize) must re-target the block without disabling its transition, or
+    // the movement collapses into a single-frame jump.
+    const measure = () => position(movingRef.current);
     const observer = new ResizeObserver(measure);
     observer.observe(container);
     container
@@ -277,42 +285,62 @@ export function useStepContent(
 }
 
 /**
- * Page changes only animate the incoming surface. The previous page is
- * replaced immediately, so each screen keeps its own scroll and task state and
- * the navigation never shows two live pages at once.
+ * Cross-fades between pages: the current screen dims out, the destination
+ * mounts, then fades back in. Only one page is mounted at a time, so forms,
+ * dialogs and scroll state never exist twice; navigation itself stays
+ * responsive because the selected nav row updates immediately.
  */
-export function usePageEnter(page: string) {
+export function usePageCrossfade(
+  page: string,
+  options: { out?: number; in?: number } = {},
+) {
   const reduced = useReducedMotion();
-  const previous = useRef(page);
-  const [entered, setEntered] = useState(true);
-  const [direction, setDirection] = useState<MotionDirection>("none");
-  const timer = useRef<number | undefined>(undefined);
+  const outDuration = options.out ?? MOTION.normal;
+  const inDuration = options.in ?? MOTION.smooth;
+  const [shown, setShown] = useState(page);
+  const [phase, setPhase] = useState<MotionPhase>("idle");
+  const shownRef = useRef(page);
+  const phaseRef = useRef<MotionPhase>("idle");
+  phaseRef.current = phase;
+  const timers = useRef<number[]>([]);
+
+  const clear = useCallback(() => {
+    timers.current.forEach((timer) => window.clearTimeout(timer));
+    timers.current = [];
+  }, []);
+
   useEffect(() => {
-    if (previous.current === page) return;
-    const nextDirection = directionBetween(
-      pageIndex(previous.current),
-      pageIndex(page),
-    );
-    previous.current = page;
-    setDirection(nextDirection);
-    if (reduced) {
-      setEntered(true);
+    if (page === shownRef.current) {
+      // Returning to the page that is still on screen cancels a pending
+      // crossfade instead of letting it swap to the abandoned destination.
+      if (phaseRef.current !== "idle") {
+        clear();
+        setPhase("idle");
+      }
       return;
     }
-    setEntered(false);
-    const frame = requestAnimationFrame(() => {
-      setEntered(true);
-      timer.current = window.setTimeout(
-        () => setDirection("none"),
-        MOTION.smooth,
-      );
-    });
-    return () => {
-      cancelAnimationFrame(frame);
-      window.clearTimeout(timer.current);
-    };
-  }, [page, reduced]);
-  return { entered, direction };
+    clear();
+    if (reduced) {
+      shownRef.current = page;
+      setShown(page);
+      setPhase("idle");
+      return;
+    }
+    setPhase("out");
+    timers.current.push(
+      window.setTimeout(() => {
+        shownRef.current = page;
+        setShown(page);
+        setPhase("in");
+        timers.current.push(
+          window.setTimeout(() => setPhase("idle"), inDuration),
+        );
+      }, outDuration),
+    );
+    return clear;
+  }, [page, reduced, outDuration, inDuration, clear]);
+
+  return { page: shown, phase };
 }
 
 /** Marks a short window after a selection change, for CSS-only indicators. */
@@ -334,11 +362,6 @@ export function useSelectionPulse(value: string, duration = MOTION.smooth) {
     return () => window.clearTimeout(timer.current);
   }, [value, duration, reduced]);
   return moving;
-}
-
-const pageOrder = ["builder", "history", "environment", "storage", "settings"];
-function pageIndex(page: string): number {
-  return pageOrder.indexOf(page);
 }
 
 export function useAnimatedNumber(

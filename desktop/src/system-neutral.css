@@ -381,10 +381,6 @@ code {
   background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
-.sidebar nav[data-motion-moving="true"] .nav-item.selected {
-  background: transparent;
-}
-
 .nav-item {
   position: relative;
   z-index: 1;
@@ -414,9 +410,13 @@ code {
 }
 
 .nav-item.selected {
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  background: transparent;
   color: var(--text);
   font-weight: 500;
+}
+
+.nav-item.selected:hover {
+  background: transparent;
 }
 
 .nav-item.selected > svg {
@@ -587,23 +587,23 @@ code {
   );
 }
 
-/* Page changes slide in from the direction of travel and settle without
-   moving the window or the scroll pane. The wrapper is the existing padded
-   column, so sticky capsules keep their positioning context. */
+/* Page changes cross-fade in place: no horizontal travel, no window or scroll
+   movement. The wrapper is the existing padded column, so the sticky capsules
+   keep their positioning context. */
 .page-column {
   opacity: 1;
-  transition:
-    opacity var(--motion-normal) var(--motion-ease-out),
-    transform var(--motion-normal) var(--motion-ease-out);
+  transition: opacity var(--motion-smooth) var(--motion-ease-out);
 }
 
-.page-column[data-enter="false"] {
+.page-column[data-phase="out"] {
   opacity: 0;
-  transform: translate3d(var(--motion-offset-medium), 0, 0);
+  pointer-events: none;
+  transition-duration: var(--motion-normal);
 }
 
-.page-column[data-enter="false"][data-direction="back"] {
-  transform: translate3d(calc(var(--motion-offset-medium) * -1), 0, 0);
+.page-column[data-phase="in"] {
+  opacity: 1;
+  transition-duration: var(--motion-smooth);
 }
 
 .eyebrow {
@@ -658,9 +658,9 @@ code {
   isolation: isolate;
 }
 
-/* The selection is one measured layer shared by every step. It is parked on
-   the active row and only visible while it travels, so the settled state keeps
-   each row's own hover and completion styling. */
+/* The selection is one measured layer shared by every step. It stays visible
+   on the active row, so switching steps reads as one block travelling between
+   them instead of a background blinking off and on. */
 .motion-indicator {
   position: absolute;
   top: 0;
@@ -671,7 +671,7 @@ code {
   display: block;
   border-radius: 999px;
   background: var(--control-bg);
-  opacity: 0;
+  opacity: 1;
   pointer-events: none;
   transition:
     transform var(--motion-smooth) var(--motion-ease-spring),
@@ -679,20 +679,6 @@ code {
     height var(--motion-fast) var(--motion-ease-out),
     opacity var(--motion-instant) linear;
   will-change: transform, width;
-}
-
-.motion-indicator[data-moving="true"] {
-  opacity: 1;
-}
-
-/* At rest the real row background is the only selected surface. Keeping the
-   measured layer at zero opacity avoids a hover fade-in on top of it. */
-.motion-indicator[data-moving="false"] {
-  opacity: 0;
-}
-
-.stepper[data-motion-moving="true"] .step.current {
-  background: transparent;
 }
 
 .step {
@@ -782,9 +768,13 @@ code {
 }
 
 .step.current {
-  background: var(--control-bg);
+  background: transparent;
   color: var(--text);
   font-weight: 500;
+}
+
+.step.current:hover {
+  background: transparent;
 }
 
 .step.current .step-label {
@@ -1113,11 +1103,13 @@ code {
     box-shadow var(--motion-fast) var(--motion-ease-out);
 }
 
+/* Press feedback scales the control surface itself. Nav rows are excluded:
+   their selected block is a separate measured layer, so scaling the row would
+   briefly separate the label from its background. */
 .primary:active:not(:disabled),
 .secondary:active:not(:disabled),
 .danger:active:not(:disabled),
-.theme-option:active:not(:disabled),
-.nav-item:active:not(:disabled) {
+.theme-option:active:not(:disabled) {
   transform: scale(var(--motion-scale-pressed));
 }
 
@@ -1132,24 +1124,6 @@ code {
 .wizard-footer .primary:hover:not(:disabled),
 .page-toolbar .primary:hover:not(:disabled) {
   box-shadow: 0 3px 10px color-mix(in srgb, var(--accent) 30%, transparent);
-}
-
-.wizard-footer .primary:hover:not(:disabled) svg,
-.page-toolbar .primary:hover:not(:disabled) svg {
-  transform: translateX(3px);
-}
-
-.wizard-footer .primary svg,
-.page-toolbar .primary svg {
-  transition: transform var(--motion-fast) var(--motion-ease-out);
-}
-
-.wizard-footer .text-button:hover:not(:disabled) svg {
-  transform: translateX(-3px);
-}
-
-.wizard-footer .text-button svg {
-  transition: transform var(--motion-fast) var(--motion-ease-out);
 }
 
 .primary:hover:not(:disabled),
@@ -4503,7 +4477,10 @@ code {
     transition: none !important;
   }
 
-  .page-column[data-enter="false"] {
-    transform: none !important;
+  .page-column,
+  .page-column[data-phase="out"],
+  .page-column[data-phase="in"] {
+    opacity: 1 !important;
+    transition: none !important;
   }
 }

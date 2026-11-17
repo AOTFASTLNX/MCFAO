@@ -31,13 +31,14 @@ test("step selection is one moving layer and settles on the chosen step", async 
   expect(Math.abs(indicator!.width - target!.width)).toBeLessThan(1.5);
   expect(origin!.x).toBeLessThan(target!.x);
 
+  // The moving block is the selected surface; rows stay transparent so the
+  // block can travel between them without a second fading background.
   const backgrounds = await page
     .locator(".step")
     .evaluateAll((rows) =>
       rows.map((row) => getComputedStyle(row).backgroundColor),
     );
-  const selected = backgrounds.filter((color) => color !== "rgba(0, 0, 0, 0)");
-  expect(selected).toHaveLength(1);
+  expect(new Set(backgrounds)).toEqual(new Set(["rgba(0, 0, 0, 0)"]));
 });
 
 test("rapid step switching keeps one coherent selection and direction", async ({
@@ -100,6 +101,12 @@ test("step counter and sidebar selection stay in one place", async ({
     .boundingBox();
   const layer = await nav.locator(".motion-indicator").boundingBox();
   expect(Math.abs(layer!.y - active!.y)).toBeLessThan(1.5);
+  // The block remains the visible selected surface after the move settles.
+  expect(
+    await nav
+      .locator(".motion-indicator")
+      .evaluate((el) => getComputedStyle(el).opacity),
+  ).toBe("1");
 });
 
 test("reduced motion removes travel while keeping state visible", async ({
@@ -138,6 +145,113 @@ test("keyboard shortcut changes steps with the same transition", async ({
   await expect(
     page.getByRole("heading", { name: "选择要构建的游戏内容" }),
   ).toBeVisible();
+});
+
+test("page changes cross-fade without horizontal travel", async ({ page }) => {
+  await openBuilder(page);
+  const column = page.locator(".page-column");
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  // The destination is reached with a fade; the surface never travels.
+  await expect(page.getByText("外观主题", { exact: true })).toBeVisible();
+  await expect(column).toHaveAttribute("data-phase", "idle");
+  expect(await column.evaluate((el) => getComputedStyle(el).transform)).toBe(
+    "none",
+  );
+  expect(await column.evaluate((el) => getComputedStyle(el).opacity)).toBe("1");
+});
+
+test("page cross-fade dims out and eases back in over time", async ({
+  page,
+}) => {
+  await openBuilder(page);
+  await page.evaluate(() => {
+    const column = document.querySelector<HTMLElement>(".page-column")!;
+    const start = performance.now();
+    const samples: { t: number; opacity: number; phase: string }[] = [];
+    (window as unknown as { __fade: typeof samples }).__fade = samples;
+    const timer = window.setInterval(() => {
+      samples.push({
+        t: performance.now() - start,
+        opacity: Number(getComputedStyle(column).opacity),
+        phase: column.dataset.phase ?? "",
+      });
+      if (performance.now() - start > 1000) window.clearInterval(timer);
+    }, 16);
+  });
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await expect(page.getByText("外观主题", { exact: true })).toBeVisible();
+  await page.waitForTimeout(900);
+  const samples = await page.evaluate(
+    () =>
+      (
+        window as unknown as {
+          __fade: { t: number; opacity: number; phase: string }[];
+        }
+      ).__fade,
+  );
+  const lowest = Math.min(...samples.map((s) => s.opacity));
+  const dipped = samples.find((s) => s.opacity < 0.5);
+  expect(lowest).toBeLessThan(0.05);
+  expect(dipped).toBeTruthy();
+  // The fade occupies a visible interval instead of a single frame.
+  const dimming = samples.filter(
+    (s) => s.opacity > 0.05 && s.opacity < 0.95,
+  ).length;
+  expect(dimming).toBeGreaterThan(3);
+  expect(samples.at(-1)!.opacity).toBe(1);
+});
+
+test("sidebar selection block travels through intermediate positions", async ({
+  page,
+}) => {
+  await openBuilder(page);
+  const nav = page.locator(".sidebar nav");
+  await page.evaluate(() => {
+    const block = document.querySelector<HTMLElement>(
+      ".sidebar nav .motion-indicator",
+    )!;
+    const start = performance.now();
+    const samples: number[] = [];
+    (window as unknown as { __positions: number[] }).__positions = samples;
+    const timer = window.setInterval(() => {
+      samples.push(block.getBoundingClientRect().top);
+      if (performance.now() - start > 800) window.clearInterval(timer);
+    }, 16);
+  });
+  await page.getByRole("button", { name: "存储管理", exact: true }).click();
+  await expect(page.locator(".storage-page")).toBeVisible();
+  await page.waitForTimeout(700);
+  const positions = await page.evaluate(
+    () => (window as unknown as { __positions: number[] }).__positions,
+  );
+  const first = positions[0];
+  const last = positions.at(-1)!;
+  const intermediate = positions.filter(
+    (p) => Math.abs(p - first) > 1 && Math.abs(p - last) > 1,
+  );
+  expect(last).toBeGreaterThan(first);
+  expect(intermediate.length).toBeGreaterThan(3);
+  expect(
+    await nav
+      .locator(".motion-indicator")
+      .evaluate((el) => getComputedStyle(el).opacity),
+  ).toBe("1");
+});
+
+test("hovering a nav row or step never shifts its contents sideways", async ({
+  page,
+}) => {
+  await openBuilder(page);
+  const navRow = page.locator(".sidebar nav .nav-item").nth(1);
+  const navLabel = await navRow.locator("svg").boundingBox();
+  await navRow.hover();
+  const hovered = await navRow.locator("svg").boundingBox();
+  expect(hovered!.x).toBe(navLabel!.x);
+  const next = page.locator('.wizard-footer .primary[data-action="next"]');
+  const arrow = await next.locator("svg").boundingBox();
+  await next.hover();
+  const arrowHovered = await next.locator("svg").boundingBox();
+  expect(arrowHovered!.x).toBe(arrow!.x);
 });
 
 test("game type switch moves a single plate without overlapping content", async ({
