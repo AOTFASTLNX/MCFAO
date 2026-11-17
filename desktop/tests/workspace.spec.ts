@@ -754,6 +754,8 @@ test("settings place labels left of controls without a wrapping card", async ({
 }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "设置", exact: true }).click();
+  // Pages cross-fade before mounting, so wait for the settings surface.
+  await expect(page.locator(".settings-page")).toBeVisible();
 
   // The page sits on the window surface; only text inputs keep a card look.
   const shell = await page.evaluate(() => {
