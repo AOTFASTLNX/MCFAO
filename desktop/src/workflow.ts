@@ -25,7 +25,6 @@ export interface BuildForm {
   loader: "fabric" | "vanilla";
   source: string;
   team: string;
-  audited: boolean;
   forceCompile: boolean;
 }
 export interface BuildJob {
@@ -114,7 +113,6 @@ export const defaultForm: BuildForm = {
   loader: "fabric",
   source: "",
   team: "",
-  audited: false,
   forceCompile: false,
 };
 export const configurationFields = [
@@ -351,7 +349,6 @@ export function buildProblems(
         result.push("整合包构建至少保留一个启用的 Mod。");
       if (report.fatal) result.push("来源存在阻断问题，请先处理。");
     }
-    if (!form.audited) result.push("确认 Mod 已审计后，才能执行构建期转换。");
   }
   return result;
 }
@@ -401,8 +398,6 @@ export function restoreForm(raw: string | null): BuildForm {
       included: [...new Set<string>(r.included)],
     };
   }
-  // Audit acknowledgement belongs to a build session; never grant it from stored data.
-  result.audited = false;
   result.forceCompile = false;
   return result;
 }

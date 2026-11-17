@@ -620,10 +620,8 @@ export default function App() {
     setForm((f) => ({
       ...f,
       ...patch,
-      ...(patch.resourceSelection !== undefined ? { audited: false } : {}),
       ...(patch.source !== undefined || patch.loader !== undefined
         ? {
-            audited: false,
             forceCompile: false,
             resourceSelection:
               (patch.source !== undefined && patch.source !== f.source) ||
@@ -779,7 +777,6 @@ export default function App() {
     setReport(r);
     setForm((f) => ({
       ...f,
-      audited: false,
       resourceSelection:
         r.resources && r.resources_fingerprint
           ? f.resourceSelection?.source === r.source &&
@@ -851,7 +848,7 @@ export default function App() {
     try {
       localStorage.setItem(
         FORM_KEY,
-        JSON.stringify({ ...form, audited: false, forceCompile: false }),
+        JSON.stringify({ ...form, forceCompile: false }),
       );
       localStorage.setItem(
         STORAGE_KEY,
@@ -1997,26 +1994,6 @@ export default function App() {
                             <span>输出位置</span>
                             <code>{form.output || "尚未选择"}</code>
                           </div>
-                          {form.loader === "fabric" && (
-                            <label className="audit-check">
-                              <input
-                                type="checkbox"
-                                checked={form.audited}
-                                onChange={(e) =>
-                                  update({ audited: e.target.checked })
-                                }
-                              />
-                              <span>
-                                <strong>
-                                  此来源中的 Mod 已完成构建期代码审计
-                                </strong>
-                                <small>
-                                  允许既有隔离流程执行这些 Mod 的 Mixin /
-                                  构建期转换。静态检查不代表 iOS 兼容性验证。
-                                </small>
-                              </span>
-                            </label>
-                          )}
                           <div className="check-toolbar">
                             <span>构建前检查</span>
                             <button

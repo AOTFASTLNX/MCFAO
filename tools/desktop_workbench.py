@@ -284,7 +284,6 @@ def validate_request(request):
         loader = read_json(workspace / 'compiler/fabric.lock.json')['fabricLoader']
         source_overrides(report, loader, request.get('forceCompile', False))
         resource_selection(report, request.get('resourceSelection'))
-        if request.get('audited') is not True: raise ValueError('请先审计 Mod 并确认允许隔离构建期转换')
     return workspace
 
 DOWNLOAD_HOST = 'cdn.modrinth.com'
@@ -615,6 +614,8 @@ def compile_build(command, folder, request, build, mods, game, update, env, prev
                 '--heap-gib', str(aot_heap_gib()), '--parallelism', '3', '--target', 'ios-arm64',
                 '--config', resolve(request['config']), '--output', build]
         if request['loader'] == 'fabric':
+            # This flag selects the sandboxed Fabric transform path; the build
+            # no longer asks for a separate audit acknowledgement in the UI.
             args += ['--mods', mods, '--audited-mods', '--instance-data', game]
         if request.get('unsigned'):
             args += ['--unsigned']

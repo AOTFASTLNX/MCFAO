@@ -279,6 +279,10 @@ test("Loader mismatch can be forced and records the choice in review", async ({
   await expect(
     page.getByText("强制编译 · Fabric Loader 0.19.3", { exact: true }),
   ).toBeVisible();
+  await expect(
+    page.getByText("此来源中的 Mod 已完成构建期代码审计"),
+  ).toHaveCount(0);
+  await expect(page.getByRole("checkbox", { name: /代码审计/ })).toHaveCount(0);
   await page.reload();
   await pick(page, "最近导入", reportName);
   await expect(force).not.toBeChecked();

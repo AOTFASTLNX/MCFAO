@@ -26,10 +26,9 @@ const form = {
   exportOptions: "/export",
   output: "/out",
   source: "/fixture",
-  audited: true,
 };
 describe("executable workflow", () => {
-  it("unsigned mode skips signing fields while retaining build and audit requirements", () => {
+  it("unsigned mode skips signing fields while retaining build requirements", () => {
     const unsigned = {
       ...form,
       unsigned: true,
@@ -38,14 +37,10 @@ describe("executable workflow", () => {
     };
     expect(buildProblems(unsigned, report, true)).toEqual([]);
     expect(
-      buildProblems({ ...unsigned, audited: false }, report, true).join(),
-    ).toContain("审计");
-    expect(
       buildProblems({ ...unsigned, config: "" }, report, true).join(),
     ).toContain("构建配置");
     const restored = restoreForm(JSON.stringify(unsigned));
     expect(restored.unsigned).toBe(true);
-    expect(restored.audited).toBe(false);
     expect(() => restoreForm(JSON.stringify({ unsigned: "yes" }))).toThrow();
   });
   it("requires selection for resource-aware reports and retains user choices on reopen", () => {
@@ -110,12 +105,6 @@ describe("executable workflow", () => {
     expect(
       buildProblems(form, { ...report, fatal: true }, true).join(),
     ).toContain("阻断"));
-  it("requires explicit audit for each session", () => {
-    expect(
-      buildProblems({ ...form, audited: false }, report, true).join(),
-    ).toContain("审计");
-    expect(restoreForm(JSON.stringify(form)).audited).toBe(false);
-  });
   it("warns about mismatched Loader versions without blocking", () =>
     expect(
       buildProblems(form, { ...report, fabric_loader_version: "0.1" }, true),
@@ -133,12 +122,11 @@ describe("executable workflow", () => {
       ),
     ).toEqual([]);
   });
-  it("keeps invalid sources and audit requirements when forcing compilation", () => {
-    const forced = { ...form, forceCompile: true, audited: false };
+  it("keeps invalid source requirements when forcing compilation", () => {
+    const forced = { ...form, forceCompile: true };
     expect(
       buildProblems(forced, { ...report, fatal: true }, true).join(),
     ).toContain("阻断");
-    expect(buildProblems(forced, report, true).join()).toContain("审计");
     expect(buildProblems(forced, null, true).join()).toContain("检查当前来源");
   });
   it("requires force mode to be selected again after reopening", () => {
@@ -146,13 +134,9 @@ describe("executable workflow", () => {
       restoreForm(JSON.stringify({ ...form, forceCompile: true })).forceCompile,
     ).toBe(false);
   });
-  it("supports vanilla without mod source or audit", () =>
+  it("supports vanilla without a mod source", () =>
     expect(
-      buildProblems(
-        { ...form, loader: "vanilla", source: "", audited: false },
-        null,
-        true,
-      ),
+      buildProblems({ ...form, loader: "vanilla", source: "" }, null, true),
     ).toEqual([]));
   it("validates stored settings before use", () => {
     expect(() => restoreForm("[]")).toThrow();

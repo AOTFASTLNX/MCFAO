@@ -25,7 +25,6 @@ async function desktop(page: Page) {
       loader: "vanilla",
       unsigned: true,
       source: "",
-      audited: false,
       forceCompile: false,
       team: "",
       resourceSelection: null,
