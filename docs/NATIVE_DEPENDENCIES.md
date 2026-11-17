@@ -10,7 +10,7 @@ Last reviewed: 2026-11-17
 
 - Rust 和 Python 仅接受固定工作台动作。新增只读 `dependencies`；重建请求使用原有 `start`，请求增加 `kind: "dependencies"`、`dependencyKeys`。查询和取消仍使用 `status` / `cancel`。
 - `tools/native_dependencies.py` 定义固定依赖图及构建命令；不接受脚本名或自定义命令。前置依赖未就绪时，单独重建会报告应先重建哪一库。
-- 输出位于 `artifacts/graphics/dependencies-<UTC时间>-<随机任务号>/<库名>`。维护者本机该路径通过符号链接位于外接盘。启动与 worker 均执行存储守卫，复用空间预算、全局任务锁、持久 job.json、子进程日志与取消机制。
+- 新任务输出位于所选构建产物根目录下的 `native-dependencies/dependencies-<UTC时间>-<随机任务号>/<库名>`，随储存设置切换；历史任务保留原路径。启动与 worker 均执行存储守卫，复用空间预算、全局任务锁、持久 job.json、子进程日志与取消机制。
 - 每份新产物保存 `dependency-manifest.json`，包括源码哈希、产物哈希、目标、构建时间和依赖产物哈希，并纳入中央 AAR。二进制还核验实际 Mach-O iOS arm64 平台，着色器复用原有 bundle 校验。
 - LWJGL 自身 result.json 的 `glfwLibrarySHA256` 必须等于所选 GLFW 实际哈希；管理清单另记录依赖哈希。GLFW 源码过期会传导到 LWJGL；GLFW 重建后如二进制哈希变化，旧 LWJGL 自动显示待重建。哈希相同的可重现构建保持有效。
 - 选定库全部成功、提交前复核通过且未取消时，才原子更新所选配置中的对应路径。任何编译失败、产物校验失败、源码中途变更、取消或配置并发修改都会保留原配置和全部旧产物。部分新输出和日志也保留用于诊断。

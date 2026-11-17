@@ -100,7 +100,7 @@ def require_space(paths=None, required=None):
     return report
 
 
-def save_paths(values, root=ROOT):
+def validate_paths(values, root=ROOT):
     if set(values) != set(ROLES) or not all(isinstance(v, str) and v.strip() for v in values.values()):
         raise ValueError('Choose all four storage directories')
     paths = {k: Path(v).expanduser() for k, v in values.items()}
@@ -114,6 +114,11 @@ def save_paths(values, root=ROOT):
     if any(a == b or a.is_relative_to(b) or b.is_relative_to(a) for i, a in enumerate(resolved) for b in resolved[i+1:]):
         raise ValueError('Storage directories must be separate and must not contain each other')
     report = space_report(paths)
+    return paths, report
+
+
+def save_paths(values, root=ROOT):
+    paths, report = validate_paths(values, root)
     previous = job_roots(root)
     target = config_path(root)
     target.parent.mkdir(parents=True, exist_ok=True)

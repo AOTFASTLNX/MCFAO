@@ -83,6 +83,14 @@ class ExternalStorageTests(unittest.TestCase):
                                                    DATA=self.data, CONFIG=self.config, ROOT=self.work)
         self.assertTrue(status['available'])
 
+    def test_absent_personal_manifest_imposes_no_mount_requirement(self):
+        self.config.unlink()
+        with patch('external_storage.os.path.ismount', return_value=False):
+            status = external_storage.mount_check(CONFIG=self.config, ROOT=self.work)
+        self.assertTrue(status['available'])
+        self.assertNotIn('volume-not-mounted', status.get('reason', ''))
+        self.assertEqual(status['links'], [])
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -550,4 +550,33 @@ class WorkbenchTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 w.storage('storage-clean', {'groups': ['cache', 3]})
 
+    def test_configured_storage_reports_distribution_and_keeps_cleanup_read_only(self):
+        configuration = self.root / 'storage.json'
+        configuration.write_text('{}')
+        cache = self.root / 'custom-cache'
+        cache.mkdir()
+        (cache / 'retain.bin').write_bytes(b'x' * 8192)
+        paths = dict(cache=cache, builds=self.root / 'custom-builds',
+                     jobs=self.root / 'custom-jobs', rust=self.root / 'custom-rust')
+        with patch('storage_config.config_path', return_value=configuration), patch.object(w, 'storage_paths', return_value=paths):
+            report = w.storage('storage-plan', {})
+            self.assertEqual(len(report['usage']), 4)
+            self.assertEqual(len(report['volumes']), 1)
+            self.assertGreater(report['managedBytes'], 0)
+            self.assertTrue(report['blocked'])
+            with self.assertRaisesRegex(ValueError, '只读统计'):
+                w.storage('storage-clean', {'groups': ['cache']})
+        self.assertTrue((cache / 'retain.bin').exists())
+
+    def test_configured_storage_keeps_disconnected_roots_visible(self):
+        configuration = self.root / 'storage.json'
+        configuration.write_text('{}')
+        path = self.root / 'broken-cache'
+        path.symlink_to(self.root / 'disconnected')
+        with patch('storage_config.config_path', return_value=configuration), patch.object(w, 'storage_paths', return_value=dict(cache=path)):
+            report = w.storage('storage-plan', {})
+        self.assertFalse(report['usage'][0]['available'])
+        self.assertTrue(report['warnings'])
+        self.assertFalse((self.root / 'disconnected').exists())
+
 if __name__=='__main__': unittest.main()

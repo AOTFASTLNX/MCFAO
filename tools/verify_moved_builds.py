@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""校验 artifacts/mcfao 旧构建目录是否已完整复制到外接盘，并可选删除本地原件。
+"""校验 artifacts/mcfao 旧构建目录是否已完整复制到归档盘，并可选删除本地原件。
 
 用法:
     python3 tools/verify_moved_builds.py --manifest /tmp/move_manifest.json \
-        --src artifacts/mcfao --dst "/Volumes/K/Xcode-备份/buildAOT" [--delete]
+        --src artifacts/mcfao --dst "<归档根>" [--delete]
 
 校验口径: 逐目录比较 (文件数, 总字节) 与抽样 sha256。
 只有全部分项一致的目录才会被删除。

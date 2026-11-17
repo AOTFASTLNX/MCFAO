@@ -14,9 +14,9 @@
 
 ## 本地打包
 
-在 desktop 执行 npm run build:mac。脚本会先检查外接盘挂载与所选目录剩余空间，再用 Xcode actool 把仓库根目录的 NCB.icon 编译为 Assets.car 与 NCB.icns，保留浅色、深色与透明图层；随后运行 Tauri 开发包构建，把这两个资源放入 Contents/Resources，并让 CFBundleIconFile 与 CFBundleIconName 指向 NCB。最终在所选产物根的 desktop/ncl-builder-<version>/ 生成经临时签名与严格验签的 NCL Builder.app 及同名 zip；已有同名交付时使用新的目录后缀。工作台附带受控源码树，分发应用默认使用包内源码，不包含游戏文件；首次准备与外部客户端输入见 docs/DESKTOP.md 和 docs/BUILDING.md。正式分发签名和公证尚未验收。
+在 desktop 执行 npm run build:mac。脚本会先检查所选目录的剩余空间，再用 Xcode actool 把仓库根目录的 NCB.icon 编译为 Assets.car 与 NCB.icns，保留浅色、深色与透明图层；随后运行 Tauri 开发包构建，把这两个资源放入 Contents/Resources，并让 CFBundleIconFile 与 CFBundleIconName 指向 NCB。最终在所选产物根的 desktop/ncl-builder-<version>/ 生成经临时签名与严格验签的 NCL Builder.app 及同名 zip；已有同名交付时使用新的目录后缀。工作台附带受控源码树，分发应用默认使用包内源码，不包含游戏文件；首次准备与外部客户端输入见 docs/DESKTOP.md 和 docs/BUILDING.md。正式分发签名和公证尚未验收。
 
-当前版本 0.2.7，界面、npm、Cargo 和 Tauri 版本号一致。交付位于 artifacts/desktop/ncl-builder-0.2.7/，保留旧版本目录；沿用已有配置迁移，并使用主项目已修复的外接盘隔离路径和日志元数据过滤。
+当前版本 0.2.7，界面、npm、Cargo 和 Tauri 版本号一致。交付位于 artifacts/desktop/ncl-builder-0.2.7/，保留旧版本目录；沿用已有配置迁移，并使用主项目已修复的沙盒路径解析和日志元数据过滤。
 
 ## 使用
 
@@ -36,7 +36,7 @@
 
 ## 磁盘空间
 
-设置页「磁盘空间」可统计并清理编译缓存、Rust 编译缓存、构建中间产物与旧构建。清理前先展示每组大小，二次确认后只删除勾选的分组；`result.json`、任务日志、`.ipa` 和 `.xcarchive` 始终保留，有构建任务运行时拒绝清理。
+侧边栏「存储管理」集中展示各磁盘容量条、四类目录的占用分布、最大目录明细与 Finder 定位，并提供存储位置配置。清理默认不勾选，展开路径明细并选择后再二次确认；清理后重新扫描。旧构建与中间阶段分组互斥，保留交付产物、构建记录与顶层日志，运行任务期间禁用清理。自定义目录提供只读统计和 Finder 管理。
 
 ## 测试
 

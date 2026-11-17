@@ -150,6 +150,8 @@ def plan(*, data_root: Path, keep_builds: int = 2, include_cache: bool = True,
          include_builds: bool = True, include_intermediates: bool = True) -> dict:
     artifacts = data_root / "artifacts"
     cache = data_root / "cache"
+    if not cache.exists():
+        cache = data_root / ".cache"
     jobs = data_root / "artifacts/desktop-jobs"
     groups = []
     running = active_jobs(jobs)
@@ -206,9 +208,19 @@ def plan(*, data_root: Path, keep_builds: int = 2, include_cache: bool = True,
                            "detail": f"保留最近 {keep_builds} 个构建以及所有带 IPA 的目录。",
                            "items": items})
 
+    # Old-build stages otherwise also appear under intermediates, overstating
+    # reclaimable bytes and making a combined selection try deleting twice.
+    old_builds = {Path(item['path']) for group in groups if group['id'] == 'builds'
+                  for item in group['items']}
     for group in groups:
+        if group['id'] == 'intermediates':
+            group['items'] = [item for item in group['items'] if Path(item['path']).parent not in old_builds]
+        elif group['id'] == 'builds':
+            for item in group['items']:
+                item['bytes'] = sum(tree_bytes(stage) for stage in stage_paths(Path(item['path'])))
         group["bytes"] = sum(item["bytes"] for item in group["items"])
         group["count"] = len(group["items"])
+    groups = [group for group in groups if group['items']]
     return {
         "status": "STORAGE_PLAN",
         "dataRoot": str(data_root),
@@ -232,11 +244,7 @@ def _remove(path: Path) -> None:
 def _remove_build(build: Path) -> int:
     """Remove a build's stages but keep its manifest, inputs and logs."""
     freed = 0
-    for entry in sorted(build.iterdir()):
-        if entry.name in PROTECTED_NAMES or entry.suffix in PROTECTED_SUFFIXES:
-            continue
-        if entry.is_symlink():
-            continue
+    for entry in stage_paths(build):
         freed += tree_bytes(entry)
         _remove(entry)
     return freed

@@ -1,5 +1,6 @@
 # Private local build state and generated evidence
 /.cache
+/external-storage.json
 /artifacts/*
 !/artifacts/desktop/
 /artifacts/desktop/**/*.app/

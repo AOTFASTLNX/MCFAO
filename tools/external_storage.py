@@ -53,8 +53,8 @@ def require_mount(action, **kwargs):
     if status['available']:
         return status
     raise ExternalStorageUnavailable(
-        f"{action}: PAUSED - external disk {status['volume']} is required for local builds. "
-        'Insert/mount the disk, confirm MCFAO-data exists, then retry. '
+        f"{action}: PAUSED - storage declared in external-storage.json is unavailable ({status['volume']}). "
+        'Mount that volume, confirm the data directory and links exist, then retry. '
         f'Status: {json.dumps(status, sort_keys=True)}')
 
 
@@ -67,9 +67,12 @@ def main(argv=None):
     if args.json:
         print(json.dumps(status, indent=2, sort_keys=True))
     elif status['available']:
-        print(f"OK: {status['data']} is mounted; {len(status['links'])} links resolved")
+        if status['links']:
+            print(f"OK: {status['data']} is mounted; {len(status['links'])} links resolved")
+        else:
+            print(f"OK: no external-storage.json; using project directories under {status['data']}")
     else:
-        print('PAUSED: external disk is required for local builds')
+        print('PAUSED: storage declared in external-storage.json is unavailable')
         print(json.dumps(status, indent=2, sort_keys=True))
     return 0 if status['available'] else 3
 

@@ -40,6 +40,7 @@ test("storage settings are distinct and ownership starts unchecked in both theme
 }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "设置", exact: true }).click();
+  await page.getByRole("button", { name: "存储管理", exact: true }).click();
   for (const label of [
     "编译缓存目录",
     "构建产物根目录",
@@ -52,13 +53,14 @@ test("storage settings are distinct and ownership starts unchecked in both theme
     );
   }
   await expect(
+    page.getByRole("button", { name: "保存存储位置并检查空间", exact: true }),
+  ).toBeDisabled();
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await expect(
     page.getByRole("checkbox", { name: /我合法拥有 Minecraft Java Edition/ }),
   ).not.toBeChecked();
   await expect(
     page.getByRole("button", { name: "从官方源下载游戏与资源", exact: true }),
-  ).toBeDisabled();
-  await expect(
-    page.getByRole("button", { name: "保存存储位置并检查空间", exact: true }),
   ).toBeDisabled();
   for (const theme of ["浅色", "深色"]) {
     await page.getByRole("button", { name: theme, exact: true }).click();
@@ -114,6 +116,7 @@ test("desktop setup and directory changes use bounded actions with explicit owne
   });
   await page.goto("/");
   await page.getByRole("button", { name: "设置", exact: true }).click();
+  await page.getByRole("button", { name: "存储管理", exact: true }).click();
   await expect(page.getByLabel("编译缓存目录", { exact: true })).toHaveValue(
     "/fixture/cache",
   );
@@ -124,6 +127,7 @@ test("desktop setup and directory changes use bounded actions with explicit owne
     .getByRole("button", { name: "保存存储位置并检查空间", exact: true })
     .click();
   await expect(page.getByText(/现有数据未迁移/)).toBeVisible();
+  await page.getByRole("button", { name: "设置", exact: true }).click();
   const owned = page.getByRole("checkbox", {
     name: /我合法拥有 Minecraft Java Edition/,
   });
