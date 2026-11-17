@@ -8,7 +8,7 @@
 - `npm test`：72 项通过。
 - `npm run test:e2e`：52 项通过，包含目录重置、确认/取消、处理策略与现有导航布局。
 - `MCFAO_STORAGE_CONFIG=<临时设置文件> python3 -B -m unittest discover -s tests -p 'test_*.py'`：530 项，6 项跳过，其余通过。隔离工作区没有完整的本机研发产物。
-- `CARGO_NET_OFFLINE=true CARGO_TARGET_DIR=<现有缓存> cargo test --manifest-path desktop/src-tauri/Cargo.toml --lib`：11 项通过。
+- 先在 desktop 执行 `npm run prepare:bundle` 生成受控源码资源，再运行 `CARGO_NET_OFFLINE=true CARGO_TARGET_DIR=<现有缓存> cargo test --manifest-path desktop/src-tauri/Cargo.toml --lib`：11 项通过。
 - `git diff --check`：通过。
 
 迁移与删除仅在临时夹具验证，浏览器中的原生文件选择使用模拟 IPC；未实际迁移或删除用户文件，不改变 Minecraft/设备 Gate。目录重置只更新配置，保留旧文件和历史任务发现路径。
