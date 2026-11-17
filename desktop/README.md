@@ -33,6 +33,7 @@
 - 外观默认跟随系统；设置页可固定浅色或深色，并切换交互强调色。
 - 强调色默认读取 macOS 系统设置；浅色模式会自动调整填充色的明度，保证按钮文字可读。
 - 状态色固定表示成功、警告和错误。构建日志使用等宽字体，并同时用文字标签与颜色区分等级。
+- 动画由统一的 Motion System 管理：时长、缓动、位移与 Reduced Motion 共用同一组令牌；步骤、页面和侧边栏的选中层是单一测量图层。实现与覆盖清单见 [docs/DESKTOP_MOTION.md](../docs/DESKTOP_MOTION.md)。
 
 ## 磁盘空间
 
@@ -53,6 +54,7 @@
 - src/system-neutral.css：System Neutral 语义令牌、控件、页面与响应式规则。
 - src/theme.ts：外观与系统强调色偏好、可读性映射和原生窗口同步。
 - src/LogView.tsx、src/log.ts：构建日志的等宽呈现与 INFO / WARN / ERROR 语义分级。
+- src/motion.ts、src/MotionPrimitives.tsx：全局动画令牌、共享选中层、步骤过渡、数字与状态标记。
 - src/workflow.ts：构建输入、持久化和前置约束。
 - src/model.ts：静态报告校验与旧记录迁移。
 - src-tauri/src/lib.rs：固定第一方操作桥接，ARM64 服务启动。
