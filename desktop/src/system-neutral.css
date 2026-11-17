@@ -387,6 +387,7 @@ code {
 
 .nav-item {
   position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
   gap: 9px;
@@ -664,7 +665,9 @@ code {
   position: absolute;
   top: 0;
   left: 0;
-  z-index: -1;
+  /* The indicator paints under the labels without relying on a negative
+     stacking level, which the native webview renders over text. */
+  z-index: 0;
   display: block;
   border-radius: 999px;
   background: var(--control-bg);
@@ -682,11 +685,19 @@ code {
   opacity: 1;
 }
 
+/* At rest the real row background is the only selected surface. Keeping the
+   measured layer at zero opacity avoids a hover fade-in on top of it. */
+.motion-indicator[data-moving="false"] {
+  opacity: 0;
+}
+
 .stepper[data-motion-moving="true"] .step.current {
   background: transparent;
 }
 
 .step {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -734,6 +745,13 @@ code {
   transition:
     opacity var(--motion-fast) var(--motion-ease-out),
     transform var(--motion-fast) var(--motion-ease-out);
+}
+
+/* Exactly one glyph is mounted per state. A hidden SVG still painted a faint
+   stroke beside the number in the native WebKit view. */
+.step-number .step-digit,
+.step-number .step-check {
+  animation: mark-enter var(--motion-normal) var(--motion-ease-out) both;
 }
 
 .step-check {
@@ -904,7 +922,7 @@ code {
   top: 2px;
   bottom: 2px;
   left: 2px;
-  z-index: -1;
+  z-index: 0;
   width: calc(50% - 2px);
   border-radius: 4px;
   background: var(--surface);
@@ -924,6 +942,8 @@ code {
 }
 
 .segmented button {
+  position: relative;
+  z-index: 1;
   flex: 1;
   gap: 6px;
   min-height: 30px;

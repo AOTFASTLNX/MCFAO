@@ -433,7 +433,7 @@ export default function App() {
   const [storageIssue, setStorageIssue] = useState(saved.error);
   const [page, setPage] = useState<Page>("builder");
   const [step, setStep] = useState(0);
-  const [checkedStep, setCheckedStep] = useState(-1);
+  const [checkedSteps, setCheckedSteps] = useState<number[]>([]);
   const [report, setReport] = useState<Report | null>(null);
   const [checks, setChecks] = useState<Checks | null>(null);
   const [dependencies, setDependencies] = useState<DependencyInventory | null>(
@@ -491,7 +491,7 @@ export default function App() {
     const next = Math.max(0, Math.min(steps.length - 1, target));
     if (next === step) return;
     if (next > step && stepGate(step))
-      setCheckedStep((old) => Math.max(old, step));
+      setCheckedSteps((old) => (old.includes(step) ? old : [...old, step]));
     setStep(next);
   }
   // A step only reads as completed after its own gate has been satisfied and
@@ -512,13 +512,7 @@ export default function App() {
           ? !!form.workspace && !!form.config && !!form.output
           : true;
   useEffect(() => {
-    setCheckedStep((old) => {
-      if (old < 0) return old;
-      let highest = -1;
-      for (let index = 0; index <= old; index += 1)
-        if (stepGate(index)) highest = index;
-      return highest;
-    });
+    setCheckedSteps((old) => old.filter((index) => stepGate(index)));
     // stepGate is derived from these inputs; listing them keeps the check in
     // sync when a source, resource choice or path is edited.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1276,7 +1270,7 @@ export default function App() {
                             "step " +
                             (step === i
                               ? "current"
-                              : i <= checkedStep
+                              : checkedSteps.includes(i)
                                 ? "complete"
                                 : "")
                           }
@@ -1294,19 +1288,24 @@ export default function App() {
                           <span
                             className="step-number"
                             data-state={
-                              i <= checkedStep
-                                ? "complete"
-                                : step === i
-                                  ? "current"
+                              step === i
+                                ? "current"
+                                : checkedSteps.includes(i)
+                                  ? "complete"
                                   : "pending"
                             }
                           >
-                            <span className="step-digit">{i + 1}</span>
-                            <Check
-                              className="step-check"
-                              size={14}
-                              aria-hidden="true"
-                            />
+                            {step === i ? (
+                              <span className="step-digit">{i + 1}</span>
+                            ) : checkedSteps.includes(i) ? (
+                              <Check
+                                className="step-check"
+                                size={14}
+                                aria-hidden="true"
+                              />
+                            ) : (
+                              <span className="step-digit">{i + 1}</span>
+                            )}
                           </span>
                           <span className="step-label">{s}</span>
                           {i < steps.length - 1 && (
