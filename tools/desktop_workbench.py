@@ -27,7 +27,9 @@ from bootstrap_toolchain import sha256
 from mod_file_policy import is_metadata, content_paths, mod_candidates, copy_ignore, clean_staged_metadata
 from external_storage import ExternalStorageUnavailable, require_mount
 import cleanup_storage
-from storage_config import storage_paths, job_roots, require_space, save_paths, space_report, control_lock
+import storage_change
+from storage_inventory import inventory as storage_inventory
+from storage_config import storage_paths, job_roots, require_space, save_paths, reset_paths, space_report, control_lock
 import native_dependencies
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -36,7 +38,7 @@ KEYS = ('prepared', 'caps', 'bootstrapRuntime', 'splitter', 'versionMetadata', '
 OPTIONAL_KEYS = {'openjdkSource', 'graalSource', 'metal', 'shaders'}
 PUBLIC_ACTIONS = ('bootstrap', 'check', 'dependencies', 'start', 'status', 'cancel', 'history', 'retry',
                   'resolve-exclusions', 'save-config', 'storage-plan',
-                  'storage-clean', 'storage-settings', 'save-storage', 'setup-start', 'setup-status')
+                  'storage-clean', 'storage-settings', 'storage-change-plan', 'storage-change-apply', 'reset-storage', 'save-storage', 'setup-start', 'setup-status')
 ACTIVE = {'queued', 'running', 'cancelling', 'awaiting-exclusions'}
 STAGES = ['validate', 'source', 'doctor', 'fabric', 'split', 'gl41-patch', 'aot',
           'runtime', 'link', 'stage', 'package', 'archive', 'export-log', 'verify']
@@ -208,15 +210,21 @@ def storage(action, request):
         if action != 'storage-plan':
             raise ValueError('自定义存储目录需单独确认逐文件清理计划；当前只提供只读统计')
         paths = storage_paths()
-        report = space_report(paths)
-        usage = [dict(role=role, path=str(path), bytes=cleanup_storage.tree_bytes(path.resolve())) for role, path in paths.items()]
-        return dict(status='STORAGE_PLAN', dataRoot='configured directories', freeBytes=min(row['freeBytes'] for row in report['paths']),
+        report = storage_inventory(paths)
+        return dict(status='STORAGE_PLAN', dataRoot='configured directories', freeBytes=min((v['freeBytes'] for v in report['volumes']), default=0),
                     reclaimBytes=0, groups=[], activeJobs=[], blocked=True,
-                    reason='自定义目录当前只读统计；迁移与清理需另行确认具体文件计划。', usage=usage)
+                    reason='自定义目录支持占用统计与 Finder 管理，暂不提供自动清理。', **report)
     data_root = cleanup_storage.default_data_root()
     if action == 'storage-plan':
-        return cleanup_storage.plan(data_root=data_root,
-                                    keep_builds=int(request.get('keepBuilds', 2)))
+        result = cleanup_storage.plan(data_root=data_root,
+                                      keep_builds=int(request.get('keepBuilds', 2)))
+        # Legacy layouts keep CLI builds and evidence under artifacts; the nested
+        # jobs directory is excluded from builds by the read-only inventory.
+        cache = data_root / 'cache'
+        if not cache.exists(): cache = data_root / '.cache'
+        result.update(storage_inventory(dict(cache=cache, builds=data_root / 'artifacts',
+            jobs=data_root / 'artifacts/desktop-jobs', rust=data_root / 'desktop/src-tauri/target')))
+        return result
     groups = request.get('groups')
     if not isinstance(groups, list) or not groups or not all(isinstance(g, str) for g in groups):
         raise ValueError('请选择要清理的内容')
@@ -852,7 +860,7 @@ def start_dependencies(request):
     config = resolve(request.get('config', ''))
     native_dependencies.config_paths(config)
     require_mount('native dependency rebuild')
-    graphics = (workspace / 'artifacts/graphics').resolve(strict=True)
+    graphics = storage_paths(workspace)['builds'] / 'native-dependencies'
     require_space({**storage_paths(workspace), 'builds': graphics})
     root = storage_paths(workspace)['jobs']
     root.mkdir(parents=True, exist_ok=True)
@@ -905,12 +913,21 @@ def main():
         elif args.action == 'dependencies': result = native_dependencies.inventory(workspace, resolve(request['config']))
         elif args.action == 'save-config': result = save_config(request)
         elif args.action == 'storage-settings': result = space_report(storage_paths(workspace))
-        elif args.action == 'save-storage':
+        elif args.action in ('save-storage', 'reset-storage', 'storage-change-plan', 'storage-change-apply'):
             with control_lock(workspace):
                 if any(j['state'] in ACTIVE for j in history(workspace)): raise ValueError('请在构建结束后更改存储位置')
                 from first_run import status as setup_status
                 if setup_status().get('state') in ('queued', 'running'): raise ValueError('请在工具链准备结束后更改存储位置')
-                result = save_paths(request['fields'], workspace)
+                if args.action == 'reset-storage':
+                    result = reset_paths(workspace)
+                elif args.action == 'storage-change-plan':
+                    result = storage_change.plan(request['fields']['paths'], workspace)
+                elif args.action == 'storage-change-apply':
+                    require_mount('storage transition')
+                    fields = request['fields']
+                    result = storage_change.apply(fields['paths'], fields['policy'], fields.get('token'), workspace)
+                else:
+                    result = save_paths(request['fields'], workspace)
         elif args.action == 'setup-start':
             from first_run import start as start_setup
             result = start_setup(request.get('fields', {}).get('owned') is True)

@@ -23,15 +23,18 @@ function capture(command, args, cwd = repoRoot) {
   return r.stdout;
 }
 
-function requireExternalDisk() {
+function requireStorage() {
   const status = JSON.parse(
     capture("python3", ["-B", "tools/external_storage.py", "--json"]),
   );
   if (!status.available) {
-    console.error("外接盘挂载检查未通过，已暂停打包。");
+    console.error(
+      "存储预检未通过，已暂停打包：" + (status.reason || "unknown") +
+      (status.volume ? " (" + status.volume + ")" : ""),
+    );
     process.exit(3);
   }
-  console.log("外接盘检查通过：" + status.data);
+  console.log("存储预检通过：" + status.data);
 }
 
 function compileBuilderIcon() {
@@ -83,7 +86,7 @@ function assertIconIdentity(app) {
   }
 }
 
-requireExternalDisk();
+requireStorage();
 const storage = JSON.parse(capture('python3', ['-B', 'tools/storage_config.py', '--check']));
 process.env.CARGO_TARGET_DIR = storage.rust;
 compileBuilderIcon();

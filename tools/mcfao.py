@@ -820,8 +820,9 @@ def main(argv=None):
                 compile_command.error("Fabric requires --mods and either --prepare-only or --audited-mods")
         elif args.mods or args.prepare_only or args.audited_mods or args.trace_agent:
             compile_command.error("Mod options are only valid for Fabric")
-    # Local builds read heavyweight evidence, caches and Rust artifacts through
-    # symlinks onto the external disk. Pause before creating any output.
+    # Some checkouts relocate heavy evidence, caches and Rust artifacts through
+    # symlinks declared in an untracked external-storage.json. Pause before
+    # creating any output when that personal mapping is unavailable.
     try:
         require_mount(f"mcfao {args.action}")
         if args.action == "build":

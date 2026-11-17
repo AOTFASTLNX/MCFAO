@@ -36,6 +36,27 @@ class TemporaryInputs(unittest.TestCase):
 
 
 class StorageConfigurationTests(TemporaryInputs):
+    def test_reset_restores_defaults_keeps_files_and_historical_jobs(self):
+        paths = {role: str(self.root / ('custom-' + role)) for role in storage.ROLES}
+        storage.save_paths(paths, self.root)
+        for value in paths.values():
+            directory = Path(value)
+            directory.mkdir()
+            (directory / 'retain.txt').write_text('retain')
+        result = storage.reset_paths(self.root)
+        self.assertEqual(storage.storage_paths(self.root), storage.default_paths(self.root))
+        self.assertEqual(result['storage'], {role: str(path) for role, path in storage.default_paths(self.root).items()})
+        self.assertTrue(all((Path(path) / 'retain.txt').exists() for path in paths.values()))
+        self.assertIn(Path(paths['jobs']), storage.job_roots(self.root))
+
+    def test_reset_respects_environment_override_without_changing_configuration(self):
+        target = self.root / 'settings.json'
+        target.write_text('{}')
+        with patch.dict(os.environ, {'MCFAO_CACHE_DIR': str(self.root / 'override')}):
+            with self.assertRaisesRegex(ValueError, '环境变量'):
+                storage.reset_paths(self.root)
+        self.assertEqual(target.read_text(), '{}')
+
     def test_four_defaults_preserve_legacy_paths(self):
         paths = storage.storage_paths(self.root)
         self.assertEqual(paths['cache'], self.root / '.cache')

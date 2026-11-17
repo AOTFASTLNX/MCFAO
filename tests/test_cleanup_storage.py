@@ -161,6 +161,30 @@ class CleanupStorageTests(unittest.TestCase):
         self.assertFalse((build / 'aot').exists())
         self.assertFalse((build / 'package').exists())
 
+    def test_combined_cleanup_does_not_count_or_delete_stages_twice(self):
+        for index in range(4):
+            self.make_build(f'build-{index}')
+        plan = self.plan()
+        paths = [Path(i['path']) for g in plan['groups'] for i in g['items']]
+        self.assertFalse(any(a != b and a in b.parents for a in paths for b in paths))
+        result = cleanup.apply(data_root=self.root, groups=[g['id'] for g in plan['groups']])
+        self.assertEqual(result['freedBytes'], plan['reclaimBytes'])
+
+    def test_old_build_logs_and_unrecognized_files_survive(self):
+        build = self.make_build('old-build')
+        (build / 'stdout.log').write_text('retain log')
+        (build / 'notes.txt').write_text('retain notes')
+        cleanup.apply(data_root=self.root, groups=['builds'], keep_builds=0)
+        self.assertEqual((build / 'stdout.log').read_text(), 'retain log')
+        self.assertEqual((build / 'notes.txt').read_text(), 'retain notes')
+
+    def test_local_dot_cache_layout_is_scanned(self):
+        self.cache.rmdir()
+        directory = self.root / '.cache/graphics'
+        directory.mkdir(parents=True)
+        (directory / 'blob').write_bytes(b'x' * 8192)
+        self.assertIn('cache', [g['id'] for g in self.plan()['groups']])
+
     def test_build_cleanup_reports_actual_freed_bytes(self):
         build = self.make_build('old-build')
         (build / 'aot' / 'blob.bin').write_bytes(b'x' * 100_000)
