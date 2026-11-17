@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import { Search } from "lucide-react";
 import type { Report, ResourceEntry } from "./model";
 import type { ResourceSelection } from "./workflow";
@@ -9,6 +9,7 @@ import {
   requirementExplanation,
   type ResourceTier,
 } from "./resourceClassification";
+import { AnimatedNumber } from "./MotionPrimitives";
 export const resourceCategories = {
   mods: "Mod",
   resourcepacks: "材质包",
@@ -103,7 +104,8 @@ export default function ResourceManager({
     <section className="resource-manager" aria-label="整合包资源管理">
       <div className="resource-summary">
         <strong>
-          已保留 {kept.size} / {rows.length} 项
+          已保留 <AnimatedNumber value={kept.size} /> /{" "}
+          <AnimatedNumber value={rows.length} /> 项
         </strong>
         <span>取消勾选仅影响本次构建，原整合包文件保持完整。</span>
       </div>
@@ -220,8 +222,9 @@ export default function ResourceManager({
         </button>
       </div>
       <p role="status" className="mod-result-count">
-        当前列表 {filtered.length} 项 · 已保留{" "}
-        {filtered.filter((r) => kept.has(r.id)).length} 项
+        当前列表 <AnimatedNumber value={filtered.length} /> 项 · 已保留{" "}
+        <AnimatedNumber value={filtered.filter((r) => kept.has(r.id)).length} />{" "}
+        项
       </p>
       {!valid && (
         <button className="secondary" onClick={() => commit(kept)}>
@@ -232,10 +235,13 @@ export default function ResourceManager({
         <p className="resource-empty">没有匹配资源，请切换分类或搜索关键词。</p>
       )}
       <ul className="resource-list">
-        {filtered.slice(0, limit).map((row) => {
+        {filtered.slice(0, limit).map((row, index) => {
           const metadata = row.category === "mods" ? modFor(row) : undefined;
           return (
-            <li key={row.id}>
+            <li
+              key={row.id}
+              style={{ "--row-index": Math.min(index, 12) } as CSSProperties}
+            >
               <div className="resource-row">
                 <input
                   type="checkbox"

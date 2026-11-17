@@ -7,6 +7,7 @@ import {
   type DependencyInventory,
 } from "./workflow";
 import { LogView } from "./LogView";
+import { AnimatedNumber, StatusMark } from "./MotionPrimitives";
 import "./native-dependencies.css";
 
 const states = {
@@ -44,8 +45,14 @@ export function DependencyTask({
       </div>
       {job.dependencyProgress && (
         <p role="status">
-          已完成 {job.dependencyProgress.completed} /{" "}
-          {job.dependencyProgress.total}
+          已完成 <AnimatedNumber value={job.dependencyProgress.completed} /> /{" "}
+          <AnimatedNumber value={job.dependencyProgress.total} />
+          {job.dependencyProgress.key && (
+            <span className="dependency-current">
+              {" · "}
+              {job.dependencyProgress.key}
+            </span>
+          )}
         </p>
       )}
       <code className="dependency-path">{job.build}</code>
@@ -142,7 +149,13 @@ export function NativeDependencies({
             <li key={row.key} data-testid={`dependency-${row.key}`}>
               <div className="dependency-heading">
                 <h3>{row.name}</h3>
-                <span className={`dependency-state ${row.state}`}>
+                <span
+                  className={`dependency-state ${row.state}`}
+                  data-state={row.state}
+                >
+                  <StatusMark state={row.state} size={13}>
+                    <span className="dependency-dot" />
+                  </StatusMark>
                   {states[row.state]}
                 </span>
                 {!row.required && <small>可选 Metal 路线</small>}

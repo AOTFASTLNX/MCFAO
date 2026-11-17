@@ -130,6 +130,7 @@
 .sm-distribution > span {
   height: 100%;
   flex-shrink: 0;
+  transition: width var(--motion-smooth) var(--motion-ease-out);
 }
 .sm-managed {
   background: var(--accent);
@@ -165,6 +166,12 @@
   height: 32px;
   margin: 20px 0 14px;
   gap: 2px;
+}
+
+.sm-stats strong,
+.sm-category strong,
+.sm-cleanup-footer strong {
+  font-variant-numeric: tabular-nums;
 }
 .storage-page [data-role="cache"] {
   background: var(--sm-cache);

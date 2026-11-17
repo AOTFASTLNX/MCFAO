@@ -15,6 +15,7 @@ import {
   storageRoles,
   type StoragePlan,
 } from "./storageManagement";
+import { AnimatedNumber } from "./MotionPrimitives";
 import "./storage-management.css";
 
 const name = (path: string) => path.split("/").filter(Boolean).pop() || path;
@@ -120,7 +121,7 @@ export function StorageManager({
             <div>
               <span>所在磁盘</span>
               <strong>
-                {volumes.length}
+                <AnimatedNumber value={volumes.length} />
                 <em> 个</em>
               </strong>
               <small>

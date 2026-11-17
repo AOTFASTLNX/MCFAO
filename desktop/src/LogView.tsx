@@ -1,6 +1,7 @@
+import { memo } from "react";
 import { logLevel, logTone } from "./log";
 
-export function LogView({
+export const LogView = memo(function LogView({
   text,
   label,
   className = "",
@@ -17,7 +18,7 @@ export function LogView({
             const tone = logTone(line);
             const level = logLevel(line);
             return (
-              <span className={"log-line " + tone} key={index}>
+              <span className={"log-line " + tone} data-tone={tone} key={index}>
                 {level && <span className="log-level">{level}</span>}
                 {line}
               </span>
@@ -26,4 +27,4 @@ export function LogView({
         : "等待构建输出。后台任务正在保存日志。"}
     </pre>
   );
-}
+});
