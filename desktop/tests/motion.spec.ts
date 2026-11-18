@@ -260,14 +260,40 @@ test("game type switch moves a single plate without overlapping content", async 
   await openBuilder(page);
   const segmented = page.locator(".segmented");
   const fabric = await segmented.locator(".segment-plate").boundingBox();
+  const fabricLabel = await page
+    .getByRole("button", { name: "Fabric 整合包", exact: true })
+    .boundingBox();
+  // The plate is the selected label's own box: same position, same width, so
+  // its caps stay parallel to the pill-shaped labels underneath.
+  expect(fabric!.x).toBe(fabricLabel!.x);
+  expect(fabric!.width).toBe(fabricLabel!.width);
   await page.getByRole("button", { name: "原版 26.1.2", exact: true }).click();
   await expect(segmented).toHaveAttribute("data-selection", "vanilla");
   // React can publish the new selection before the pulse effect starts.
   // Wait for actual movement so the initial idle flag cannot satisfy the check.
-  await expect.poll(async () => (await segmented.locator(".segment-plate").boundingBox())!.x).toBeGreaterThan(fabric!.x);
+  await expect
+    .poll(
+      async () => (await segmented.locator(".segment-plate").boundingBox())!.x,
+    )
+    .toBeGreaterThan(fabric!.x);
   await expect(segmented).toHaveAttribute("data-motion-moving", "false");
   const vanilla = await segmented.locator(".segment-plate").boundingBox();
   expect(vanilla!.x).toBeGreaterThan(fabric!.x);
+  expect(vanilla!.width).toBe(fabric!.width);
+  const vanillaLabel = await page
+    .getByRole("button", { name: "原版 26.1.2", exact: true })
+    .boundingBox();
+  expect(vanilla!.x).toBe(vanillaLabel!.x);
+  const radii = await segmented.evaluate((element) => {
+    const radius = (node: Element) =>
+      Number.parseFloat(getComputedStyle(node).borderTopLeftRadius);
+    return [
+      radius(element),
+      radius(element.querySelector(".segment-plate")!),
+      ...[...element.querySelectorAll("button")].map(radius),
+    ];
+  });
+  for (const radius of radii) expect(radius).toBeGreaterThanOrEqual(999);
   await expect(page.locator(".vanilla-card")).toBeVisible();
   await expect(page.locator(".source-drop")).toHaveCount(0);
 });
@@ -307,12 +333,27 @@ test("a long log keeps the reader in place until they return to the end", async 
       log: Array.from({ length: 200 }, (_, i) => `INFO step ${i}`).join("\n"),
     };
     // This suite starts after the separate first-launch flow.
-    localStorage.setItem("ncl.onboarding.v1", JSON.stringify({ version: 1, accepted: true, storageRoot: "/fixture", completed: true }));
+    localStorage.setItem(
+      "ncl.onboarding.v1",
+      JSON.stringify({
+        version: 1,
+        accepted: true,
+        storageRoot: "/fixture",
+        completed: true,
+      }),
+    );
     Object.assign(window, {
       isTauri: true,
       __TAURI_INTERNALS__: {
         invoke: async (command: string, args: Record<string, unknown>) => {
-          if (command === "account_action") return { configured: true, verified: true, profile: { id: "a".repeat(32), name: "FixturePlayer" }, verifiedAt: Date.now() / 1000, verifiedUntil: Date.now() / 1000 + 3600 };
+          if (command === "account_action")
+            return {
+              configured: true,
+              verified: true,
+              profile: { id: "a".repeat(32), name: "FixturePlayer" },
+              verifiedAt: Date.now() / 1000,
+              verifiedUntil: Date.now() / 1000 + 3600,
+            };
           if (command === "default_workspace") return "/fixture";
           if (command === "system_accent") return null;
           if (command !== "workbench_action") return null;
