@@ -61,12 +61,6 @@ export interface ResourceEntry {
   bytes: number;
   file_count: number;
 }
-export interface Instance {
-  id: string;
-  name: string;
-  importedAt: string;
-  report: Report;
-}
 export interface Settings {
   workspace: string;
   python: string;
@@ -234,7 +228,7 @@ function parseResources(value: Record<string, unknown>): {
     typeof value.resources_fingerprint !== "string" ||
     !/^[a-f0-9]{64}$/.test(value.resources_fingerprint)
   )
-    throw new Error("资源清单无效，请重新检查来源。");
+    throw new Error("资源清单无效，请重新选择整合包。");
   const seen = new Set<string>();
   const resources = value.resources.map((row: unknown): ResourceEntry => {
     if (
@@ -314,64 +308,18 @@ function parseResources(value: Record<string, unknown>): {
   });
   return { resources, resources_fingerprint: value.resources_fingerprint };
 }
-export function sourceName(report: Report): string {
-  const filename =
-    report.source
-      .replaceAll(String.fromCharCode(92), "/")
-      .split("/")
-      .filter(Boolean)
-      .pop() ?? "";
-  return report.pack_name || filename.replace(/\.mrpack$/i, "") || "未命名实例";
-}
-export function makeInstance(report: Report, previous?: Instance): Instance {
-  return {
-    id: previous?.id ?? crypto.randomUUID(),
-    name: sourceName(report),
-    importedAt: new Date().toISOString(),
-    report,
-  };
-}
-export function upsertInstance(
-  instances: Instance[],
-  instance: Instance,
-): Instance[] {
-  return [
-    instance,
-    ...instances.filter((i) => i.report.source !== instance.report.source),
-  ].slice(0, 100);
-}
-export function parseSavedState(raw: string | null): {
-  instances: Instance[];
-  settings: Settings;
-} {
-  if (!raw) return { instances: [], settings: DEFAULT_SETTINGS };
+export function parseSavedState(raw: string | null): { settings: Settings } {
+  if (!raw) return { settings: DEFAULT_SETTINGS };
   const data: unknown = JSON.parse(raw);
-  if (
-    !object(data) ||
-    !Array.isArray(data.instances) ||
-    data.instances.length > 100 ||
-    !object(data.settings)
-  )
+  if (!object(data) || !object(data.settings))
     throw new Error("本地记录损坏。");
-  const instances = data.instances.map((row: unknown) => {
-    if (!object(row)) throw new Error("本地实例记录损坏。");
-    const date = string(row.importedAt, 64);
-    if (!Number.isFinite(Date.parse(date)))
-      throw new Error("本地记录时间无效。");
-    return {
-      id: string(row.id, 128),
-      name: string(row.name, 256),
-      importedAt: date,
-      report: parseReport(row.report),
-    };
-  });
   const settings = Object.fromEntries(
     Object.keys(DEFAULT_SETTINGS).map((key) => [
       key,
       string((data.settings as Record<string, unknown>)[key] ?? ""),
     ]),
   ) as unknown as Settings;
-  return { instances, settings };
+  return { settings };
 }
 export function quoteArgument(value: string, windows = false): string {
   if (/[\0\r\n]/.test(value)) throw new Error("路径不能包含换行或空字符。");

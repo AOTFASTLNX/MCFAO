@@ -14,6 +14,21 @@ import sys
 from bootstrap_toolchain import sha256
 from mod_file_policy import is_metadata
 
+
+def client_jar(paths) -> Path:
+    """The hash-verified vanilla client recorded by the prepared build input."""
+    prepared = read(paths['prepared'] / 'result.json')
+    if prepared.get('status') != 'PREPARED':
+        raise ValueError('客户端准备记录未通过：' + str(paths['prepared']))
+    client = next((Path(r['path']) for r in prepared.get('referenceLibraries', [])
+                   if Path(r['path']).name == '26.1.2.jar'), None)
+    if client is None or not client.is_file():
+        raise ValueError('构建配置缺少已核验的 26.1.2 客户端 JAR')
+    entry = next(r for r in prepared['referenceLibraries'] if Path(r['path']) == client)
+    if sha256(client) != entry.get('sha256'):
+        raise ValueError('客户端 JAR 哈希与准备记录不一致：' + str(client))
+    return client
+
 # Topological order: the OpenGL shim reads OSMesa's exports while generating JNI.
 SPECS = (
     ('glfw', 'GLFW-lite', 'build_glfw_lite', 'NATIVE_SUBSET_BUILT', (), ('libglfw.dylib',)),
@@ -28,7 +43,7 @@ SPECS = (
 BY_KEY = {s[0]: s for s in SPECS}
 REQUIRED = ('glfw', 'lwjgl', 'gl41', 'lwjglOpengl', 'openal')
 SOURCE_GROUPS = {
-    'glfw': ('ios/glfw-lite', 'tools/glfw_runtime_contract.py'),
+    'glfw': ('ios/glfw-lite', 'tools/glfw_runtime_contract.py', 'tools/inventory_client_native_calls.py'),
     'lwjgl': ('compiler/lwjgl-lite', 'ios/lwjgl-lite', 'compiler/stb.lock.json', 'tools/lwjgl_codegen.py', 'tools/fetch_stb.py', 'interop/graphics/LwjglProbe.java'),
     'gl41': ('tools/verified_download.py',),
     'lwjglOpengl': (),
@@ -182,6 +197,18 @@ def inspect(root, paths, key):
                 if report.get(field) != deps[dep][filename]:
                     row['state'] = 'stale'
                     row['reasons'].append(BY_KEY[dep][1] + ' 哈希已变更，待重建')
+            # GLFW exports are derived from the client's constant pools, so a
+            # different client can require different entry points.
+            if key == 'glfw':
+                try:
+                    current_client = sha256(client_jar(paths))
+                except (OSError, ValueError, KeyError) as exc:
+                    row['state'] = 'stale'
+                    row['reasons'].append('客户端输入不可用，待重建：' + str(exc))
+                else:
+                    if report.get('clientSHA256') != current_client:
+                        row['state'] = 'stale'
+                        row['reasons'].append('客户端已变更，待重建')
         except (KeyError, OSError):
             row['state'] = 'stale'
             row['reasons'].append('前置依赖缺失，待重建')
@@ -233,7 +260,12 @@ def command(root, paths, key, output):
     argv = [sys.executable, '-B', root / ('tools/' + BY_KEY[key][2] + '.py'), '--output', output]
     if key != 'gl41':
         argv += ['--sdk', 'iphoneos']
+    # A packaged app omits artifacts/, so client-derived inputs come from the
+    # selected build configuration instead of the source tree.
+    if key == 'glfw':
+        argv += ['--client', client_jar(paths)]
     if key in ('lwjgl', 'metal'):
+        argv += ['--prepared', paths['prepared']]
         argv += ['--glfw-library', paths['glfw'] / 'libglfw.dylib']
     if key == 'metal':
         argv += ['--graphics-bridge', paths['lwjgl']]
@@ -247,8 +279,14 @@ def command(root, paths, key, output):
             raise ValueError('LWJGL OpenGL JAR 哈希校验失败')
         argv += ['--java-home', prepared['javaHome'], '--lwjgl-opengl', jar, '--osmesa', paths['gl41'] / 'libOSMesa.8.dylib']
     if key == 'shaders':
-        argv += ['--catalog', root / 'artifacts/graphics/shader-catalog-03',
-                 '--toolchain', root / 'artifacts/graphics/shader-toolchain-03']
+        # Optional Metal route: the catalog and host tools are separate builds,
+        # not part of a packaged source tree.
+        catalog = root / 'artifacts/graphics/shader-catalog-03'
+        toolchain = root / 'artifacts/graphics/shader-toolchain-03'
+        if not (catalog / 'result.json').is_file() or not (toolchain / 'result.json').is_file():
+            raise ValueError('着色器重建需要先准备 shader-catalog-03 与 shader-toolchain-03；'
+                             '分发应用不含 artifacts/，请从源码目录生成，或继续使用已有着色器产物')
+        argv += ['--catalog', catalog, '--toolchain', toolchain]
     return list(map(str, argv))
 
 
@@ -258,6 +296,17 @@ def rebuild(root, config, keys, output, execute, cancelled, update, write_json):
     original_hash = sha256(config)
     original = read(config)
     paths = config_paths(config)
+    # Validate every selected input before compiling anything. A packaged app
+    # omits artifacts/, so an optional Metal shader rebuild must fail now rather
+    # than after the required libraries have already been compiled.
+    problems = []
+    for key in keys:
+        try:
+            command(root, paths, key, output / key)
+        except (OSError, ValueError, KeyError) as exc:
+            problems.append(BY_KEY[key][1] + '：' + str(exc))
+    if problems:
+        raise ValueError('依赖重建所需输入不完整：\n' + '\n'.join(problems))
     output.mkdir(parents=True, exist_ok=False)
     outputs = {}
     for index, key in enumerate(keys):

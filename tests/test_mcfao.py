@@ -102,6 +102,47 @@ class StageTests(unittest.TestCase):
         self.assertIn("DEVELOPMENT_TEAM=P57SZ9Z7G2", argv)
         self.assertEqual(sum(arg.startswith("DEVELOPMENT_TEAM=") for arg in argv), 1)
 
+    def test_device_packaging_passes_the_compiled_icon_when_present(self):
+        argv = list(map(str, device_xcode(self.root / "staged", self.root / "assets",
+                                          team="P57SZ9Z7G2", icon=self.root / "icon",
+                                          icon_name="Brand")))
+        self.assertIn("FAOT_APP_ICON_DIR=" + str(self.root / "icon"), argv)
+        self.assertIn("FAOT_APP_ICON_NAME=Brand", argv)
+        self.assertEqual(sum(arg.startswith("FAOT_APP_ICON_DIR=") for arg in argv), 1)
+
+    def test_verify_icon_requires_catalog_and_plist_keys(self):
+        from mcfao import verify_icon
+        app = self.root / "C0Harness.app"
+        app.mkdir()
+        for name in ("Assets.car", "Brand60x60@2x.png", "Brand76x76@2x~ipad.png"):
+            (app / name).write_bytes(b"icon")
+        (app / "Info.plist").write_bytes(plistlib.dumps({"CFBundleIcons": {"CFBundlePrimaryIcon": {
+            "CFBundleIconName": "Brand", "CFBundleIconFiles": ["Brand60x60"]}}}))
+        verify_icon(app, "Brand")
+        (app / "Assets.car").unlink()
+        with self.assertRaisesRegex(ValueError, "Assets.car"):
+            verify_icon(app, "Brand")
+        (app / "Assets.car").write_bytes(b"icon")
+        (app / "Info.plist").write_bytes(plistlib.dumps({}))
+        with self.assertRaisesRegex(ValueError, "Brand"):
+            verify_icon(app, "Brand")
+
+    def test_icon_build_dir_reuses_only_an_unchanged_catalog(self):
+        from mcfao import icon_build_dir
+        attempt = self.root / "icon/abc/product"
+        (attempt / "compiled").mkdir(parents=True)
+        (attempt / "compiled/Assets.car").write_bytes(b"icon")
+        (attempt / "result.json").write_text("{}")
+        write_json(self.root / "icon/checkpoint.json",
+                   {"attempt": "abc", "filesSHA256": tree_files(attempt)})
+        self.assertEqual(icon_build_dir(self.root), attempt.resolve() / "compiled")
+        (attempt / "compiled/Assets.car").write_bytes(b"changed")
+        with self.assertRaisesRegex(ValueError, "changed"):
+            icon_build_dir(self.root)
+        (self.root / "icon/checkpoint.json").unlink()
+        with self.assertRaises(FileNotFoundError):
+            icon_build_dir(self.root)
+
     def test_tree_hash_rejects_links(self):
         (self.root / "link").symlink_to("/dev/null")
         with self.assertRaisesRegex(ValueError, "symbolic link"):

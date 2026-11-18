@@ -31,12 +31,14 @@ def main(argv=None):
         partial.rename(archive)
     if archive.stat().st_size!=spec['size'] or sha256(archive)!=spec['sha256']:raise ValueError('OpenAL archive modified')
     extract(archive,CACHE/'source');source=CACHE/'source'/('openal-soft-'+spec['commit'])
-    host=ROOT/'artifacts/graphics/shader-toolchain-03';report=json.loads((host/'result.json').read_text())
     cmake=cache_path('graphics/shader-toolchain/cmake/cmake-3.31.12-macos-universal/CMake.app/Contents/bin/cmake')
     # This executable's archive is pinned by the existing host-tool lock.
     cmake_lock=json.loads((ROOT/'compiler/graphics-toolchain.lock.json').read_text())['cmake']
     cmake_archive=cache_path('graphics/shader-toolchain/archives')/cmake_lock['file']
-    if sha256(cmake_archive)!=cmake_lock['sha256'] or report['status']!='SHADER_HOST_TOOLS_BUILT':raise ValueError('Verified CMake toolchain required')
+    # OpenAL needs only the pinned CMake archive; the shader host build is not
+    # an input, so a packaged app without artifacts/ can still rebuild audio.
+    if not cmake_archive.is_file() or sha256(cmake_archive)!=cmake_lock['sha256']:
+        raise ValueError('Pinned CMake archive missing or modified: '+str(cmake_archive))
     extract(cmake_archive,cache_path('graphics/shader-toolchain/cmake'))
     if not cmake.is_file():raise ValueError('Pinned CMake executable unavailable')
     command=[sys.executable,'-B',str(Path(__file__).resolve()),*(sys.argv[1:] if argv is None else argv)]

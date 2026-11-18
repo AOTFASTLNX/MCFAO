@@ -41,6 +41,14 @@ export async function pickWorkspace(): Promise<string | null> {
     title: "选择 NCL 项目目录",
   });
 }
+export async function chooseIcon(directory: boolean): Promise<string | null> {
+  if (!native) throw new Error("图标选择需要桌面应用。");
+  return open({
+    directory,
+    multiple: false,
+    title: directory ? "选择 Icon Composer 文档（.icon）" : "选择图标图片",
+  });
+}
 export async function saveDocument(
   name: string,
   content: string,

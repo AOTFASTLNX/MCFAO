@@ -73,6 +73,7 @@ export function NativeDependencies({
   report,
   error,
   disabled,
+  disabledReason,
   checking,
   onRefresh,
   onRebuild,
@@ -80,10 +81,12 @@ export function NativeDependencies({
   report: DependencyInventory | null;
   error: string;
   disabled: boolean;
+  disabledReason?: string;
   checking: boolean;
   onRefresh: () => void;
   onRebuild: (keys: string[]) => void;
 }) {
+  const blocked = disabled ? disabledReason : undefined;
   return (
     <section
       className="panel flat dependency-manager"
@@ -94,6 +97,7 @@ export function NativeDependencies({
         <button
           className="secondary"
           disabled={disabled || checking}
+          title={blocked}
           onClick={onRefresh}
         >
           <RefreshCw size={16} />
@@ -108,6 +112,7 @@ export function NativeDependencies({
         <button
           className="primary"
           disabled={disabled || !report}
+          title={blocked ?? (!report ? "依赖状态尚未读取完成。" : undefined)}
           onClick={() =>
             report && onRebuild(report.libraries.map((r) => r.key))
           }
@@ -119,6 +124,16 @@ export function NativeDependencies({
           disabled={
             disabled ||
             !report?.libraries.some((r) => r.required && r.state !== "current")
+          }
+          title={
+            blocked ??
+            (!report
+              ? "依赖状态尚未读取完成。"
+              : !report.libraries.some(
+                    (r) => r.required && r.state !== "current",
+                  )
+                ? "所需依赖已经与当前源码一致。"
+                : undefined)
           }
           onClick={() =>
             report &&
@@ -162,6 +177,7 @@ export function NativeDependencies({
                 <button
                   className="secondary"
                   disabled={disabled}
+                  title={blocked}
                   aria-label={`重建 ${row.name}`}
                   onClick={() => onRebuild([row.key])}
                 >

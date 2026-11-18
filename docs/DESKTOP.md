@@ -9,6 +9,8 @@ Last reviewed: 2026-11-16
 1. **游戏内容**：选择或拖入 .mrpack / Prism 实例，运行静态检查；也可选择原版 26.1.2。当前 Fabric 构建器使用 Loader 0.19.3；来源声明不同版本时，可在来源卡片勾选「强制编译（忽略 Loader 版本差异）」继续。原包保持不变，实际使用的 Loader 版本写入任务记录与暂存清单。
 2. **构建环境**：分发应用默认使用包内完整源码，开发模式也可选择 FabricAOT 源码目录；自动识别 artifacts/mcfao-local.json 或 mcfao.local.json。可选已有配置，也能在高级配置中逐项选择前置路径并保存独立 JSON。选择产物根目录后，每次构建会创建独立目录。
 3. **开发签名**：可启用「导出未签名 IPA」，此时隐藏并跳过团队、证书、描述文件与 ExportOptions 检查，不执行 archive / exportArchive。未签名 IPA 不能直接装机，需另行签名。签名模式下 Team ID 可选，默认读取本机有效描述文件的团队；导出配置默认使用 ios/C0Harness/ExportOptions.plist。证书与私钥交由系统钥匙串和 Xcode 管理。
+
+   「开发签名」顶部可选应用图标：Icon Composer 文档（`.icon`）或单张图片（PNG、JPEG、HEIC、WebP、GIF、TIFF、BMP、SVG、PDF、ICNS、ICO）。图片按完整保留或填满裁切缩放到 1024 px，可叠加透明 / 白色 / 黑色 / 浅灰背景与 0–30% 留白，选择后立即显示预览。图标只在本机读取，原始文件不被修改；不选择时沿用系统默认图标。
 4. **确认构建**：点击「构建 IPA」实际运行 doctor、build，签名模式继续 export；不生成待用户复制执行的 shell 命令。Fabric 来源的构建期转换在项目沙盒中执行，界面不再要求单独确认代码审计。
 
 「构建记录」也支持选择含 result.json 的已完成 SIGNED_DEVICE_APP 目录（未签名模式选择 UNSIGNED_DEVICE_APP），重新核验原包，再执行归档、开发签名、IPA 导出及解包验签。此路径复用既有 AOT，不表示本次重新编译。
@@ -32,6 +34,16 @@ Last reviewed: 2026-11-16
 
 设置自定义位置后，「存储管理」只读统计四个目录，可在 Finder 中查看；自动清理保持禁用，不会沿用旧盘清理范围。
 
+## 自定义应用图标
+
+图标由 tools/app_icon.py 统一处理，签名与未签名两条路径共用同一份编译结果：
+
+- `.icon` 文档由 actool 直接编译，保留浅色、深色与透明等系统外观；图片由 AppKit 辅助程序（tools/app_icon_render.m，按需编译到项目缓存）解码，SVG、HEIC、WebP 等 ImageIO 支持的格式都能读取，再生成 1024 px 的 AppIcon.appiconset。
+- 构建先在 icon 阶段编译目录与 Info.plist 片段，结果写入输入指纹；随后 Xcode 的 Custom App Icon 构建阶段把它装入 .app，再由 Xcode 签名。重新导出既有构建时会复用同一份已校验图标；图标文件变化会形成新的构建输入，而不是悄悄替换旧包。
+- 打包后 CLI 校验 Assets.car、AppIcon60x60@2x.png、AppIcon76x76@2x~ipad.png 和 CFBundleIcons 键；verify 与 export 会再次核验，缺失或不匹配时构建失败。
+- 透明通道保留，非方形图片默认居中留白，不拉伸。图标不会上传，也不包含在桌面应用安装包中。
+- CLI：mcfao build --icon <文件> [--icon-fit fit|fill] [--icon-background transparent|#RRGGBB] [--icon-padding 0-30]。
+
 ## 未签名 IPA 的校验
 
 GUI 把 --unsigned 传给原 CLI。CLI 生成 UNSIGNED_DEVICE_APP / signature=UNSIGNED 后，工作台重验输入指纹、无 fallback 的可重定位 AOT 命令、arm64 iPhoneOS 链接目标、应用文件指纹及原生库/ABI，再逐条核对构建自带 IPA 与应用树的内容、CRC、大小及 SHA-256。IPA 必须位于本次构建目录内。完成页与确认页均明确标注未签名，不能直接装机；签名路径保留原有开发导出与验签。
@@ -41,6 +53,8 @@ GUI 把 --unsigned 传给原 CLI。CLI 生成 UNSIGNED_DEVICE_APP / signature=UN
 Tauri 打包前通过 tools/bundle_source.py 生成受控源码树，覆盖 tools / compiler / interop / ios / tests / ci 及文档，放在 Contents/Resources/source。bundle-manifest.json 记录所有文件 SHA-256、源码提交与工作区差异指纹；构建前验证整棵源码树，脱离原开发机路径和 .git 仍可工作。缓存、产物、游戏 JAR、资源、存档、凭据和签名材料不进入应用包。旧交付包保留，新打包输出到所选产物根的 desktop/ncl-builder-<版本> 目录（已有同名交付时使用新的后缀）。
 
 分发应用首次启动自动运行持久下载任务；设置页可看进度、错误及重试，关闭 UI 后任务继续。当前锁定下载清单为 **602,860,639 字节（574.9 MiB）**，包括 GraalVM 25.0.2、仅作数据保留的 iOS candidate ZIP、固定 OpenJDK/Graal 源码、图形工具源/运行库、STB、OpenAL 源码与全部五个 Maven ASM 依赖。实际量小于最初估计的约 1.1 GB；游戏文件另计。每次下载校验 HTTPS 源及重定向、字节上限、固定 SHA-256；失败的 .part 和日志保留，重试复用已校验文件。解包采用受限 data filter；此步骤不执行下载的 Gradle、CMake、configure、Mod 或构建脚本。
+
+原生依赖重建不再从源码树读取 `artifacts/`。GLFW-lite 用构建配置里的已核验 26.1.2 客户端 JAR 现场扫描 GLFW 常量池引用，并记录客户端 SHA-256；客户端变化时依赖标记为待重建。LWJGL-lite 与 Metal 后端用配置中的 `prepared` 目录；OpenAL 用固定的 CMake 缓存归档。着色器与宿主工具属于可选 Metal 路线，仍须先在源码目录生成 `shader-catalog-03` 与 `shader-toolchain-03`，分发应用会给出明确提示而不是读取缺失文件。上述路径由工作台传入，包内源码不含游戏、工具链或证据文件。
 
 「我合法拥有 Minecraft Java Edition」每会话默认不勾选。明确确认后才允许从 Mojang 官方元数据、客户端、依赖和资源源下载；版本元数据及客户端/资源使用官方 SHA-1，Fabric 引擎使用仓库固定 SHA-256。仅保存客户端输入，不读取账户、密码或令牌，不执行游戏，不伪造 A0 PASS；所有权自我确认不等于微软账户资格认证。下载目录必须位于源码仓库外。生成 client-inputs.json 后可把该目录传给 prepare_b0.py --client-dir。
 
@@ -81,6 +95,10 @@ macOS 使用 Overlay 标题栏并隐藏原生标题文字，保留系统红黄�
 
 胶囊内部的控件同样是胶囊：步骤条里的每个步骤、底部栏的「上一步」与「下一步」、工具栏的按钮都使用 999 px 圆角，并在容器四边留相等内边距。几何上外层半径等于内层半径加内边距，所以两层曲率平行、看起来同心；任一方向的内边距不等都会让内层胶囊在视觉上偏离中心，因此移动端断点也保持内边距为正方形。底部栏的「上一步」与「下一步」等高，避免两个不同半径的胶囊并排。回归测试在浅 / 深色与 800 / 1100 / 1900 px 三种宽度下断言这条等式成立。
 
+不可用的按钮使用 `--disabled-bg` / `--disabled-text` 去掉强调色、悬停阴影与按压位移，只保留控件尺寸；`cursor: not-allowed` 仍生效，但不再作为唯一提示。环境与资源页在缺少构建配置或已有任务运行时，以一条横幅说明原因，并把「检测环境」「刷新依赖状态」「按顺序整体重建」等按钮标灰；悬停仍给出同一原因。横幅里的「选择配置文件」直接打开文件选择器。
+
+分发应用更新会改变包内源码路径，但构建配置是源码树之外的绝对路径文件。`bootstrap` 在源码目录找不到 `artifacts/` 配置时，会读取任务目录下最近一份字段完整、且实际可用的 `configs/*.json`；前端在包内源码切换时保留用户已选的配置。外部盘未挂载时，这一步只跳过自动识别，不阻止工作台打开或手动选择配置。
+
 2026-11-15 标题栏回归：47 项单元测试、20 项浏览器交互测试（`workspace.spec.ts` 与 `titlebar.spec.ts`）和前端生产构建通过。浏览器检查覆盖浅 / 深色的默认与最小尺寸、所有导航页面无横向溢出、拖动区域命中、主题按钮点击与滚动后顶栏可见；截图在 `artifacts/desktop/titlebar-compact/`。已有 1420 端口预览属于另一工作目录，复验使用独立 15420 端口。本轮只验证桌面窗口，不改变游戏 Gate。
 
 使用项目隔离的 `cache/cargo-home` / `cache/rustup` ARM64 工具链与 `cache/cargo-arm64` 产物目录完成 `npm run build:mac`；`file` 确认 arm64，严格验签通过，并实际启动检查融合标题栏与默认尺寸。交付副本：`artifacts/desktop/FabricAOT-titlebar-arm64.app`。验证摘要与二进制哈希见 `artifacts/desktop/titlebar-compact/verification.json`。
@@ -89,7 +107,7 @@ macOS 使用 Overlay 标题栏并隐藏原生标题文字，保留系统红黄�
 
 顶栏提供「跟随系统 / 浅色 / 深色」一键切换，设置页可固定选择并说明当前跟随结果。偏好写入 `fabricaot.theme.v1`，启动前即应用，避免浅色用户看到深色闪烁；桌面模式通过第一方 `set_window_theme` 命令把同一外观应用到 macOS 原生窗口：标题栏、红黄绿按钮、菜单和滚动条会与页面一起切换，窗口底色同时更新，不再只换网页内容。
 
-视觉体系为 System Neutral：浅色使用 `#F5F5F7` 窗口、`#FFFFFF` 内容、`#ECEDEF` 侧栏，深色使用 `#18191B` / `#27282B` / `#222326`，全部通过 `desktop/src/system-neutral.css` 的语义令牌消费，页面不再硬编码品牌绿。交互强调色默认读取 macOS `controlAccentColor`（第一方 `system_accent` 命令），也可在设置中固定蓝、紫、红、橙或绿；浅色模式会在保持色相的前提下调深填充色，使白色按钮文字达到正常文本对比度，深色模式则保留可读的系统色。成功、警告、错误保持独立语义，不随强调色变化。构建日志使用等宽字体，并按 INFO / WARN / ERROR 分级着色，同时保留文字级别标签，避免只靠颜色传达状态。
+视觉体系为 System Neutral：浅色使用 `#F5F5F7` 窗口、`#FFFFFF` 内容、`#ECEDEF` 侧栏，深色使用 `#18191B` / `#27282B` / `#222326`，全部通过 `desktop/src/system-neutral.css` 的语义令牌消费，页面不再硬编码品牌绿。交互强调色默认读取 macOS `controlAccentColor`（第一方 `system_accent` 命令），也可在设置中固定蓝、紫、红、橙、绿或灰；浅色模式会在保持色相的前提下调深填充色，使白色按钮文字达到正常文本对比度，深色模式则保留可读的系统色。灰色取 macOS `systemGray`（`#8E8E93`），浅色模式落到 `#737377`，填充按钮上的白字仍达到正常文本对比度，深色模式保持原色。成功、警告、错误保持独立语义，不随强调色变化。构建日志使用等宽字体，并按 INFO / WARN / ERROR 分级着色，同时保留文字级别标签，避免只靠颜色传达状态。
 
 验证记录见 `desktop/src/theme.test.ts`、`desktop/src/log.test.ts` 与浏览器回归（切换、跟随系统、强调色持久化、375 / 768 / 1440 无横向溢出、全部页面文字对比度）；截图见 `artifacts/desktop/system-neutral/`，包含浅色 / 深色的构建、Mod、资源、确认、记录、环境、设置、窄窗口与真实原生窗口。
 
@@ -124,9 +142,11 @@ macOS 使用 Overlay 标题栏并隐藏原生标题文字，保留系统红黄�
 
 ## 分步工作台与 OpenGL 构建
 
-工作台按游戏内容、资源管理、构建环境、开发签名、确认构建组织；Fabric 来源使用完整五步，原版使用四步并跳过资源管理。渲染入口固定为 OpenGL 兼容（GL41 / Zink / MoltenVK），高级配置使用 gl41 与 lwjglOpengl；doctor 和 build 均显式传递 --renderer gl41。强制编译、持久任务、日志、取消、重试、IPA 导出继续使用同一工作台。启动时迁移到应用对应源码目录及其 GL41 配置，保留已导入来源。实例通过校验过的 import.json 和 --instance-data 接入当前构建链。
+工作台按游戏内容、资源管理、构建环境、开发签名、确认构建组织；Fabric 来源使用完整五步，原版使用四步并跳过资源管理。渲染入口固定为 OpenGL 兼容（GL41 / Zink / MoltenVK），高级配置使用 gl41 与 lwjglOpengl；doctor 和 build 均显式传递 --renderer gl41。强制编译、持久任务、日志、取消、重试、IPA 导出继续使用同一工作台。启动时迁移到应用对应源码目录及其 GL41 配置。实例通过校验过的 import.json 和 --instance-data 接入当前构建链。
 
-- 2026-11-15: “游戏内容”步骤中完成来源检查后，可点击“查看 Mod 列表”，搜索名称、ID 或文件名，并按状态筛选。展开单项可查看版本、来源路径、运行侧、Mixin/入口点/嵌套依赖等机制及具体诊断。列表包含包内、本地和清单引用文件；待下载文件的 ID/版本保持未知，可选、仅服务端和已禁用项目分别标注。所有 iOS / AOT 状态仍为未测试；旧报告可重新检查来源以补齐清单。
+- 2026-11-18: “游戏内容”步骤只保留选择 .mrpack、选择 Prism 实例和拖入三种入口；移除来源路径输入框、“检查来源”按钮与“最近导入”菜单，选择后立即自动执行静态检查。整合包与资源勾选不再跨页面或重启恢复：每次进入构建页都从空来源开始，上一次的选择不会被预填；构建记录中的重试使用任务自身保存的请求，不依赖页面记忆。
+
+- 2026-11-15: “游戏内容”步骤中完成来源检查后，可点击“查看 Mod 列表”，搜索名称、ID 或文件名，并按状态筛选。展开单项可查看版本、来源路径、运行侧、Mixin/入口点/嵌套依赖等机制及具体诊断。列表包含包内、本地和清单引用文件；待下载文件的 ID/版本保持未知，可选、仅服务端和已禁用项目分别标注。所有 iOS / AOT 状态仍为未测试；旧报告可重新选择整合包以补齐清单。
 
 - 2026-11-15: 整合包构建流程现为：游戏内容 → 资源管理 → 构建环境 → 开发签名 → 确认构建。资源管理按 Mod、材质包、光影包、配置与脚本、其他资源分类，支持搜索、逐项勾选、批量保留/排除和恢复默认。可选资源默认不勾选，可手动加入；所选文件真正参与下载/复制，排除项不进入本次构建。文件夹形式的材质包/光影包整体保留。原包不改动，选择保存到任务及导入清单。光影包仅保留资源，不代表当前可启用；依赖与重复版本仍在后续构建检查中验证。
 - 2026-11-15: 工作台新增「跟随系统 / 浅色 / 深色」外观，顶栏按钮一键切换，设置页可固定选择；偏好写入 `fabricaot.theme.v1`，启动前应用避免闪白/闪黑，macOS 标题栏同步（`core:window:allow-set-theme`）。浅色配色覆盖侧栏、卡片、表单、诊断、日志、弹窗与移动布局；`desktop/src/theme.test.ts` 和浏览器回归验证切换、跟随系统、刷新保留、375 / 768 / 1440 无横向溢出及全部页面文字对比度。截图见 artifacts/desktop/light-theme/。

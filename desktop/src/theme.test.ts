@@ -33,6 +33,15 @@ describe("system accent", () => {
     expect(readableAccent("invalid", true)).toBe(DARK_ACCENT);
   });
 
+  it("keeps the gray accent neutral in both appearances", () => {
+    expect(accentOptions.map((option) => option.value)).toContain("#8E8E93");
+    expect(accentOptions.at(-1)?.label).toBe("灰色");
+    // Light appearance darkens the fill so the white label stays readable;
+    // dark appearance keeps the system gray unchanged.
+    expect(readableAccent("#8E8E93")).toBe("#737377");
+    expect(readableAccent("#8E8E93", true)).toBe("#8E8E93");
+  });
+
   it("accepts only system or a six-digit hex value", () => {
     expect(parseAccentPreference("system")).toBe("system");
     expect(parseAccentPreference("#8B83CB")).toBe("#8B83CB");

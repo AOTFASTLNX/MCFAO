@@ -46,7 +46,7 @@ export default function ResourceManager({
   if (!report?.resources || !report.resources_fingerprint)
     return (
       <div className="resource-empty">
-        请返回“游戏内容”检查来源，以读取完整资源清单。
+        请返回“游戏内容”重新选择整合包，以读取完整资源清单。
       </div>
     );
   const rows = report.resources;

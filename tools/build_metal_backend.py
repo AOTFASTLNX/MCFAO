@@ -19,6 +19,8 @@ def main(argv=None):
     p.add_argument("--output",type=Path,required=True)
     p.add_argument("--graphics-bridge",type=Path,required=True)
     p.add_argument("--glfw-library",type=Path,required=True)
+    p.add_argument("--prepared",type=Path,default=ROOT/"artifacts/b0/prepared-04",
+                   help="prepared client directory containing result.json")
     p.add_argument("--sdk",choices=("iphoneos","iphonesimulator"),default="iphonesimulator")
     p.add_argument("--test-host",action="store_true",help="Run first-party texture bounds contracts under a default-deny policy")
     args=p.parse_args(argv)
@@ -26,7 +28,7 @@ def main(argv=None):
     glfw=args.glfw_library.resolve(strict=True);validate_dylib(glfw,args.sdk=="iphonesimulator")
     out=args.output.resolve();out.mkdir(parents=True,exist_ok=False)
     home=cache_path('toolchains/graalvm-25.0.2/graalvm-community-openjdk-25.0.2+10.1/Contents/Home')
-    manifest=json.loads((ROOT/"artifacts/b0/prepared-04/result.json").read_text())
+    manifest=json.loads((Path(args.prepared)/"result.json").read_text())
     cp=[*overlays]
     for entry in manifest["referenceLibraries"]:
         f=Path(entry["path"])

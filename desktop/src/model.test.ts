@@ -2,13 +2,10 @@ import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
 import {
   DEFAULT_SETTINGS,
-  makeInstance,
   parseReport,
   parseSavedState,
   prepareCommand,
   quoteArgument,
-  sourceName,
-  upsertInstance,
 } from "./model";
 const report = {
   source: "/pack/My World.mrpack",
@@ -98,25 +95,12 @@ describe("preflight report boundary", () => {
   ])("rejects invalid report %j", (value) => {
     expect(() => parseReport(value)).toThrow();
   });
-  it("uses the last path component on either desktop OS", () => {
-    expect(sourceName(parseReport(report))).toBe("My World");
-    expect(
-      sourceName(
-        parseReport({ ...report, source: "C:\\Prism\\instances\\My World\\" }),
-      ),
-    ).toBe("My World");
-  });
-  it("deduplicates imports by source without merging unrelated instances", () => {
-    const first = makeInstance(parseReport(report));
-    const next = makeInstance(parseReport(report));
-    expect(upsertInstance([first], next)).toEqual([next]);
-  });
-  it("round-trips stored state and rejects corruption", () => {
-    const value = {
-      instances: [makeInstance(parseReport(report))],
-      settings: DEFAULT_SETTINGS,
-    };
+  it("round-trips stored settings and ignores legacy source records", () => {
+    const value = { settings: DEFAULT_SETTINGS };
     expect(parseSavedState(JSON.stringify(value))).toEqual(value);
+    expect(
+      parseSavedState(JSON.stringify({ ...value, instances: [report] })),
+    ).toEqual(value);
     expect(() => parseSavedState("{broken")).toThrow();
   });
 });

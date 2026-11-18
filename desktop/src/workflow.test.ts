@@ -43,7 +43,48 @@ describe("executable workflow", () => {
     expect(restored.unsigned).toBe(true);
     expect(() => restoreForm(JSON.stringify({ unsigned: "yes" }))).toThrow();
   });
-  it("requires selection for resource-aware reports and retains user choices on reopen", () => {
+  it("keeps a custom icon with its layout options across restarts", () => {
+    const custom = {
+      ...form,
+      icon: "/art/Brand.icon",
+      iconFit: "fill" as const,
+      iconBackground: "#FFFFFF",
+      iconPadding: 12,
+    };
+    const restored = restoreForm(JSON.stringify(custom));
+    expect(restored.icon).toBe("/art/Brand.icon");
+    expect(restored.iconFit).toBe("fill");
+    expect(restored.iconBackground).toBe("#FFFFFF");
+    expect(restored.iconPadding).toBe(12);
+    expect(restoreForm(null).icon).toBe("");
+    expect(restoreForm(null).iconFit).toBe("fit");
+  });
+  it("rejects malformed icon settings", () => {
+    expect(() =>
+      restoreForm(JSON.stringify({ ...form, iconFit: "stretch" })),
+    ).toThrow("缩放");
+    expect(() =>
+      restoreForm(JSON.stringify({ ...form, iconBackground: "red" })),
+    ).toThrow("背景");
+    expect(() =>
+      restoreForm(JSON.stringify({ ...form, iconPadding: 31 })),
+    ).toThrow("留白");
+    expect(() =>
+      restoreForm(JSON.stringify({ ...form, iconPadding: 1.5 })),
+    ).toThrow("留白");
+  });
+  it("flags unsupported icon files before a build starts", () => {
+    expect(
+      buildProblems({ ...form, icon: "/art/notes.txt" }, report, true).join(),
+    ).toContain("图标");
+    expect(
+      buildProblems({ ...form, icon: "/art/Brand.icon" }, report, true),
+    ).toEqual([]);
+    expect(
+      buildProblems({ ...form, icon: "/art/Brand.SVG" }, report, true),
+    ).toEqual([]);
+  });
+  it("requires selection for resource-aware reports within the session", () => {
     const resourceReport = {
       ...report,
       resources_fingerprint: "a".repeat(64),
@@ -74,24 +115,12 @@ describe("executable workflow", () => {
       buildProblems({ ...form, resourceSelection }, resourceReport, true),
     ).toEqual([]);
     expect(
-      restoreForm(JSON.stringify({ ...form, resourceSelection }))
-        .resourceSelection,
-    ).toEqual(resourceSelection);
-    expect(
       buildProblems(
         { ...form, resourceSelection: { ...resourceSelection, included: [] } },
         resourceReport,
         true,
       ).join(),
     ).toContain("至少保留");
-    expect(() =>
-      restoreForm(
-        JSON.stringify({
-          ...form,
-          resourceSelection: { ...resourceSelection, included: [5] },
-        }),
-      ),
-    ).toThrow();
   });
   it("allows complete checked Fabric input", () =>
     expect(buildProblems(form, report, true)).toEqual([]));
@@ -100,7 +129,7 @@ describe("executable workflow", () => {
   it("rejects an imported report for a different path", () =>
     expect(
       buildProblems({ ...form, source: "/other" }, report, true).join(),
-    ).toContain("当前来源"));
+    ).toContain("重新选择整合包"));
   it("blocks a report with errors", () =>
     expect(
       buildProblems(form, { ...report, fatal: true }, true).join(),
@@ -127,7 +156,23 @@ describe("executable workflow", () => {
     expect(
       buildProblems(forced, { ...report, fatal: true }, true).join(),
     ).toContain("阻断");
-    expect(buildProblems(forced, null, true).join()).toContain("检查当前来源");
+    expect(buildProblems(forced, null, true).join()).toContain(
+      "重新选择整合包",
+    );
+  });
+  it("never restores a stored pack or its resource selection", () => {
+    const restored = restoreForm(
+      JSON.stringify({
+        ...form,
+        resourceSelection: {
+          source: form.source,
+          fingerprint: "a".repeat(64),
+          included: ["local:mods/one.jar"],
+        },
+      }),
+    );
+    expect(restored.source).toBe("");
+    expect(restored.resourceSelection).toBeNull();
   });
   it("requires force mode to be selected again after reopening", () => {
     expect(

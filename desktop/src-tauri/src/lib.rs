@@ -4,7 +4,7 @@ use std::{
     io::Read,
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    sync::OnceLock,
+    sync::{Mutex, OnceLock},
     thread,
     time::{Duration, Instant},
 };
@@ -445,8 +445,51 @@ async fn save_document(
 }
 fn workbench_action_allowed(action: &str) -> bool {
     ["bootstrap", "check", "dependencies", "start", "status", "cancel", "history", "retry",
-     "resolve-exclusions", "save-config", "reveal", "reveal-folder", "storage-plan", "storage-clean",
+     "resolve-exclusions", "save-config", "icon-preview", "reveal", "reveal-folder", "storage-plan", "storage-clean",
      "storage-settings", "storage-change-plan", "storage-change-apply", "save-storage", "setup-start", "setup-status"].contains(&action)
+}
+
+// Account state is never supplied by the webview or a build request. Read it
+// through the bundled first-party service, including at every build entry.
+fn account_action_allowed(action: &str) -> bool {
+    ["status", "begin", "poll", "commit", "cancel", "refresh", "require"].contains(&action)
+}
+fn run_account_action(app: &tauri::AppHandle, action: &str) -> Result<Value, String> {
+    if !account_action_allowed(action) {
+        return Err("不支持的账号操作".into());
+    }
+    static ACCOUNT_LOCK: Mutex<()> = Mutex::new(());
+    let _guard = ACCOUNT_LOCK.lock().map_err(|_| "账号服务忙，请重试")?;
+    let root = runtime_workspace(&app.path().resource_dir().map_err(|_| "无法读取应用资源")?, development_workspace())
+        .ok_or("应用缺少账号服务，请重新安装完整应用")?;
+    let script = root.join("tools/account_service.py");
+    let output = native_capture_with_script(&python_program(""),
+        &["-I", "-B", script.to_str().ok_or("账号服务路径无法编码")?, action],
+        Duration::from_secs(105), &script)?;
+    let result: Value = serde_json::from_str(&output.stdout)
+        .map_err(|_| "账号服务响应无效，请稍后重试")?;
+    if output.code != Some(0) {
+        return Err(result["error"].as_str().unwrap_or("账号验证失败，请重试").into());
+    }
+    Ok(result)
+}
+#[tauri::command]
+async fn account_action(app: tauri::AppHandle, action: String) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || run_account_action(&app, &action))
+        .await.map_err(|_| "账号服务异常，请重试")?
+}
+#[tauri::command]
+async fn open_account_login() -> Result<(), String> {
+    if !cfg!(target_os = "macos") { return Err("登录需要 macOS 桌面应用".into()); }
+    // Fixed official destination; the webview cannot open arbitrary URLs.
+    let result = Command::new("/usr/bin/open").arg("https://www.microsoft.com/link")
+        .status().map_err(|_| "无法打开系统浏览器，请手动访问 microsoft.com/link")?;
+    if !result.success() { return Err("无法打开系统浏览器，请手动访问 microsoft.com/link".into()); }
+    Ok(())
+}
+
+fn requires_game_account(action: &str) -> bool {
+    ["start", "retry", "setup-start"].contains(&action)
 }
 
 fn reveal_target(path: &str) -> Result<PathBuf, String> {
@@ -473,6 +516,7 @@ async fn reveal_path(path: String) -> Result<(), String> {
 
 #[tauri::command]
 async fn workbench_action(
+    app: tauri::AppHandle,
     workspace: String,
     python: String,
     action: String,
@@ -482,6 +526,9 @@ async fn workbench_action(
     tauri::async_runtime::spawn_blocking(move || {
         if !workbench_action_allowed(&action) {
             return Err("不支持的工作台操作".into());
+        }
+        if requires_game_account(&action) {
+            run_account_action(&app, "require")?;
         }
         // Check fixed actions before resolving paths or invoking Python.
         let root = PathBuf::from(&workspace)
@@ -523,6 +570,9 @@ async fn workbench_action(
             Duration::from_secs(21600)
         } else if action == "storage-plan" || action == "storage-clean" || action == "storage-change-plan" {
             Duration::from_secs(900)
+        } else if action == "icon-preview" {
+            // actool for an .icon document takes several seconds on a cold cache.
+            Duration::from_secs(300)
         } else {
             Duration::from_secs(110)
         };
@@ -558,6 +608,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
+            account_action,
+            open_account_login,
             default_workspace,
             set_window_theme,
             system_accent,
@@ -575,6 +627,21 @@ pub fn run() {
 mod tests {
     use super::*;
     #[test]
+    fn account_actions_and_build_entries_are_fixed() {
+        for action in ["status", "begin", "poll", "commit", "cancel", "refresh", "require"] {
+            assert!(account_action_allowed(action));
+        }
+        for action in ["save-token", "set-verified", "sh", ""] {
+            assert!(!account_action_allowed(action));
+        }
+        for action in ["start", "retry", "setup-start"] {
+            assert!(requires_game_account(action));
+        }
+        for action in ["status", "cancel", "history", "storage-change-plan", "storage-change-apply"] {
+            assert!(!requires_game_account(action));
+        }
+    }
+    #[test]
     fn finder_paths_must_be_existing_absolute_paths() {
         assert!(reveal_target("relative/path").is_err());
         assert!(reveal_target("/tmp/invalid\npath").is_err());
@@ -586,6 +653,7 @@ mod tests {
         for action in ["dependencies", "start", "status", "cancel"] {
             assert!(workbench_action_allowed(action));
         }
+        assert!(workbench_action_allowed("icon-preview"));
         for action in ["run-job", "sh", "build_glfw_lite", "start; touch /tmp/unsafe", ""] {
             assert!(!workbench_action_allowed(action));
         }

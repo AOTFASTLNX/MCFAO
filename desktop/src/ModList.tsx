@@ -116,7 +116,7 @@ export default function ModList({ report }: { report: Report }) {
           </p>
           {!report.mod_inventory && (
             <p className="mod-list-hint">
-              旧报告仅包含已读取的 Mod。重新“检查来源”可补全清单中的待下载文件。
+              旧报告仅包含已读取的 Mod。重新选择整合包可补全清单中的待下载文件。
             </p>
           )}
           <div className="mod-list-tools">

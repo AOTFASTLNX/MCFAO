@@ -32,6 +32,13 @@ class DependencyTests(unittest.TestCase):
         source = self.root / 'ios/glfw-lite/window.c'
         source.parent.mkdir(parents=True)
         source.write_text('first-party source')
+        prepared = self.root / 'prepared'
+        prepared.mkdir()
+        client = prepared / '26.1.2.jar'
+        client.write_bytes(b'first-party client fixture')
+        w.write_json(prepared / 'result.json', dict(status='PREPARED', referenceLibraries=[
+            dict(path=str(client), sha256=d.sha256(client))]))
+        self.paths['prepared'] = prepared
         for key in ('glfw', 'lwjgl'):
             directory = self.root / ('old-' + key)
             self.emit(directory, key, self.paths)
@@ -49,6 +56,8 @@ class DependencyTests(unittest.TestCase):
             (directory / name).write_bytes(image(payload))
         report = dict(status=d.BY_KEY[key][3], target='arm64-apple-ios17.0',
                       sourcesSHA256=d.sources(self.root, key), binarySHA256=d.sha256(directory / d.BY_KEY[key][5][0]))
+        if key == 'glfw':
+            report['clientSHA256'] = d.sha256(self.paths['prepared'] / '26.1.2.jar')
         if key == 'lwjgl':
             report['glfwLibrarySHA256'] = d.sha256(paths['glfw'] / 'libglfw.dylib')
             report['overlaysSHA256'] = {}
@@ -117,6 +126,14 @@ class DependencyTests(unittest.TestCase):
             for dep in d.BY_KEY[key][4]:
                 self.assertLess(order.index(dep), order.index(key))
         self.assertEqual(d.plan(['lwjgl', 'glfw']), ['glfw', 'lwjgl'])
+
+    def test_unavailable_optional_input_fails_before_any_compile(self):
+        called = []
+        with patch.object(d, 'command', side_effect=ValueError('shader inputs absent')):
+            with self.assertRaisesRegex(ValueError, '输入不完整'):
+                self.rebuild(['glfw'], lambda argv, key: called.append(key))
+        self.assertEqual(called, [])
+        self.assertFalse((self.root / 'new-output').exists())
 
     def test_metal_detects_changed_lwjgl_overlay_even_when_native_binary_unchanged(self):
         self.rebuild(['metal'])

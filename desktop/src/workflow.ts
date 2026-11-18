@@ -15,6 +15,10 @@ export interface BuildForm {
   kind?: "dependencies";
   dependencyKeys?: string[];
   unsigned?: boolean;
+  icon?: string;
+  iconFit?: "fit" | "fill";
+  iconBackground?: string;
+  iconPadding?: number;
   resourceSelection: ResourceSelection | null;
   existingBuild?: string;
   workspace: string;
@@ -104,6 +108,10 @@ export interface Bootstrap {
 export { FORM_KEY, LEGACY_FORM_KEY } from "./storage";
 export const defaultForm: BuildForm = {
   unsigned: false,
+  icon: "",
+  iconFit: "fit",
+  iconBackground: "transparent",
+  iconPadding: 0,
   resourceSelection: null,
   workspace: "",
   python: "",
@@ -322,12 +330,20 @@ export function buildProblems(
   if (!form.unsigned && !form.exportOptions.trim())
     result.push("请选择 IPA 开发导出配置。");
   if (!form.output.trim()) result.push("请选择构建产物目录。");
+  if (
+    form.icon &&
+    !/\.icon$/i.test(form.icon) &&
+    !/\.(png|jpe?g|heic|heif|webp|gif|tiff?|bmp|svg|pdf|icns|ico)$/i.test(
+      form.icon,
+    )
+  )
+    result.push("图标需要 .icon 文档或受支持的图片格式。");
   if (!form.unsigned && form.team && !/^[A-Z0-9]{10}$/.test(form.team))
     result.push("Team ID 需要 10 位大写字母或数字。");
   if (form.loader === "fabric") {
     if (!form.source.trim()) result.push("请选择整合包或 Prism 实例。");
     if (!report || report.source !== form.source)
-      result.push("请先检查当前来源。");
+      result.push("请重新选择整合包，等待来源检查完成。");
     else {
       if (
         report.resources &&
@@ -364,8 +380,8 @@ export function restoreForm(raw: string | null): BuildForm {
     "config",
     "exportOptions",
     "output",
-    "source",
     "team",
+    "icon",
   ] as const) {
     if (
       value[key] !== undefined &&
@@ -374,30 +390,31 @@ export function restoreForm(raw: string | null): BuildForm {
       throw new Error("构建设置字段无效");
     result[key] = value[key] ?? "";
   }
+  if (value.iconFit !== undefined && !["fit", "fill"].includes(value.iconFit))
+    throw new Error("图标缩放方式无效");
+  result.iconFit = value.iconFit === "fill" ? "fill" : "fit";
+  if (
+    value.iconBackground !== undefined &&
+    value.iconBackground !== "transparent" &&
+    !/^#[0-9A-Fa-f]{6}$/.test(String(value.iconBackground))
+  )
+    throw new Error("图标背景色无效");
+  result.iconBackground = value.iconBackground || "transparent";
+  if (
+    value.iconPadding !== undefined &&
+    (!Number.isInteger(value.iconPadding) ||
+      value.iconPadding < 0 ||
+      value.iconPadding > 30)
+  )
+    throw new Error("图标留白无效");
+  result.iconPadding = value.iconPadding ?? 0;
   if (value.unsigned !== undefined && typeof value.unsigned !== "boolean")
     throw new Error("未签名选项无效");
   result.unsigned = value.unsigned === true;
   result.loader = value.loader === "vanilla" ? "vanilla" : "fabric";
-  if (value.resourceSelection != null) {
-    const r = value.resourceSelection;
-    if (
-      typeof r !== "object" ||
-      typeof r.source !== "string" ||
-      typeof r.fingerprint !== "string" ||
-      !/^[a-f0-9]{64}$/.test(r.fingerprint) ||
-      !Array.isArray(r.included) ||
-      r.included.length > 20000 ||
-      r.included.some(
-        (id: unknown) => typeof id !== "string" || id.length > 4096,
-      )
-    )
-      throw new Error("资源选择记录无效");
-    result.resourceSelection = {
-      source: r.source,
-      fingerprint: r.fingerprint,
-      included: [...new Set<string>(r.included)],
-    };
-  }
+  // The game source is a per-visit choice: a stored pack must never preselect
+  // the next build. The field is accepted for older records and ignored.
+  result.source = "";
   result.forceCompile = false;
   return result;
 }

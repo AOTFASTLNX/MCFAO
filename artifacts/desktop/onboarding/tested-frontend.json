@@ -1,0 +1,12 @@
+{
+  "filesSHA256": {
+    "index.html": "a83b0be66c53578fb648b2fc504aca9f587eff5f1e393074d8c1a5606ae127de",
+    "landscape.svg": "0a9d972b0f577165568687a5a0ca9a0fc6d233b426944dc8bff11656047f5f40",
+    "mark.svg": "c9eea713de484a63e1f2402f6ed1c13a6b8f5f7b10199df3e39c44acdaa33729",
+    "assets/window-Bfp5lFQs.js": "4f3f73348a8ebf46e62cb3d822e88981f2694886c0eda5203ad27836f37b5523",
+    "assets/index-B7uzkYUF.css": "028ee8b1b9efa86dc159eb2b3e4fd8b2e5e07a58dc5d7f341468134338f17b77",
+    "assets/webview-4C1XtSNV.js": "4591bab16607b91d39b2e11aca27d381476534411f66729c114ce64178d24404",
+    "assets/index-B-t7-1m5.js": "a5b7fd5b4407a70dffa0ad0c29c38caaca10ee86e6c14b895b3e8d0c0c4cc357"
+  },
+  "mode": "production preview, simulated native IPC"
+}

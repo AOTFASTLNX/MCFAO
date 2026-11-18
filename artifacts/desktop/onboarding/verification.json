@@ -1,0 +1,48 @@
+{
+  "reviewedAt": "2026-11-17T16:38:02.705442+00:00",
+  "scope": "Desktop onboarding and account management; simulated native IPC for browser tests",
+  "frontendBuild": "PASS",
+  "frontendUnitTests": {
+    "passed": 87,
+    "failed": 0,
+    "log": "frontend-tests.log"
+  },
+  "browserTests": {
+    "startTime": "2026-11-17T16:36:19.838Z",
+    "duration": 25810.688,
+    "expected": 78,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "accountServiceTests": {
+    "passed": 15,
+    "failed": 0,
+    "log": "account-tests.log"
+  },
+  "sourceBundleAndPortabilityTests": {
+    "passed": 32,
+    "failed": 0,
+    "log": "portability-tests.log"
+  },
+  "rustTests": {
+    "passed": 12,
+    "failed": 0,
+    "log": "rust-tests.log"
+  },
+  "realMicrosoftLogin": "NOT RUN: publisher Client ID is not configured",
+  "realKeychainSession": "NOT RUN: no real sign-in performed",
+  "gameAotIpaDeviceAcceptance": "NOT RUN; existing project gates are unchanged",
+  "screenshotsSHA256": {
+    "01-disclosure-dark-minimum.png": "c45d9c2ce5b30725b38a71fd6f1344cfa5e7a751aa735fd5fdc68640e7d2a2a5",
+    "01-disclosure-light-minimum.png": "88df147608244b893f85534b8ea7d4342c8c3a9c70c8ab0b0fc6b8147209eb80",
+    "01-disclosure-light.png": "d7fed8c924b90d4c82e521a206813d85cc2dfa6650041993ed0a5e6243058603",
+    "02-account-light.png": "b007b2c9b664c285819965eefd9bceb9623410c45554d74acd63d476834c7b27",
+    "02-login-unconfigured-light.png": "4f0200fa2c875e82941f985d32c1a60aefd13b804a535406c73fe6af315678a2",
+    "03-storage-light.png": "460cf3b1297fb805c78b440c97e87341078d57241e86e2fa0908c07dd62094db",
+    "04-complete-dark-minimum.png": "067ff3c4e133e286724ef10781206b7a0954ab538b3751bf6bae4e14ae284c04",
+    "04-complete-light-minimum.png": "6163ecc2f5fc49a049232932b8d13e69eee8879429b989c6342ac96d19472606",
+    "04-complete-light.png": "346689bc2506412b2e94c66d1e8ed48955c65b8670b3a8f1e2377c5bb6984a0c",
+    "05-settings-light.png": "a251fc432b60ad4678bd8e91d80a0d08751bbf5026531fc1c351cfcee7f0d6ae"
+  }
+}

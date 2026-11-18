@@ -23,10 +23,12 @@ def main(argv=None):
     p.add_argument("--sdk",choices=("iphoneos","iphonesimulator"),default="iphonesimulator")
     p.add_argument("--test-host",action="store_true")
     p.add_argument("--glfw-library",type=Path,default=ROOT/"artifacts/graphics/glfw-sim-01/libglfw.dylib")
+    p.add_argument("--prepared",type=Path,default=ROOT/"artifacts/b0/prepared-04",
+                   help="prepared client directory containing result.json")
     args=p.parse_args(argv)
     out=args.output.resolve();out.mkdir(parents=True,exist_ok=False)
     home=(cache_path('toolchains/graalvm-25.0.2/graalvm-community-openjdk-25.0.2+10.1/Contents/Home')).resolve(strict=True)
-    manifest=json.loads((ROOT/"artifacts/b0/prepared-04/result.json").read_text())
+    manifest=json.loads((Path(args.prepared)/"result.json").read_text())
     libraries={}
     for entry in manifest["referenceLibraries"]:
         path=Path(entry["path"])

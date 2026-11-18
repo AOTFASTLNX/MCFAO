@@ -12,6 +12,28 @@ from pathlib import Path
 from bootstrap_toolchain import sha256
 from capture import ROOT
 
+GLFW_OWNERS = ("org/lwjgl/glfw/GLFW", "org/lwjgl/glfw/GLFWNativeCocoa")
+
+
+def glfw_symbols(client: Path) -> set[str]:
+    """GLFW entry points the client's constant pools reference.
+
+    Derived from the client JAR so a packaged build does not depend on a
+    previously generated evidence file. This is a static scan, not runtime
+    coverage.
+    """
+    symbols = set()
+    with zipfile.ZipFile(client) as archive:
+        entries = archive.infolist()
+        if len(entries) > 100000 or sum(e.file_size for e in entries) > 1024**3:
+            raise ValueError("Client ZIP exceeds bounded scan size")
+        for entry in entries:
+            if not entry.filename.endswith(".class"): continue
+            for owner, name, _ in method_references(archive.read(entry)):
+                if owner in GLFW_OWNERS and name.startswith("glfw"):
+                    symbols.add(name)
+    return symbols
+
 
 def method_references(data: bytes) -> set[tuple[str, str, str]]:
     if len(data) < 10 or data[:4] != b"\xca\xfe\xba\xbe":
