@@ -131,6 +131,7 @@ def request(url, data=None, bearer=None, form=False):
 
 
 def checked(url, **kwargs):
+    step = kwargs.pop('step', '')
     status, data = request(url, **kwargs)
     if status != 200:
         xerr = data.get('XErr')
@@ -139,6 +140,12 @@ def checked(url, **kwargs):
         if xerr in (2148916236, 2148916237, 2148916238, 2148916229):
             raise AccountError('此账号需要先在 Microsoft / Xbox 完成年龄或家庭权限设置。')
         if status in (401, 403):
+            if step == 'xbox':
+                raise AccountError('Xbox Live 拒绝了本应用的登录请求（HTTP %d）。'
+                                   '这通常表示该 Client ID 未获 Xbox / Minecraft 服务准入。' % status)
+            if step == 'minecraft':
+                raise AccountError('Minecraft 服务拒绝了本应用的登录请求（HTTP %d）。'
+                                   '这通常表示该 Client ID 尚未通过 Minecraft AppID 审核。' % status)
             raise AccountError('登录授权被拒绝或已过期，请重新登录；若持续失败，请检查应用的 Minecraft / Xbox API 授权。')
         if status == 404 and url.endswith('/minecraft/profile'):
             raise AccountError('此账号尚无 Minecraft Java 版档案，请先在 Minecraft 官网完成设置。')
@@ -185,17 +192,17 @@ class Accounts:
                     expiresAt=pending['expiresAt'], interval=pending['interval'])
 
     def verify(self, microsoft, old_refresh='', persist=True):
-        user = checked('https://user.auth.xboxlive.com/user/authenticate', data={
+        user = checked('https://user.auth.xboxlive.com/user/authenticate', step='xbox', data={
             'Properties': {'AuthMethod': 'RPS', 'SiteName': 'user.auth.xboxlive.com',
                            'RpsTicket': 'd=' + microsoft['access_token']},
             'RelyingParty': 'http://auth.xboxlive.com', 'TokenType': 'JWT'})
-        xsts = checked('https://xsts.auth.xboxlive.com/xsts/authorize', data={
+        xsts = checked('https://xsts.auth.xboxlive.com/xsts/authorize', step='xbox', data={
             'Properties': {'SandboxId': 'RETAIL', 'UserTokens': [user['Token']]},
             'RelyingParty': 'rp://api.minecraftservices.com/', 'TokenType': 'JWT'})
         uhs = user['DisplayClaims']['xui'][0]['uhs']
         if not uhs or uhs != xsts['DisplayClaims']['xui'][0]['uhs']:
             raise AccountError('账号身份校验不一致，请重新登录。')
-        game = checked('https://api.minecraftservices.com/authentication/login_with_xbox', data={
+        game = checked('https://api.minecraftservices.com/authentication/login_with_xbox', step='minecraft', data={
             'identityToken': 'XBL3.0 x=' + uhs + ';' + xsts['Token']})
         token = game['access_token']
         entitlements = checked('https://api.minecraftservices.com/entitlements/license?requestId=' + str(uuid.uuid4()), bearer=token)
