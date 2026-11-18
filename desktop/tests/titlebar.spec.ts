@@ -60,7 +60,25 @@ for (const theme of ["light", "dark"] as const) {
         .getByRole("button", { name: "构建 IPA", exact: true })
         .first()
         .click();
-      await page.evaluate(() => window.scrollTo(0, 0));
+      // The page cross-fades between routes; capture once it has settled so
+      // the baseline records a full-opacity page instead of a random frame of
+      // the fade.
+      await expect(page.locator(".page-column")).toHaveAttribute(
+        "data-phase",
+        "idle",
+      );
+      // The sidebar selection block and the step indicator spring into place;
+      // wait for both to settle so the baseline is not a random mid-flight
+      // frame of the same layout.
+      for (const capsule of [".sidebar nav", ".stepper"]) {
+        await expect(page.locator(capsule)).toHaveAttribute(
+          "data-motion-moving",
+          "false",
+        );
+      }
+      await page
+        .locator(".main-content")
+        .evaluate((pane) => pane.scrollTo(0, 0));
       await page.screenshot({
         path: `../artifacts/desktop/titlebar-compact/${theme}-${size.width}.png`,
       });
@@ -133,13 +151,11 @@ test("the page scroll bar belongs to the pane below the title bar", async ({
       encoding: "utf8",
     }),
   );
-  await page
-    .locator("input[type=file]")
-    .setInputFiles({
-      name: "preflight.json",
-      mimeType: "application/json",
-      buffer: Buffer.from(JSON.stringify(report)),
-    });
+  await page.locator("input[type=file]").setInputFiles({
+    name: "preflight.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(report)),
+  });
   await expect(page.getByText("导入检查报告", { exact: true })).toBeVisible();
   const scroll = await page.evaluate(() => {
     const pane = document.querySelector<HTMLElement>(".main-content")!;
