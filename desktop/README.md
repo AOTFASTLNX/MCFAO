@@ -16,7 +16,7 @@
 
 在 desktop 执行 npm run build:mac。脚本会先检查所选目录的剩余空间，再用 Xcode actool 把仓库根目录的 NCB.icon 编译为 Assets.car 与 NCB.icns，保留浅色、深色与透明图层；随后运行 Tauri 开发包构建，把这两个资源放入 Contents/Resources，并让 CFBundleIconFile 与 CFBundleIconName 指向 NCB。最终在所选产物根的 desktop/ncl-builder-<version>/ 生成经临时签名与严格验签的 NCL Builder.app 及同名 zip；已有同名交付时使用新的目录后缀。工作台附带受控源码树，分发应用默认使用包内源码，不包含游戏文件；首次准备与外部客户端输入见 docs/DESKTOP.md 和 docs/BUILDING.md。正式分发签名和公证尚未验收。
 
-当前版本 0.2.7，界面、npm、Cargo 和 Tauri 版本号一致。交付位于 artifacts/desktop/ncl-builder-0.2.7/，保留旧版本目录；沿用已有配置迁移，并使用主项目已修复的沙盒路径解析和日志元数据过滤。
+当前版本 0.2.7，界面、npm、Cargo 和 Tauri 版本号一致。交付写入所选产物根的 desktop/ncl-builder-0.2.7/（默认 artifacts/desktop-builds/desktop/），同名目录已存在时追加时间戳后缀；旧版本目录可随时删除，重新打包即可再生成。沿用已有配置迁移，并使用主项目已修复的沙盒路径解析和日志元数据过滤。
 
 ## 使用
 
