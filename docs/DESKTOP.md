@@ -1,8 +1,8 @@
 # 本地 IPA 构建工作台
 
-Last reviewed: 2026-11-16
+Last reviewed: 2026-11-18
 
-状态：Tauri 2 / React / TypeScript 实验版构建工具。工作台可直接启动本机完整构建与 IPA 导出；游戏的真机、整合包与性能 Gate 仍按 ACCEPTANCE.md 独立验收。
+状态：Tauri 2 / React / TypeScript 实验版构建工具。工作台可直接启动本机完整构建与 IPA 导出；首次启动提供四步引导（使用须知、正版登录、储存目录、完成配置），账号与图标说明见 [DESKTOP_ONBOARDING.md](DESKTOP_ONBOARDING.md)。游戏的真机、整合包与性能 Gate 仍按 ACCEPTANCE.md 独立验收。
 
 ## 操作流程
 
@@ -19,6 +19,8 @@ Last reviewed: 2026-11-16
 ## 可配置存储与空间预检（2026-11-16）
 
 设置页在「本地记录」上方提供「快速选择储存目录」：先确认覆盖，再选总目录；之后预览四类原目录、新目录、文件数和逻辑字节数，明确选择「迁移已有文件」「删除已有文件」或「保留原位」。未应用选择前不改设置，取消任一步均保留当前配置。
+
+同一分组提供「重置目录设置」：确认后恢复当前源码/分发应用对应的四类默认目录，同步构建输出；只更新配置，不迁移或删除已有文件，原任务根仍保留用于历史发现。运行任务或环境变量固定目录时拒绝重置。
 
 - 保留原位：只更新后续任务路径，已有文件不动。
 - 迁移：新子目录须不存在，先复制到临时目录、检查目录结构并逐文件 SHA-256 校验；转换第一方 job.json / jobs/configs 内的目录引用。全部校验成功后切换配置，再清理原目录内容。IPA、签名产物、游戏内容、日志和输入指纹不重写，旧检查点可能需重新检测或编译；不保证所有历史缓存可直接复用。
@@ -109,7 +111,7 @@ macOS 使用 Overlay 标题栏并隐藏原生标题文字，保留系统红黄�
 
 视觉体系为 System Neutral：浅色使用 `#F5F5F7` 窗口、`#FFFFFF` 内容、`#ECEDEF` 侧栏，深色使用 `#18191B` / `#27282B` / `#222326`，全部通过 `desktop/src/system-neutral.css` 的语义令牌消费，页面不再硬编码品牌绿。交互强调色默认读取 macOS `controlAccentColor`（第一方 `system_accent` 命令），也可在设置中固定蓝、紫、红、橙、绿或灰；浅色模式会在保持色相的前提下调深填充色，使白色按钮文字达到正常文本对比度，深色模式则保留可读的系统色。灰色取 macOS `systemGray`（`#8E8E93`），浅色模式落到 `#737377`，填充按钮上的白字仍达到正常文本对比度，深色模式保持原色。成功、警告、错误保持独立语义，不随强调色变化。构建日志使用等宽字体，并按 INFO / WARN / ERROR 分级着色，同时保留文字级别标签，避免只靠颜色传达状态。
 
-验证记录见 `desktop/src/theme.test.ts`、`desktop/src/log.test.ts` 与浏览器回归（切换、跟随系统、强调色持久化、375 / 768 / 1440 无横向溢出、全部页面文字对比度）；截图见 `artifacts/desktop/system-neutral/`，包含浅色 / 深色的构建、Mod、资源、确认、记录、环境、设置、窄窗口与真实原生窗口。
+验证记录见 `desktop/src/theme.test.ts`、`desktop/src/log.test.ts` 与浏览器回归（切换、跟随系统、强调色持久化、375 / 768 / 1440 无横向溢出、全部页面文字对比度）；截图见 `artifacts/desktop/system-neutral/`，包含浅色 / 深色的构建、Mod、资源、确认、记录、环境、设置、窄窗口与真实原生窗口。灰色强调色的浅色 / 深色设置页截图见 `artifacts/desktop/gray-accent/`。
 
 ## 强制编译
 
@@ -167,6 +169,19 @@ macOS 使用 Overlay 标题栏并隐藏原生标题文字，保留系统红黄�
 - 实现：`desktop/src/StorageManager.tsx`、`tools/storage_inventory.py`、`tools/cleanup_storage.py`，工作台动作 `storage-plan` / `storage-clean`，原生 `reveal_path` 仅接收存在的绝对路径，通过固定参数调用 Finder。测试：`desktop/tests/storage-management.spec.ts`、`tests/test_storage_inventory.py`、`tests/test_cleanup_storage.py` 与工作台存储回归。
 
 历史占用快照不作为当前容量或清理依据，须以重新扫描的结果为准。
+
+## 合并状态与回归（2026-11-18）
+
+`codex/ncl-builder-motion-20261117` 已合并 `main`（存储管理、依赖管理、动效系统三条线）。合并保留两边的功能：工作台 action 白名单同时包含 `icon-preview` 与 `reset-storage`；设置页「重置目录设置」、`tools/storage_config.py` 的 `reset_paths` 及其便携性测试保持完整。构建期代码审计确认已从界面、CLI 请求校验和文档中移除，Fabric 转换改由既有沙盒执行策略承担。
+
+本轮在合并后的工作树上重新验证：
+
+- `cd desktop && npx tsc -b`：通过；`npx vitest run`：12 个文件、90 项通过。
+- `cargo test --manifest-path src-tauri/Cargo.toml --lib`：12 项通过，含账号 action allowlist、构建入口分类与 `icon-preview` 白名单。
+- Python：`test_mcfao.py` 40 项、`test_desktop_portability.py` 34 项、`test_desktop_workbench.py` 50 项、`test_graphics_bridge.py` 28 项、`test_native_dependencies.py` 22 项、`test_account_service.py` 15 项、`test_app_icon.py` 11 项，全部通过。
+- `test_desktop_workbench.py` 需在允许调用 `/bin/ps` 并写入 `~/Library/Application Support` 的环境运行；受限沙箱内会有 4 项环境性报错，与代码无关。
+
+尚未执行：Playwright 全量浏览器回归（引导、禁用态、存储管理、标题栏）、真实 Microsoft 登录与钥匙串完整会话（`clientId` 仍为空）、带自定义图标的真机 IPA 打包，以及游戏 AOT、IPA 安装与性能 Gate。这些均不因合并或文档更新而提升。
 
 ## 本轮回归与验证边界（2026-11-16）
 

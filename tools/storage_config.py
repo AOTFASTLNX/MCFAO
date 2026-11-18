@@ -30,7 +30,7 @@ def control_lock(root=ROOT):
         yield
 
 
-def storage_paths(root=ROOT):
+def default_paths(root=ROOT):
     root = Path(root)
     if (root / 'bundle-manifest.json').exists():
         base = Path.home() / 'Library/Application Support/NCL Builder'
@@ -40,6 +40,12 @@ def storage_paths(root=ROOT):
     else:
         defaults = dict(cache=root / '.cache', builds=root / 'artifacts/desktop-builds',
                         jobs=root / 'artifacts/desktop-jobs', rust=root / 'desktop/src-tauri/target')
+    return defaults
+
+
+def storage_paths(root=ROOT):
+    root = Path(root)
+    defaults = default_paths(root)
     saved = json.loads(config_path(root).read_text()) if config_path(root).is_file() else {}
     for role in ROLES:
         value = os.environ.get('MCFAO_' + role.upper() + '_DIR') or saved.get(role)
@@ -127,6 +133,13 @@ def save_paths(values, root=ROOT):
                                     'previousJobRoots': list(map(str, previous))}, indent=2) + '\n')
     temporary.replace(target)
     return {**report, 'migration': 'NONE', 'config': str(target)}
+
+
+def reset_paths(root=ROOT):
+    if any(os.environ.get('MCFAO_' + role.upper() + '_DIR') for role in ROLES):
+        raise ValueError('环境变量固定了储存位置，请先移除路径覆盖后再重置。')
+    values = {role: str(path) for role, path in default_paths(root).items()}
+    return {**save_paths(values, root), 'storage': values}
 
 
 if __name__ == '__main__':

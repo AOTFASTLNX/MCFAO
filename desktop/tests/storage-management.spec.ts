@@ -157,6 +157,8 @@ async function desktop(page: Page) {
             return { ready: true, pathMappings: {}, warnings: [] };
           }
           if (args.action === "history") return [];
+          if (args.action === "reset-storage")
+            return { ready: true, storage: roots };
           if (args.action === "save-storage") {
             if (state.saveFail) throw new Error("所选目录不可写");
             return { ready: true };
@@ -453,3 +455,43 @@ for (const policy of ["migrate", "delete"] as const)
       ),
     ).toBe(policy);
   });
+
+test("reset directory settings confirms and restores paths without deleting files", async ({
+  page,
+}) => {
+  await desktop(page);
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  const reset = page.getByRole("button", { name: "重置目录设置", exact: true });
+  await reset.click();
+  const dialog = page.getByRole("dialog", { name: "重置目录设置？" });
+  await expect(dialog).toContainText("已有文件保留原位");
+  await dialog.getByRole("button", { name: "取消", exact: true }).click();
+  expect(
+    await page.evaluate(
+      () =>
+        (window as any).__storageTest.calls.filter(
+          (call: any) => call.action === "reset-storage",
+        ).length,
+    ),
+  ).toBe(0);
+  await reset.click();
+  await dialog.getByRole("button", { name: "恢复默认目录" }).click();
+  await expect(page.getByRole("status")).toContainText("已恢复默认目录设置");
+  expect(
+    await page.evaluate(
+      () =>
+        (window as any).__storageTest.calls.filter(
+          (call: any) => call.action === "reset-storage",
+        ).length,
+    ),
+  ).toBe(1);
+  expect(
+    await page.evaluate(
+      () => JSON.parse(localStorage.getItem("ncl.builder.v2")!).output,
+    ),
+  ).toBe("/fixture/builds");
+  await page.getByRole("button", { name: "存储管理", exact: true }).click();
+  await expect(page.getByLabel("编译缓存目录", { exact: true })).toHaveValue(
+    "/Volumes/Build/cache",
+  );
+});

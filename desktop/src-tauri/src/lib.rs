@@ -446,7 +446,7 @@ async fn save_document(
 fn workbench_action_allowed(action: &str) -> bool {
     ["bootstrap", "check", "dependencies", "start", "status", "cancel", "history", "retry",
      "resolve-exclusions", "save-config", "icon-preview", "reveal", "reveal-folder", "storage-plan", "storage-clean",
-     "storage-settings", "storage-change-plan", "storage-change-apply", "save-storage", "setup-start", "setup-status"].contains(&action)
+     "storage-settings", "storage-change-plan", "storage-change-apply", "reset-storage", "save-storage", "setup-start", "setup-status"].contains(&action)
 }
 
 // Account state is never supplied by the webview or a build request. Read it

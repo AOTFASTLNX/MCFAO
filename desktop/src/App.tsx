@@ -878,6 +878,24 @@ export default function App() {
       setStorageDone("");
     });
   }
+  async function resetStorageDirectories() {
+    await attempt("正在重置目录设置", async () => {
+      const result = await workbench<{
+        ready: boolean;
+        storage: typeof storagePaths;
+      }>(formRef.current, "reset-storage");
+      setStoragePaths(result.storage);
+      update({ output: result.storage.builds });
+      setStorage(null);
+      setStorageDone("");
+      setStorageStatus(
+        "已恢复默认目录设置，已有文件保留原位。" +
+          (result.ready
+            ? "空间预检通过。"
+            : "默认目录剩余空间不足，请更换目录后再构建。"),
+      );
+    });
+  }
   async function quickStorageDirectory() {
     await attempt("正在选择储存目录", async () => {
       const directory = await choosePath("选择统一储存目录", true);
@@ -3129,6 +3147,7 @@ export default function App() {
                   }
                   status={storageStatus}
                   onChoose={() => void quickStorageDirectory()}
+                  onReset={() => void resetStorageDirectories()}
                 />
                 <div className="settings-group">
                   <h2>本地记录</h2>

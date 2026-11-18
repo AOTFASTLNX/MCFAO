@@ -30,7 +30,7 @@ from external_storage import ExternalStorageUnavailable, require_mount
 import cleanup_storage
 import storage_change
 from storage_inventory import inventory as storage_inventory
-from storage_config import storage_paths, job_roots, require_space, save_paths, space_report, control_lock
+from storage_config import storage_paths, job_roots, require_space, save_paths, reset_paths, space_report, control_lock
 import native_dependencies
 import app_icon
 
@@ -40,7 +40,7 @@ KEYS = ('prepared', 'caps', 'bootstrapRuntime', 'splitter', 'versionMetadata', '
 OPTIONAL_KEYS = {'openjdkSource', 'graalSource', 'metal', 'shaders'}
 PUBLIC_ACTIONS = ('bootstrap', 'check', 'dependencies', 'start', 'status', 'cancel', 'history', 'retry',
                   'resolve-exclusions', 'save-config', 'icon-preview', 'storage-plan',
-                  'storage-clean', 'storage-settings', 'storage-change-plan', 'storage-change-apply', 'save-storage', 'setup-start', 'setup-status')
+                  'storage-clean', 'storage-settings', 'storage-change-plan', 'storage-change-apply', 'reset-storage', 'save-storage', 'setup-start', 'setup-status')
 ACTIVE = {'queued', 'running', 'cancelling', 'awaiting-exclusions'}
 STAGES = ['validate', 'source', 'doctor', 'fabric', 'split', 'gl41-patch', 'aot',
           'runtime', 'link', 'stage', 'package', 'archive', 'export-log', 'verify']
@@ -976,12 +976,14 @@ def main():
         elif args.action == 'save-config': result = save_config(request)
         elif args.action == 'icon-preview': result = icon_preview(request)
         elif args.action == 'storage-settings': result = space_report(storage_paths(workspace))
-        elif args.action in ('save-storage', 'storage-change-plan', 'storage-change-apply'):
+        elif args.action in ('save-storage', 'reset-storage', 'storage-change-plan', 'storage-change-apply'):
             with control_lock(workspace):
                 if any(j['state'] in ACTIVE for j in history(workspace)): raise ValueError('请在构建结束后更改存储位置')
                 from first_run import status as setup_status
                 if setup_status().get('state') in ('queued', 'running'): raise ValueError('请在工具链准备结束后更改存储位置')
-                if args.action == 'storage-change-plan':
+                if args.action == 'reset-storage':
+                    result = reset_paths(workspace)
+                elif args.action == 'storage-change-plan':
                     result = storage_change.plan(request['fields']['paths'], workspace)
                 elif args.action == 'storage-change-apply':
                     require_mount('storage transition')
