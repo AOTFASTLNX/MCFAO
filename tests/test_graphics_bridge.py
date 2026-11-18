@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"tools"))
 from build_glfw_lite import required_symbols,exported_symbols,INPUT_POLL_EXPORTS,validate_input_exports
+import build_glfw_lite
 from graphics_common import bridge_overlays,register_tree
 from lwjgl_codegen import descriptor,generate_callbacks,generate_jni,mangle,parse_natives
 from bootstrap_toolchain import sha256
@@ -17,6 +18,36 @@ from stage_game_assets import verified_assets
 import hashlib
 
 class NativeBoundaryTests(unittest.TestCase):
+    def test_packaged_source_derives_glfw_exports_from_the_client(self):
+        # The distributed app omits artifacts/, so GLFW derives its export list
+        # from the selected client JAR instead of a repository-local evidence
+        # file. Only the constant pool matters for this static scan.
+        pool = [(b'org/lwjgl/glfw/GLFW',), (b'glfwInit',), (b'()Z',)]
+        client = self.fixture_client({'org/lwjgl/glfw/GLFW': ['glfwInit', 'glfwGetKey'],
+                                      'org/lwjgl/glfw/GLFWNativeCocoa': ['glfwGetCocoaWindow'],
+                                      'org/lwjgl/glfw/GLFWVidMode': ['width']})
+        self.assertEqual(build_glfw_lite.required_symbols_for_client(client),
+                         {'glfwInit', 'glfwGetKey', 'glfwGetCocoaWindow'} | INPUT_POLL_EXPORTS)
+        with self.assertRaisesRegex(FileNotFoundError, 'client JAR missing'):
+            build_glfw_lite.required_symbols_for_client(Path('/absent/26.1.2.jar'))
+    def fixture_client(self, owners):
+        import struct, tempfile, zipfile
+        entries = []; index = {}
+        def utf8(value):
+            raw = value.encode(); entries.append(b'\x01' + struct.pack('>H', len(raw)) + raw)
+            return len(entries)
+        for owner, names in owners.items():
+            owner_index = utf8(owner); entries.append(b'\x07' + struct.pack('>H', owner_index))
+            class_index = len(entries)
+            for name in names:
+                name_index = utf8(name); desc_index = utf8('()Z')
+                entries.append(b'\x0c' + struct.pack('>HH', name_index, desc_index))
+                entries.append(b'\x0a' + struct.pack('>HH', class_index, len(entries)))
+        data = b'\xca\xfe\xba\xbe' + struct.pack('>HHH', 0, 52, len(entries) + 1) + b''.join(entries)
+        directory = Path(tempfile.mkdtemp()); client = directory / '26.1.2.jar'
+        with zipfile.ZipFile(client, 'w') as archive:
+            archive.writestr('net/minecraft/client/Main.class', data)
+        return client
     def test_structure_accessors_are_not_glfw_exports(self):
         inventory={"methods":[{"owner":"org/lwjgl/glfw/GLFW","name":"glfwInit"},
             {"owner":"org/lwjgl/glfw/GLFWNativeCocoa","name":"glfwGetCocoaWindow"},

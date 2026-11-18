@@ -60,7 +60,25 @@ for (const theme of ["light", "dark"] as const) {
         .getByRole("button", { name: "构建 IPA", exact: true })
         .first()
         .click();
-      await page.evaluate(() => window.scrollTo(0, 0));
+      // The page cross-fades between routes; capture once it has settled so
+      // the baseline records a full-opacity page instead of a random frame of
+      // the fade.
+      await expect(page.locator(".page-column")).toHaveAttribute(
+        "data-phase",
+        "idle",
+      );
+      // The sidebar selection block and the step indicator spring into place;
+      // wait for both to settle so the baseline is not a random mid-flight
+      // frame of the same layout.
+      for (const capsule of [".sidebar nav", ".stepper"]) {
+        await expect(page.locator(capsule)).toHaveAttribute(
+          "data-motion-moving",
+          "false",
+        );
+      }
+      await page
+        .locator(".main-content")
+        .evaluate((pane) => pane.scrollTo(0, 0));
       await page.screenshot({
         path: `../artifacts/desktop/titlebar-compact/${theme}-${size.width}.png`,
       });
@@ -82,7 +100,11 @@ test("sidebar navigation keeps a comfortable row rhythm", async ({ page }) => {
     .evaluateAll((items) =>
       items.map((item) => {
         const bounds = item.getBoundingClientRect();
-        return { top: bounds.top, bottom: bounds.bottom, height: bounds.height };
+        return {
+          top: bounds.top,
+          bottom: bounds.bottom,
+          height: bounds.height,
+        };
       }),
     );
   expect(rows).toHaveLength(5);
@@ -123,6 +145,18 @@ test("the page scroll bar belongs to the pane below the title bar", async ({
   await page.locator(".app-shell").evaluate((shell) => {
     shell.setAttribute("data-window-chrome", "overlay");
   });
+  // Use a real long report; an empty source page can fit without scrolling.
+  const report = JSON.parse(
+    execFileSync("python3", [path.resolve("tests/make_fixture.py")], {
+      encoding: "utf8",
+    }),
+  );
+  await page.locator("input[type=file]").setInputFiles({
+    name: "preflight.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(report)),
+  });
+  await expect(page.getByText("导入检查报告", { exact: true })).toBeVisible();
   const scroll = await page.evaluate(() => {
     const pane = document.querySelector<HTMLElement>(".main-content")!;
     const topbar = document.querySelector<HTMLElement>(".topbar")!;
@@ -256,16 +290,15 @@ test("page actions float over the content instead of scrolling away", async ({
 
   await page.getByRole("button", { name: "构建 IPA", exact: true }).click();
   // A long step makes the pane scroll, which is when the capsules pin.
-  await page
-    .locator("input[type=file]")
-    .setInputFiles({
-      name: "preflight.json",
-      mimeType: "application/json",
-      buffer: Buffer.from(JSON.stringify(report)),
-    });
+  await page.locator("input[type=file]").setInputFiles({
+    name: "preflight.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(report)),
+  });
   await expect(page.getByText("导入检查报告", { exact: true })).toBeVisible();
   const pane = await page.locator(".main-content").evaluate((element) => {
-    element.scrollTo(0, 300);
+    // Measure before reaching the content's natural bottom.
+    element.scrollTo(0, (element.scrollHeight - element.clientHeight) / 2);
     const stepper = document.querySelector(".stepper")!.getBoundingClientRect();
     const footer = document
       .querySelector(".wizard-footer")!
@@ -310,18 +343,15 @@ test("environment and history drop the outer card for dividers", async ({
     expect(look_.first).toBe("rgba(0, 0, 0, 0)");
     expect(look_.second).toBe("rgba(0, 0, 0, 0)");
     // Environment stacks its regions, history separates them by column.
-    const edge = await page.evaluate(
-      (selector) => {
-        const style = getComputedStyle(
-          document.querySelectorAll<HTMLElement>(selector)[1],
-        );
-        return {
-          top: style.borderTopWidth,
-          left: style.borderLeftWidth,
-        };
-      },
-      region,
-    );
+    const edge = await page.evaluate((selector) => {
+      const style = getComputedStyle(
+        document.querySelectorAll<HTMLElement>(selector)[1],
+      );
+      return {
+        top: style.borderTopWidth,
+        left: style.borderLeftWidth,
+      };
+    }, region);
     expect(edge.top === "1px" || edge.left === "1px").toBe(true);
   }
 });
@@ -341,7 +371,8 @@ test("controls inside a capsule are pills concentric with it", async ({
         const box = (element: Element) => {
           const style = getComputedStyle(element);
           const rect = element.getBoundingClientRect();
-          const pad = (side: string) => Number.parseFloat(style.getPropertyValue(side));
+          const pad = (side: string) =>
+            Number.parseFloat(style.getPropertyValue(side));
           return {
             radius: Number.parseFloat(style.borderTopLeftRadius),
             height: rect.height,
@@ -374,7 +405,10 @@ test("controls inside a capsule are pills concentric with it", async ({
         expect(outer.padTop).toBe(outer.padBottom);
         expect(outer.padTop).toBe(outer.padLeft);
         expect(outer.padTop).toBe(outer.padRight);
-        expect(inner.height / 2 + outer.padTop).toBeCloseTo(outer.height / 2, 0);
+        expect(inner.height / 2 + outer.padTop).toBeCloseTo(
+          outer.height / 2,
+          0,
+        );
       }
     }
   }

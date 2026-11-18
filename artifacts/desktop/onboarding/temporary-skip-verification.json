@@ -1,0 +1,20 @@
+{
+  "scope": "Temporary verification skip while publisher Client ID is absent",
+  "browserTests": {
+    "startTime": "2026-11-18T11:05:03.016Z",
+    "duration": 7335.715999999999,
+    "expected": 10,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "frontendBuild": "PASS",
+  "frontendUnitTests": 90,
+  "accountServiceTests": 15,
+  "realLogin": "NOT RUN: Client ID absent",
+  "sourceSHA256": {
+    "desktop/src/DesktopSession.tsx": "e372a6397cdaca1ae17b774c22eb90b4a1a8f6bbb9f4734bd84d2a5627953146",
+    "desktop/src/onboarding.ts": "9a78f492e78ab38d7a07721537249bbebed26199428ba1d62456e19a50094a95",
+    "tools/account_service.py": "88234242e738d2d34a533f076e6138da84b40c8f36b496f346a33e983a784e5f"
+  }
+}

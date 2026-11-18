@@ -2,6 +2,7 @@
 """Local GUI build supervisor; fixed argv only, no shell and no device operations."""
 from __future__ import annotations
 import argparse
+import base64
 from datetime import datetime, timezone
 import fcntl
 import hashlib
@@ -31,13 +32,14 @@ import storage_change
 from storage_inventory import inventory as storage_inventory
 from storage_config import storage_paths, job_roots, require_space, save_paths, reset_paths, space_report, control_lock
 import native_dependencies
+import app_icon
 
 ROOT = Path(__file__).resolve().parents[1]
 KEYS = ('prepared', 'caps', 'bootstrapRuntime', 'splitter', 'versionMetadata', 'assets',
         'glfw', 'lwjgl', 'gl41', 'openal', 'lwjglOpengl', 'b1Evidence')
 OPTIONAL_KEYS = {'openjdkSource', 'graalSource', 'metal', 'shaders'}
 PUBLIC_ACTIONS = ('bootstrap', 'check', 'dependencies', 'start', 'status', 'cancel', 'history', 'retry',
-                  'resolve-exclusions', 'save-config', 'storage-plan',
+                  'resolve-exclusions', 'save-config', 'icon-preview', 'storage-plan',
                   'storage-clean', 'storage-settings', 'storage-change-plan', 'storage-change-apply', 'reset-storage', 'save-storage', 'setup-start', 'setup-status')
 ACTIVE = {'queued', 'running', 'cancelling', 'awaiting-exclusions'}
 STAGES = ['validate', 'source', 'doctor', 'fabric', 'split', 'gl41-patch', 'aot',
@@ -126,6 +128,25 @@ def config_summary(value):
 
 def bootstrap(workspace):
     config = next((p for p in (workspace / 'artifacts/integration-20261115/config-gl41.json', workspace / 'artifacts/mcfao-gl41.json', workspace / 'mcfao.local.json') if p.is_file()), None)
+    # A packaged source tree deliberately omits artifacts/, so a workbench
+    # update must still find the configuration the user saved previously.
+    if config is None:
+        try:
+            folder = storage_paths(workspace)['jobs'] / 'configs'
+        except (OSError, ValueError, KeyError):
+            # A disconnected external volume must not stop the workbench from
+            # opening; the user can still choose a configuration manually.
+            folder = None
+        def recent(path):
+            try: return path.stat().st_mtime
+            except OSError: return 0
+        candidates = sorted(folder.glob('*.json'), key=recent, reverse=True)[:50] if folder and folder.is_dir() else []
+        for candidate in candidates:
+            try: values = read_json(candidate)
+            except (OSError, ValueError): continue
+            if isinstance(values, dict) and set(KEYS) <= values.keys() and not values.keys() - set(KEYS) - OPTIONAL_KEYS:
+                config = candidate
+                break
     fields = {}
     if config:
         try: fields = read_json(config)
@@ -203,6 +224,32 @@ def save_config(request):
     write_json(path, values)
     return dict(path=str(path))
 
+def icon_preview(request):
+    """Render the chosen artwork so the UI can show exactly what gets packaged."""
+    icon = app_icon.icon_path(request.get('fields', {}).get('icon'))
+    options = request.get('fields', {})
+    fit = options.get('fit', 'fit')
+    background = options.get('background', 'transparent')
+    padding = options.get('padding', 0)
+    if fit not in ('fit', 'fill'): raise ValueError('图标缩放方式无效')
+    if background != 'transparent' and not re.fullmatch(r'#[0-9A-Fa-f]{6}', background):
+        raise ValueError('图标背景色无效')
+    if not isinstance(padding, int) or not 0 <= padding <= 30:
+        raise ValueError('图标留白需要在 0 到 30% 之间')
+    folder = storage_paths(workspace_path(request.get('workspace', str(ROOT))))['jobs'] / 'icon-previews'
+    folder.mkdir(parents=True, exist_ok=True)
+    target = folder / (uuid4().hex + '.png')
+    app_icon.render_preview(str(icon), target, fit=fit, background=background, padding=padding)
+    # Previews are throwaway: keep only the newest so repeated tweaks do not
+    # fill the task directory. They are never part of a build.
+    previews = sorted((p for p in folder.glob('*.png') if not is_metadata(p.name)),
+                      key=lambda p: p.stat().st_mtime, reverse=True)
+    for stale in previews[8:]:
+        try: stale.unlink()
+        except OSError: pass
+    return dict(path=str(target), data='data:image/png;base64,' +
+                base64.b64encode(target.read_bytes()).decode('ascii'))
+
 def storage(action, request):
     """Plan or apply a cache/artefact cleanup; never touches a running build."""
     from storage_config import config_path
@@ -243,13 +290,13 @@ def source_overrides(report, build_loader, force_compile=False):
 def resource_selection(report, selection):
     if selection is None: return None  # Legacy jobs retain their recorded import policy.
     if not isinstance(selection, dict) or selection.get('source') != report['source'] or selection.get('fingerprint') != report.get('resources_fingerprint'):
-        raise ValueError('资源来源已改变，请重新检查来源并确认资源选择')
+        raise ValueError('资源来源已改变，请重新选择整合包并确认资源选择')
     included = selection.get('included')
     if not isinstance(included, list) or len(included) > 20000 or any(not isinstance(x, str) for x in included) or len(set(included)) != len(included):
         raise ValueError('资源选择格式无效')
     available = {row['id']: row for row in report.get('resources', [])}
     if any(ident not in available or not available[ident]['selectable'] for ident in included):
-        raise ValueError('选择包含不存在或不可导入的资源，请重新检查来源')
+        raise ValueError('选择包含不存在或不可导入的资源，请重新选择整合包')
     if not any(available[ident]['category'] == 'mods' and available[ident]['path'].lower().endswith('.jar') for ident in included):
         raise ValueError('整合包构建至少保留一个启用的 Mod；不带 Mod 请返回选择原版')
     return set(included)
@@ -258,6 +305,14 @@ def validate_request(request):
     workspace = workspace_path(request['workspace'])
     if not isinstance(request.get('unsigned', False), bool): raise ValueError('未签名选项必须为布尔值')
     if not isinstance(request.get('forceCompile', False), bool): raise ValueError('强制编译选项必须为布尔值')
+    if request.get('icon') and not isinstance(request.get('icon'), str): raise ValueError('图标路径必须是文本')
+    if request.get('icon'):
+        app_icon.icon_path(request['icon'])
+    if request.get('iconFit') not in (None, 'fit', 'fill'): raise ValueError('图标缩放方式无效')
+    if request.get('iconBackground') not in (None, 'transparent') and not re.fullmatch(r'#[0-9A-Fa-f]{6}', request.get('iconBackground', '')):
+        raise ValueError('图标背景色无效')
+    if request.get('iconPadding') is not None and (not isinstance(request.get('iconPadding'), int) or not 0 <= request['iconPadding'] <= 30):
+        raise ValueError('图标留白需要在 0 到 30% 之间')
     if request.get('loader') not in ('fabric', 'vanilla'): raise ValueError('请选择 Fabric 或原版')
     if request.get('existingBuild'):
         result = read_json(resolve(request['existingBuild']) / 'result.json')
@@ -284,7 +339,6 @@ def validate_request(request):
         loader = read_json(workspace / 'compiler/fabric.lock.json')['fabricLoader']
         source_overrides(report, loader, request.get('forceCompile', False))
         resource_selection(report, request.get('resourceSelection'))
-        if request.get('audited') is not True: raise ValueError('请先审计 Mod 并确认允许隔离构建期转换')
     return workspace
 
 DOWNLOAD_HOST = 'cdn.modrinth.com'
@@ -615,9 +669,17 @@ def compile_build(command, folder, request, build, mods, game, update, env, prev
                 '--heap-gib', str(aot_heap_gib()), '--parallelism', '3', '--target', 'ios-arm64',
                 '--config', resolve(request['config']), '--output', build]
         if request['loader'] == 'fabric':
+            # This flag selects the sandboxed Fabric transform path; the build
+            # no longer asks for a separate audit acknowledgement in the UI.
             args += ['--mods', mods, '--audited-mods', '--instance-data', game]
         if request.get('unsigned'):
             args += ['--unsigned']
+        if request.get('icon'):
+            args += ['--icon', request['icon']]
+            if request.get('iconFit') == 'fill': args += ['--icon-fit', 'fill']
+            if request.get('iconBackground', 'transparent') != 'transparent':
+                args += ['--icon-background', request['iconBackground']]
+            if request.get('iconPadding'): args += ['--icon-padding', str(request['iconPadding'])]
         try:
             execute(args, folder, 'build', update, 'fabric' if request['loader'] == 'fabric' else 'split', env)
             return None, build
@@ -912,6 +974,7 @@ def main():
         elif args.action == 'check': result = check(request)
         elif args.action == 'dependencies': result = native_dependencies.inventory(workspace, resolve(request['config']))
         elif args.action == 'save-config': result = save_config(request)
+        elif args.action == 'icon-preview': result = icon_preview(request)
         elif args.action == 'storage-settings': result = space_report(storage_paths(workspace))
         elif args.action in ('save-storage', 'reset-storage', 'storage-change-plan', 'storage-change-apply'):
             with control_lock(workspace):

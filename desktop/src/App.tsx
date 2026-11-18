@@ -38,20 +38,17 @@ import {
   Sun,
   Terminal,
   TriangleAlert,
-  Trash2,
   X,
 } from "lucide-react";
 import {
   DEFAULT_SETTINGS,
   STORAGE_KEY,
-  makeInstance,
   parseReport,
   parseSavedState,
-  upsertInstance,
-  type Instance,
   type Report,
 } from "./model";
 import {
+  chooseIcon,
   choosePath,
   defaultWorkspace,
   inspectSource,
@@ -118,6 +115,8 @@ import {
   type StoragePolicy,
 } from "./StorageChangeDialog";
 import { QuickStorageDirectory } from "./QuickStorageDirectory";
+import { AccountPanel, accountIsVerified, useAccount } from "./Account";
+import { storageFormPatch } from "./onboarding";
 import {
   useSlidingIndicator,
   useStepContent,
@@ -167,21 +166,22 @@ function initial() {
       readWithLegacy(store, STORAGE_KEY, LEGACY_STORAGE_KEY),
     );
     const savedForm = readWithLegacy(store, FORM_KEY, LEGACY_FORM_KEY);
+    const restored = savedForm
+      ? restoreForm(savedForm)
+      : {
+          ...defaultForm,
+          workspace: old.settings.workspace,
+          python: old.settings.python,
+        };
     return {
-      form: savedForm
-        ? restoreForm(savedForm)
-        : {
-            ...defaultForm,
-            workspace: old.settings.workspace,
-            python: old.settings.python,
-          },
-      instances: old.instances,
+      // A game source is picked again on every entry to the builder; only the
+      // machine paths and signing choices survive a restart.
+      form: { ...restored, source: "", resourceSelection: null },
       error: "",
     };
   } catch {
     return {
       form: { ...defaultForm },
-      instances: [] as Instance[],
       error: "本地记录无法读取，自动保存已暂停。请先在设置中导出原始记录。",
     };
   }
@@ -301,6 +301,201 @@ function PathField({
     </div>
   );
 }
+
+const iconBackgrounds = [
+  { value: "transparent", label: "透明" },
+  { value: "#FFFFFF", label: "白色" },
+  { value: "#000000", label: "黑色" },
+  { value: "#F5F5F7", label: "浅灰" },
+];
+function backgroundOptions(current: string) {
+  // A restored setting may hold a custom colour; show it rather than
+  // silently displaying the first preset.
+  return iconBackgrounds.some((option) => option.value === current)
+    ? iconBackgrounds
+    : [...iconBackgrounds, { value: current, label: current }];
+}
+
+function AppIconField({
+  form,
+  update,
+  disabled,
+  locked,
+}: {
+  form: BuildForm;
+  update: (patch: Partial<BuildForm>) => void;
+  disabled: boolean;
+  locked: boolean;
+}) {
+  const [preview, setPreview] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const icon = form.icon || "";
+  const isDocument = icon.toLowerCase().endsWith(".icon");
+  useEffect(() => {
+    if (!icon || !native || !form.workspace) {
+      setPreview("");
+      return;
+    }
+    let disposed = false;
+    const timer = window.setTimeout(() => {
+      setLoading(true);
+      workbench<{ data: string; path: string }>(
+        form,
+        "icon-preview",
+        undefined,
+        {
+          icon,
+          fit: form.iconFit || "fit",
+          background: form.iconBackground || "transparent",
+          padding: form.iconPadding ?? 0,
+        },
+      )
+        .then((r) => {
+          if (disposed) return;
+          setPreview(r.data);
+          setError("");
+        })
+        .catch((e) => {
+          if (!disposed) setError(String(e));
+        })
+        .finally(() => {
+          if (!disposed) setLoading(false);
+        });
+    }, 240);
+    return () => {
+      disposed = true;
+      window.clearTimeout(timer);
+    };
+  }, [
+    icon,
+    form.workspace,
+    form.iconFit,
+    form.iconBackground,
+    form.iconPadding,
+  ]);
+  const choose = async (directory: boolean) => {
+    try {
+      const path = await chooseIcon(directory);
+      if (path) {
+        update({ icon: path });
+        setError("");
+      }
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+  return (
+    <div className="app-icon-field">
+      <div className="app-icon-heading">
+        <div>
+          <strong>应用图标</strong>
+          <small>
+            使用自己的图标；支持 .icon 文档与
+            PNG、JPEG、HEIC、WebP、GIF、TIFF、BMP、SVG、PDF、ICNS、ICO。
+          </small>
+        </div>
+        <span className="app-icon-preview" data-loading={loading}>
+          {preview ? (
+            <img src={preview} alt="应用图标预览" />
+          ) : (
+            <Package size={30} aria-hidden="true" />
+          )}
+        </span>
+      </div>
+      <div className="field">
+        <label>
+          <span>图标文件</span>
+          <span className="path-input">
+            <input
+              value={icon}
+              onChange={(e) => update({ icon: e.target.value })}
+              spellCheck={false}
+              disabled={locked}
+              placeholder="选择 .icon 文档或图片"
+            />
+            <button
+              className="path-picker"
+              disabled={disabled}
+              aria-label="选择图标图片"
+              onClick={() => void choose(false)}
+            >
+              <FolderOpen size={17} />
+            </button>
+            <button
+              className="path-picker"
+              disabled={disabled}
+              aria-label="选择图标文档"
+              onClick={() => void choose(true)}
+            >
+              <Box size={17} />
+            </button>
+          </span>
+        </label>
+        <small>
+          {isDocument
+            ? "Icon Composer 文档会保留浅色、深色与透明等系统外观。"
+            : "非方形图片默认完整保留并居中，空白处透明。"}
+        </small>
+        {icon && (
+          <button
+            className="text-button"
+            disabled={locked}
+            onClick={() => update({ icon: "" })}
+          >
+            使用系统默认图标
+          </button>
+        )}
+        {error && <small className="red">{error}</small>}
+      </div>
+      {icon && !isDocument && (
+        <div className="app-icon-options">
+          <label>
+            <span>图片适配</span>
+            <SelectMenu
+              label="图标图片适配"
+              value={form.iconFit || "fit"}
+              onChange={(v) => update({ iconFit: v as "fit" | "fill" })}
+              options={[
+                { value: "fit", label: "完整保留" },
+                { value: "fill", label: "填满裁切" },
+              ]}
+              disabled={locked}
+            />
+          </label>
+          <label>
+            <span>背景</span>
+            <SelectMenu
+              label="图标背景"
+              value={form.iconBackground || "transparent"}
+              onChange={(v) => update({ iconBackground: v })}
+              options={backgroundOptions(
+                form.iconBackground || "transparent",
+              ).map((option) => ({
+                value: option.value,
+                label: option.label,
+              }))}
+              disabled={locked}
+            />
+          </label>
+          <label>
+            <span>留白 {form.iconPadding ?? 0}%</span>
+            <input
+              type="range"
+              min={0}
+              max={30}
+              step={1}
+              value={form.iconPadding ?? 0}
+              disabled={locked}
+              aria-label="图标留白"
+              onChange={(e) => update({ iconPadding: Number(e.target.value) })}
+            />
+          </label>
+        </div>
+      )}
+    </div>
+  );
+}
 function CheckList({ checks }: { checks: Checks }) {
   return (
     <div className="check-list">
@@ -331,6 +526,7 @@ function CheckList({ checks }: { checks: Checks }) {
     </div>
   );
 }
+
 function ExclusionDialog({
   challenge,
   busy,
@@ -402,6 +598,8 @@ function ExclusionDialog({
 }
 
 export default function App() {
+  const { account } = useAccount();
+  const verifiedAccount = accountIsVerified(account);
   const [saved] = useState(initial);
   const [theme, setTheme] = useState<ThemePreference>(readThemePreference);
   const [accent, setAccent] = useState(readAccentPreference);
@@ -428,8 +626,6 @@ export default function App() {
   const [setup, setSetup] = useState<import("./workflow").SetupState | null>(
     null,
   );
-  const [ownsGame, setOwnsGame] = useState(false);
-  const [instances, setInstances] = useState(saved.instances);
   const [storageIssue, setStorageIssue] = useState(saved.error);
   const [page, setPage] = useState<Page>("builder");
   const [step, setStep] = useState(0);
@@ -473,6 +669,20 @@ export default function App() {
   const dialog = useRef<HTMLDialogElement>(null);
   const active = jobs.find((j) => isActive(j));
   const job = jobs.find((j) => j.id === selected) ?? active ?? jobs[0];
+  // Every unavailable control states the reason once, so the disabled styling
+  // never leaves the user guessing which prerequisite is missing. The standing
+  // banner only covers conditions the page can act on; a browser preview and a
+  // running task already have their own visible status.
+  const blockedReason = active
+    ? "有构建任务正在进行，完成或取消后才能继续。"
+    : !form.config
+      ? "尚未选择构建配置。请先选择配置文件，或在「构建环境」的高级配置中创建一份。"
+      : "";
+  const controlReason = !native
+    ? "浏览器预览不能执行本地构建，请打开 NCL Builder 桌面应用。"
+    : busy
+      ? `${busy}，请等待完成。`
+      : blockedReason;
   const currentReport = report?.source === form.source ? report : null;
   const steps =
     form.loader === "fabric"
@@ -620,10 +830,8 @@ export default function App() {
     setForm((f) => ({
       ...f,
       ...patch,
-      ...(patch.resourceSelection !== undefined ? { audited: false } : {}),
       ...(patch.source !== undefined || patch.loader !== undefined
         ? {
-            audited: false,
             forceCompile: false,
             resourceSelection:
               (patch.source !== undefined && patch.source !== f.source) ||
@@ -722,18 +930,11 @@ export default function App() {
           policy,
           token: plan.token,
         });
-        const patch: Partial<BuildForm> = { output: plan.paths.builds };
-        for (const key of ["config", "exportOptions", "source"] as const) {
-          const value = formRef.current[key];
-          for (const [source, destination] of Object.entries(
-            result.pathMappings || {},
-          ).sort((a, b) => b[0].length - a[0].length)) {
-            if (value === source || value.startsWith(source + "/")) {
-              patch[key] = destination + value.slice(source.length);
-              break;
-            }
-          }
-        }
+        const patch = storageFormPatch(
+          formRef.current,
+          plan.paths.builds,
+          result.pathMappings,
+        );
         setStoragePaths(plan.paths);
         update(patch);
         setStorage(null);
@@ -797,7 +998,6 @@ export default function App() {
     setReport(r);
     setForm((f) => ({
       ...f,
-      audited: false,
       resourceSelection:
         r.resources && r.resources_fingerprint
           ? f.resourceSelection?.source === r.source &&
@@ -812,15 +1012,6 @@ export default function App() {
               }
           : null,
     }));
-    setInstances((old) =>
-      upsertInstance(
-        old,
-        makeInstance(
-          r,
-          old.find((i) => i.report.source === r.source),
-        ),
-      ),
-    );
     return r;
   }, []);
   async function inspect(source: string) {
@@ -835,21 +1026,38 @@ export default function App() {
       { ...formRef.current, workspace: path },
       "bootstrap",
     );
-    setForm((f) => ({
-      ...f,
-      workspace: path,
-      config: f.workspace !== path ? b.config : f.config || b.config,
-      exportOptions:
-        f.workspace !== path
-          ? b.exportOptions
-          : f.exportOptions || b.exportOptions,
-      output: f.workspace !== path ? b.output : f.output || b.output,
-    }));
+    // An application update changes the bundled source path. The build
+    // configuration is an absolute file outside that tree, so it must survive
+    // the switch; only an explicit workspace edit clears it.
+    const current = formRef.current;
+    const sameWorkspace = current.workspace === path;
+    const keptConfig =
+      b.config || (sameWorkspace || b.bundled ? current.config : "");
+    setForm((f) => {
+      const same = f.workspace === path;
+      return {
+        ...f,
+        workspace: path,
+        // Packaged source trees omit artifacts/, so their bootstrap cannot
+        // rediscover a configuration. Keep the user's absolute file across an
+        // application update; an explicit workspace edit still clears it.
+        config: b.config || (same || b.bundled ? f.config : ""),
+        // The export plist lives inside the application bundle, so a new
+        // bundle path needs its own copy. A user-selected file stays put.
+        exportOptions: same
+          ? f.exportOptions || b.exportOptions
+          : b.exportOptions,
+        output: f.output || b.output,
+      };
+    });
     if (b.setup) setSetup(b.setup);
     if (b.storage) setStoragePaths(b.storage);
     setFields(b.configFields);
     setJobs(b.jobs);
     setSelected(b.jobs.find((j) => isActive(j))?.id ?? b.jobs[0]?.id ?? "");
+    // Report the configuration the workbench actually keeps, which may be the
+    // user's existing file rather than the one found in the source tree.
+    return { ...b, config: keptConfig };
   }, []);
   useEffect(() => {
     if (!native) return;
@@ -867,14 +1075,15 @@ export default function App() {
   useEffect(() => {
     if (storageIssue) return;
     try {
+      // Neither the pack nor its resource selection is remembered; writing
+      // them would quietly preselect a pack for the next launch.
       localStorage.setItem(
         FORM_KEY,
-        JSON.stringify({ ...form, audited: false, forceCompile: false }),
+        JSON.stringify({ ...form, source: "", resourceSelection: null }),
       );
       localStorage.setItem(
         STORAGE_KEY,
         JSON.stringify({
-          instances,
           settings: {
             ...DEFAULT_SETTINGS,
             ...parseSavedState(
@@ -892,7 +1101,7 @@ export default function App() {
     } catch {
       setStorageIssue("无法保存本地记录，已暂停自动保存。");
     }
-  }, [form, instances, storageIssue]);
+  }, [form, storageIssue]);
   useEffect(() => {
     if (!native || !job) return;
     let stopped = false;
@@ -1085,7 +1294,20 @@ export default function App() {
       },
     );
   }
-  function nav(p: Page) {
+  function nav(p: Page, fresh = false) {
+    // The builder has no source memory: every visit starts at game content
+    // with no pack selected, so the next pack is always checked fresh.
+    if (p === "builder" && (page !== "builder" || fresh)) {
+      setStep(0);
+      setCheckedSteps([]);
+      setReport(null);
+      setForm((f) => ({
+        ...f,
+        source: "",
+        resourceSelection: null,
+        forceCompile: false,
+      }));
+    }
     setPage(p);
     if (p === "storage" && !storage && native && !busy) void loadStorage();
     setError("");
@@ -1107,7 +1329,13 @@ export default function App() {
         className="text-button"
         disabled={!native || !!busy || !form.workspace}
         onClick={() =>
-          void attempt("正在识别本地配置", () => load(form.workspace))
+          void attempt("正在识别本地配置", async () => {
+            const found = await load(form.workspace);
+            if (found && !found.config)
+              setNotice(
+                "此项目目录没有可用的构建配置；请在下方选择配置，或在高级配置中填写并保存。",
+              );
+          })
         }
       >
         <RefreshCw size={15} />
@@ -1438,7 +1666,7 @@ export default function App() {
                                 </h3>
                                 <p>
                                   {form.source
-                                    ? "重新选择来源，或检查当前本地内容。"
+                                    ? "选择新的整合包会重新检查来源。"
                                     : "拖入 .mrpack 或 Prism 实例目录，也可以点击选择。"}
                                 </p>
                                 <div className="button-line center">
@@ -1460,7 +1688,9 @@ export default function App() {
                                   </button>
                                 </div>
                                 <span className="source-caption">
-                                  Minecraft 26.1.2 · Fabric Loader 0.19.3
+                                  {busy === "正在检查游戏内容"
+                                    ? "正在自动检查来源…"
+                                    : "选择后自动检查来源 · Minecraft 26.1.2 · Fabric Loader 0.19.3"}
                                 </span>
                                 <p className="import-note">
                                   .mrpack
@@ -1468,62 +1698,6 @@ export default function App() {
                                   Modrinth CDN，其他来源可先通过 Prism 准备。
                                 </p>
                               </div>
-                              <div className="source-manual">
-                                <label>
-                                  来源路径
-                                  <input
-                                    value={form.source}
-                                    onChange={(e) =>
-                                      update({ source: e.target.value })
-                                    }
-                                    placeholder="也可粘贴本地整合包或实例路径"
-                                    spellCheck={false}
-                                  />
-                                </label>
-                                <button
-                                  className="secondary"
-                                  disabled={!native || !!busy || !form.source}
-                                  onClick={() => void inspect(form.source)}
-                                >
-                                  <Search size={16} />
-                                  检查来源
-                                </button>
-                              </div>
-                              {instances.length > 0 && (
-                                <div className="recent-source">
-                                  最近导入
-                                  <SelectMenu
-                                    className="recent-select"
-                                    label="最近导入"
-                                    value={
-                                      instances.some(
-                                        (i) => i.report.source === form.source,
-                                      )
-                                        ? form.source
-                                        : ""
-                                    }
-                                    onChange={async (v) => {
-                                      if (v) {
-                                        update({ source: v });
-                                        if (native) await inspect(v);
-                                        else
-                                          remember(
-                                            instances.find(
-                                              (i) => i.report.source === v,
-                                            )!.report,
-                                          );
-                                      }
-                                    }}
-                                    options={[
-                                      { value: "", label: "选择最近的来源" },
-                                      ...instances.map((i) => ({
-                                        value: i.report.source,
-                                        label: i.name,
-                                      })),
-                                    ]}
-                                  />
-                                </div>
-                              )}
                               {currentReport && (
                                 <div
                                   className="source-report"
@@ -1867,6 +2041,12 @@ export default function App() {
                       )}
                       {visibleStep === environmentStep + 1 && (
                         <>
+                          <AppIconField
+                            form={form}
+                            update={update}
+                            disabled={!native || !!busy || !!active}
+                            locked={!!busy || !!active}
+                          />
                           <label className="setting-row">
                             <span className="setting-label">
                               <strong>导出未签名 IPA</strong>
@@ -1999,6 +2179,12 @@ export default function App() {
                                   : form.team || "自动选择本机有效团队",
                               ],
                               [
+                                "应用图标",
+                                form.icon
+                                  ? basename(form.icon)
+                                  : "系统默认图标",
+                              ],
+                              [
                                 "最终产物",
                                 form.unsigned
                                   ? "未签名 IPA + SHA-256（不能直接装机）"
@@ -2015,31 +2201,16 @@ export default function App() {
                             <span>输出位置</span>
                             <code>{form.output || "尚未选择"}</code>
                           </div>
-                          {form.loader === "fabric" && (
-                            <label className="audit-check">
-                              <input
-                                type="checkbox"
-                                checked={form.audited}
-                                onChange={(e) =>
-                                  update({ audited: e.target.checked })
-                                }
-                              />
-                              <span>
-                                <strong>
-                                  此来源中的 Mod 已完成构建期代码审计
-                                </strong>
-                                <small>
-                                  允许既有隔离流程执行这些 Mod 的 Mixin /
-                                  构建期转换。静态检查不代表 iOS 兼容性验证。
-                                </small>
-                              </span>
-                            </label>
-                          )}
                           <div className="check-toolbar">
                             <span>构建前检查</span>
                             <button
                               className="text-button"
                               disabled={!native || !!busy || !form.config}
+                              title={
+                                !native || busy || !form.config
+                                  ? controlReason
+                                  : undefined
+                              }
                               onClick={() => void detect()}
                             >
                               <RefreshCw size={15} />
@@ -2101,6 +2272,15 @@ export default function App() {
                             !!active ||
                             checks?.ready === false
                           }
+                          title={
+                            problems.length > 0
+                              ? problems[0]
+                              : busy || active
+                                ? controlReason
+                                : checks?.ready === false
+                                  ? "环境检查未通过，请先处理上方标出的项目。"
+                                  : undefined
+                          }
                           onClick={() => void begin()}
                         >
                           <Hammer size={17} />
@@ -2119,7 +2299,7 @@ export default function App() {
                     <button
                       className="primary"
                       onClick={() => {
-                        nav("builder");
+                        nav("builder", true);
                         setStep(0);
                       }}
                     >
@@ -2611,8 +2791,11 @@ export default function App() {
                                 disabled={!native || !!busy || !!active}
                                 onClick={() =>
                                   void attempt("正在恢复构建", async () => {
+                                    // Retry reuses the recorded request: the
+                                    // builder no longer remembers a pack, and
+                                    // the supervisor rejects a changed request.
                                     const next = await workbench<BuildJob>(
-                                      form,
+                                      job.request,
                                       "retry",
                                       job.id,
                                     );
@@ -2636,10 +2819,34 @@ export default function App() {
             )}
             {visiblePage === "environment" && (
               <>
+                {blockedReason && (
+                  <div className="blocked-banner" role="status">
+                    <CircleAlert size={18} aria-hidden="true" />
+                    <span>{blockedReason}</span>
+                    {!form.config && native && !busy && (
+                      <button
+                        className="secondary"
+                        onClick={() =>
+                          void attempt("正在选择构建配置", async () => {
+                            const p = await choosePath("选择构建配置");
+                            if (p) update({ config: p });
+                          })
+                        }
+                      >
+                        选择配置文件
+                      </button>
+                    )}
+                  </div>
+                )}
                 <div className="page-toolbar">
                   <button
                     className="primary"
                     disabled={!native || !!busy || !form.config}
+                    title={
+                      !native || busy || !form.config
+                        ? controlReason
+                        : undefined
+                    }
                     onClick={() => void detect()}
                   >
                     <RefreshCw size={17} />
@@ -2658,6 +2865,7 @@ export default function App() {
                   error={dependencyError}
                   checking={checkingDependencies}
                   disabled={!native || !!busy || !!active || !form.config}
+                  disabledReason={controlReason}
                   onRefresh={() => setDependencyRevision((v) => v + 1)}
                   onRebuild={(keys) => void rebuildDependencies(keys)}
                 />
@@ -2776,6 +2984,10 @@ export default function App() {
             )}
             {visiblePage === "settings" && (
               <section className="settings-page">
+                <div className="settings-group settings-account">
+                  <h2>账号管理</h2>
+                  <AccountPanel disabled={!!active || !!busy} />
+                </div>
                 <div className="settings-group">
                   <h2>外观</h2>
                   <div className="setting-row">
@@ -2864,27 +3076,25 @@ export default function App() {
                   >
                     下载 / 校验工具链
                   </button>
-                  <label className="setting-row">
+                  <div className="setting-row">
                     <span className="setting-label">
-                      <strong>我合法拥有 Minecraft Java Edition</strong>
+                      <strong>Minecraft Java Edition 正版资格</strong>
                       <small>
-                        确认后可从官方源下载 26.1.2
+                        验证账号后可从官方源下载 26.1.2
                         客户端和资源；文件仅保存在本机，不包含在应用安装包中。
                       </small>
                     </span>
                     <span className="setting-control">
-                      <input
-                        type="checkbox"
-                        checked={ownsGame}
-                        onChange={(e) => setOwnsGame(e.target.checked)}
-                      />
+                      {verifiedAccount
+                        ? "已验证"
+                        : "请先在账号管理中登录并验证"}
                     </span>
-                  </label>
+                  </div>
                   <button
                     className="button secondary"
                     disabled={
                       !native ||
-                      !ownsGame ||
+                      !verifiedAccount ||
                       !!busy ||
                       ["queued", "running"].includes(setup?.state || "")
                     }
@@ -2898,7 +3108,6 @@ export default function App() {
                             { owned: true },
                           ),
                         );
-                        setOwnsGame(false);
                       })
                     }
                   >
@@ -2926,40 +3135,6 @@ export default function App() {
                     directory
                     onChange={(v) => update({ workspace: v })}
                   />
-                </div>
-
-                <div className="settings-group">
-                  <h2>来源记录</h2>
-                  <p className="section-description">
-                    移除记录只影响工作台列表，原始文件与产物仍保留。
-                  </p>
-                  {instances.map((i) => (
-                    <div className="setting-row" key={i.id}>
-                      <div className="setting-label instance-label">
-                        <Package size={16} aria-hidden="true" />
-                        <span>
-                          <strong>{i.name}</strong>
-                          <small>{i.report.source}</small>
-                        </span>
-                      </div>
-                      <div className="setting-control">
-                        <button
-                          className="icon-button"
-                          aria-label={"移除来源记录 " + i.name}
-                          onClick={() =>
-                            setInstances((old) =>
-                              old.filter((x) => x.id !== i.id),
-                            )
-                          }
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                  {!instances.length && (
-                    <p className="muted">还没有导入的来源。</p>
-                  )}
                 </div>
 
                 <QuickStorageDirectory
@@ -3085,9 +3260,7 @@ export default function App() {
           }}
         >
           <h2 id="reset-title">重置界面记录？</h2>
-          <p>
-            来源列表和表单设置会被重置，构建任务、IPA、游戏内容和存档仍保留。
-          </p>
+          <p>表单设置会被重置，构建任务、IPA、游戏内容和存档仍保留。</p>
           <div className="button-line">
             <button className="secondary" onClick={() => setReset(false)}>
               保留记录
@@ -3099,7 +3272,6 @@ export default function App() {
                 localStorage.removeItem(STORAGE_KEY);
                 localStorage.removeItem(LEGACY_FORM_KEY);
                 localStorage.removeItem(LEGACY_STORAGE_KEY);
-                setInstances([]);
                 setForm({ ...defaultForm });
                 setReport(null);
                 setStorageIssue("");

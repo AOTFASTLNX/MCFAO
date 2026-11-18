@@ -133,6 +133,7 @@
 				A20000000000000000000023 /* Resources */,
 				A20000000000000000000024 /* Embed Native Runtime */,
 				A20000000000000000000025 /* Embed Graphics Libraries */,
+				A20000000000000000000026 /* Custom App Icon */,
 			);
 			buildRules = (
 			);
@@ -225,6 +226,21 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		A20000000000000000000026 /* Custom App Icon */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Custom App Icon";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "/bin/sh \"$SRCROOT/apply_app_icon.sh\"\n";
+		};
 		A20000000000000000000025 /* Embed Graphics Libraries */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;

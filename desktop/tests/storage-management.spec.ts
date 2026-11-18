@@ -114,11 +114,14 @@ async function desktop(page: Page) {
               },
             ],
     });
+    // This suite starts after the separate first-launch flow.
+    localStorage.setItem("ncl.onboarding.v1", JSON.stringify({ version: 1, accepted: true, storageRoot: "/fixture", completed: true }));
     Object.assign(window, {
       isTauri: true,
       __storageTest: state,
       __TAURI_INTERNALS__: {
         invoke: async (command: string, args: Record<string, unknown>) => {
+          if (command === "account_action") return { configured: true, verified: true, profile: { id: "a".repeat(32), name: "FixturePlayer" }, verifiedAt: Date.now() / 1000, verifiedUntil: Date.now() / 1000 + 3600 };
           if (command === "default_workspace") return form.workspace;
           if (command === "system_accent") return "#3478D4";
           state.calls.push({ command, ...args });

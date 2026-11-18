@@ -6,8 +6,6 @@ const report = JSON.parse(
     encoding: "utf8",
   }),
 );
-/** Instance name shown in the recent-source menu (see sourceName). */
-const reportName: string = report.pack_name;
 async function importReport(page: Page, value: unknown = report) {
   await page.locator("input[type=file]").setInputFiles({
     name: "preflight.json",
@@ -120,7 +118,7 @@ test("client grading filters combine with categories and keep selection independ
     }
   }
 });
-test("resource management is a real fifth step with persisted per-file choices", async ({
+test("resource management is a real fifth step with per-session per-file choices", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 768, height: 1000 });
@@ -183,20 +181,26 @@ test("resource management is a real fifth step with persisted per-file choices",
     .click();
   await page.getByLabel("搜索资源").fill("optional");
   await expect(optional).toBeChecked();
-  const saved = await page.evaluate(
-    () =>
-      JSON.parse(localStorage.getItem("ncl.builder.v2")!)
-        .resourceSelection,
+  const saved = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("ncl.builder.v2")!),
   );
-  expect(saved.included).toContain("manifest:mods/optional.jar");
-  expect(saved.included).not.toContain("overrides:shaderpacks/lighting.zip");
+  // The pack and its resource choices stay in memory for this visit only.
+  expect(saved.source).toBe("");
+  expect(saved.resourceSelection).toBeNull();
   await page.getByRole("button", { name: "5 确认构建", exact: true }).click();
   await expect(
     page.getByText("保留 3 / 4 项资源", { exact: true }),
   ).toBeVisible();
   await page.reload();
-  await pick(page, "最近导入", reportName);
+  await importReport(page, {
+    ...report,
+    resources: [...report.resources, ...extra],
+  });
   await page.getByRole("button", { name: "2 资源管理", exact: true }).click();
+  // Resource choices belong to the current pack selection; a new visit starts
+  // from the pack defaults instead of a remembered subset.
+  await expect(optional).not.toBeChecked();
+  await optional.check();
   await expect(optional).toBeChecked();
   await page.setViewportSize({ width: 375, height: 1000 });
   expect(
@@ -229,7 +233,7 @@ test("new workbench prioritizes a guided IPA build and exposes browser limits", 
   ).toBeVisible();
   expect(errors).toEqual([]);
 });
-test("imports a real report, shows diagnostics and persists sources", async ({
+test("imports a real report, shows diagnostics and never remembers the source", async ({
   page,
 }) => {
   await page.goto("/");
@@ -246,13 +250,108 @@ test("imports a real report, shows diagnostics and persists sources", async ({
   await page.getByRole("button", { name: "导出报告", exact: true }).click();
   expect((await download).suggestedFilename()).toBe("ncl-preflight.json");
   await page.reload();
-  await page.getByRole("button", { name: "最近导入", exact: true }).click();
   await expect(
-    page.getByRole("listbox", { name: "最近导入" }).getByRole("option"),
-  ).toHaveCount(2);
-  await page.keyboard.press("Escape");
-  await pick(page, "最近导入", reportName);
+    page.getByRole("heading", { name: "从你的整合包开始" }),
+  ).toBeVisible();
+  await expect(page.getByText("静态检查通过", { exact: true })).toHaveCount(0);
+  await importReport(page);
   await expect(page.getByText("静态检查通过", { exact: true })).toBeVisible();
+});
+test("picking a pack checks it automatically and forgets it when the page is re-entered", async ({
+  page,
+}) => {
+  await page.addInitScript((fixture) => {
+    const calls: { command: string; args: Record<string, unknown> }[] = [];
+    localStorage.setItem(
+      "ncl.onboarding.v1",
+      JSON.stringify({
+        version: 1,
+        accepted: true,
+        storageRoot: "/fixture",
+        completed: true,
+      }),
+    );
+    Object.assign(window, {
+      isTauri: true,
+      __sourceTest: calls,
+      __TAURI_INTERNALS__: {
+        invoke: async (command: string, args: Record<string, unknown>) => {
+          calls.push({ command, args });
+          if (command === "default_workspace") return "/fixture/source";
+          if (command === "system_accent") return "#3478D4";
+          if (command === "account_action")
+            return {
+              configured: true,
+              verified: true,
+              profile: { id: "fixture", name: "Fixture" },
+              verifiedAt: Math.floor(Date.now() / 1000),
+              verifiedUntil: Math.floor(Date.now() / 1000) + 3600,
+            };
+          if (command === "plugin:dialog|open") return "/packs/Checked.mrpack";
+          if (command === "inspect_pack")
+            return {
+              report: { ...fixture, source: args.source },
+              elapsedMs: 4,
+            };
+          if (command !== "workbench_action") return null;
+          if (args.action === "bootstrap")
+            return {
+              workspace: "/fixture/source",
+              config: "/fixture/config.json",
+              exportOptions: "/fixture/Export.plist",
+              output: "/fixture/builds",
+              configFields: {},
+              jobs: [],
+            };
+          if (args.action === "dependencies")
+            return { ready: true, checkedAt: "", libraries: [] };
+          return null;
+        },
+      },
+    });
+  }, report);
+  await page.goto("/");
+  await expect(
+    page.getByRole("heading", { name: "从你的整合包开始" }),
+  ).toBeVisible();
+  // The manual path field, the check button and the recent-source menu are gone.
+  await expect(page.getByLabel("来源路径", { exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "检查来源", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "最近导入", exact: true }),
+  ).toHaveCount(0);
+
+  await page.getByRole("button", { name: "选择 .mrpack", exact: true }).click();
+  await expect(page.getByText("静态检查通过", { exact: true })).toBeVisible();
+  const inspected = () =>
+    page.evaluate(() =>
+      (
+        window as unknown as {
+          __sourceTest: { command: string; args: Record<string, unknown> }[];
+        }
+      ).__sourceTest.filter((c) => c.command === "inspect_pack"),
+    );
+  expect(await inspected()).toHaveLength(1);
+  expect((await inspected())[0].args.source).toBe("/packs/Checked.mrpack");
+
+  // Leaving and re-entering the builder starts over with no pack selected.
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await page
+    .getByRole("button", { name: "构建 IPA", exact: true })
+    .first()
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "从你的整合包开始" }),
+  ).toBeVisible();
+  await expect(page.getByText("静态检查通过", { exact: true })).toHaveCount(0);
+  expect(await inspected()).toHaveLength(1);
+
+  // The next pack is checked by the same single action, with no extra step.
+  await page.getByRole("button", { name: "选择 .mrpack", exact: true }).click();
+  await expect(page.getByText("静态检查通过", { exact: true })).toBeVisible();
+  expect(await inspected()).toHaveLength(2);
 });
 test("Loader mismatch can be forced and records the choice in review", async ({
   page,
@@ -279,10 +378,51 @@ test("Loader mismatch can be forced and records the choice in review", async ({
   await expect(
     page.getByText("强制编译 · Fabric Loader 0.19.3", { exact: true }),
   ).toBeVisible();
+  await expect(
+    page.getByText("此来源中的 Mod 已完成构建期代码审计"),
+  ).toHaveCount(0);
+  await expect(page.getByRole("checkbox", { name: /代码审计/ })).toHaveCount(0);
   await page.reload();
-  await pick(page, "最近导入", reportName);
+  await importReport(page, { ...report, fabric_loader_version: "0.19.2" });
   await expect(force).not.toBeChecked();
   await expect(next).toBeEnabled();
+});
+test("custom app icon controls appear on the signing step", async ({ page }) => {
+  await page.goto("/");
+  await importReport(page);
+  await page
+    .getByRole("button", { name: "4 开发签名", exact: true })
+    .click();
+  await expect(page.getByText("应用图标", { exact: true })).toBeVisible();
+  const field = page.getByLabel("图标文件");
+  await expect(field).toHaveValue("");
+  // A path can be typed anywhere; picking one needs the desktop app.
+  await expect(field).toBeEnabled();
+  await expect(page.getByRole("button", { name: "选择图标图片" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "选择图标文档" })).toBeDisabled();
+  // Layout options stay hidden until an icon is chosen.
+  await expect(page.getByLabel("图标图片适配")).toHaveCount(0);
+  await expect(page.getByText("使用系统默认图标")).toHaveCount(0);
+  await field.fill("/art/Brand.svg");
+  await expect(page.getByText("图片适配")).toBeVisible();
+  await expect(page.getByText("使用系统默认图标")).toBeVisible();
+  await pick(page, "图标图片适配", "填满裁切");
+  await pick(page, "图标背景", "白色");
+  await page.getByLabel("图标留白").fill("10");
+  await expect(page.getByText("留白 10%", { exact: true })).toBeVisible();
+  await page.reload();
+  await importReport(page);
+  await page
+    .getByRole("button", { name: "4 开发签名", exact: true })
+    .click();
+  await expect(page.getByLabel("图标文件")).toHaveValue("/art/Brand.svg");
+  await expect(page.getByText("留白 10%", { exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 800, height: 900 });
+  await expect(page.getByText("应用图标", { exact: true })).toBeVisible();
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - window.innerWidth,
+  );
+  expect(overflow).toBeLessThanOrEqual(1);
 });
 test("Mod list searches every file and filters statuses with per-file reasons", async ({
   page,
@@ -419,9 +559,7 @@ test("vanilla form reaches review, validates team and never generates shell comm
   await page.goto("/");
   await page.getByRole("button", { name: "原版 26.1.2", exact: true }).click();
   await page.getByRole("button", { name: "下一步", exact: true }).click();
-  await page
-    .getByLabel("NCL 项目目录", { exact: true })
-    .fill("/local/repo");
+  await page.getByLabel("NCL 项目目录", { exact: true }).fill("/local/repo");
   await page.getByLabel("构建配置", { exact: true }).fill("/local/config.json");
   await page.getByLabel("构建产物目录", { exact: true }).fill("/local/builds");
   await page.getByRole("button", { name: "下一步", exact: true }).click();
@@ -480,7 +618,9 @@ for (const width of [375, 768, 1280, 1440])
       ),
     ).toBe(true);
     await page.getByRole("button", { name: "构建记录", exact: true }).click();
-    await expect(page.getByText("还没有构建任务", { exact: true })).toBeVisible();
+    await expect(
+      page.getByText("还没有构建任务", { exact: true }),
+    ).toBeVisible();
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= innerWidth,
@@ -538,9 +678,7 @@ test("theme setting switches every surface and survives a reload", async ({
 test("light theme keeps narrow layouts free of horizontal overflow", async ({
   page,
 }) => {
-  await page.addInitScript(() =>
-    localStorage.setItem("ncl.theme.v1", "light"),
-  );
+  await page.addInitScript(() => localStorage.setItem("ncl.theme.v1", "light"));
   for (const width of [375, 768, 1440]) {
     await page.setViewportSize({ width, height: 1000 });
     await page.goto("/");
@@ -563,9 +701,7 @@ test("light theme keeps narrow layouts free of horizontal overflow", async ({
 test("system accent setting reaches interactive tokens only", async ({
   page,
 }) => {
-  await page.addInitScript(() =>
-    localStorage.setItem("ncl.theme.v1", "light"),
-  );
+  await page.addInitScript(() => localStorage.setItem("ncl.theme.v1", "light"));
   await page.goto("/");
   await page.getByRole("button", { name: "设置", exact: true }).click();
   await pick(page, "交互强调色", "紫色");
@@ -583,6 +719,40 @@ test("system accent setting reaches interactive tokens only", async ({
   ).toHaveText("紫色");
 });
 
+test("gray accent stays neutral and readable in both appearances", async ({
+  page,
+}) => {
+  for (const [theme, expected] of [
+    ["light", "#737377"],
+    ["dark", "#8e8e93"],
+  ] as const) {
+    await page.addInitScript(
+      (value) => localStorage.setItem("ncl.theme.v1", value),
+      theme,
+    );
+    await page.goto("/");
+    await page.getByRole("button", { name: "设置", exact: true }).click();
+    await pick(page, "交互强调色", "灰色");
+    await expect(
+      page.getByRole("button", { name: "交互强调色", exact: true }),
+    ).toHaveText("灰色");
+    const tokens = await page.evaluate(() => {
+      const style = getComputedStyle(document.documentElement);
+      return {
+        accent: style.getPropertyValue("--accent").trim(),
+        success: style.getPropertyValue("--success").trim(),
+        warning: style.getPropertyValue("--warning").trim(),
+        danger: style.getPropertyValue("--danger").trim(),
+      };
+    });
+    expect(tokens.accent.toLowerCase()).toBe(expected);
+    // Status colors keep their own semantics when the accent is gray.
+    expect(tokens.success).not.toBe(expected);
+    expect(tokens.warning).not.toBe(expected);
+    expect(tokens.danger).not.toBe(expected);
+  }
+});
+
 const layerSurfaces = {
   sidebar: ".sidebar",
   window: "body",
@@ -590,7 +760,10 @@ const layerSurfaces = {
   card: ".segmented button.selected",
 } as const;
 
-async function measureLayers(page: import("@playwright/test").Page, theme: string) {
+async function measureLayers(
+  page: import("@playwright/test").Page,
+  theme: string,
+) {
   await page.addInitScript(
     (value) => localStorage.setItem("ncl.theme.v1", value),
     theme,
@@ -612,7 +785,10 @@ async function measureLayers(page: import("@playwright/test").Page, theme: strin
       return Math.round(((Math.max(r, g, b) + Math.min(r, g, b)) / 2) * 100);
     };
     return Object.fromEntries(
-      Object.entries(selectors).map(([key, selector]) => [key, lightness(selector)]),
+      Object.entries(selectors).map(([key, selector]) => [
+        key,
+        lightness(selector),
+      ]),
     );
   }, layerSurfaces);
 }
@@ -773,21 +949,17 @@ test("settings place labels left of controls without a wrapping card", async ({
 
   const rows = await page.evaluate(() => {
     const rect = (element: Element) => element.getBoundingClientRect();
-    return Array.from(document.querySelectorAll(".setting-row")).map(
-      (row) => {
-        const label = row.querySelector(".setting-label")!;
-        const control = row.querySelector(
-          ".setting-control, .theme-options",
-        )!;
-        const a = rect(label);
-        const b = rect(control);
-        return {
-          labelRight: a.right,
-          controlLeft: b.left,
-          sameLine: Math.abs(a.top + a.height / 2 - (b.top + b.height / 2)) < 14,
-        };
-      },
-    );
+    return Array.from(document.querySelectorAll(".setting-row")).map((row) => {
+      const label = row.querySelector(".setting-label")!;
+      const control = row.querySelector(".setting-control, .theme-options")!;
+      const a = rect(label);
+      const b = rect(control);
+      return {
+        labelRight: a.right,
+        controlLeft: b.left,
+        sameLine: Math.abs(a.top + a.height / 2 - (b.top + b.height / 2)) < 14,
+      };
+    });
   });
   expect(rows.length).toBeGreaterThan(0);
   for (const row of rows) {
@@ -848,7 +1020,11 @@ test("no page repeats a marketing footer under the content", async ({
   for (const name of ["构建 IPA", "构建记录", "环境与资源", "设置"]) {
     await page.getByRole("button", { name, exact: true }).first().click();
     await expect(page.locator(".page-footer")).toHaveCount(0);
-    await expect(page.getByText("内容由你掌控", { exact: false })).toHaveCount(0);
-    await expect(page.getByText("Fabric Only", { exact: false })).toHaveCount(0);
+    await expect(page.getByText("内容由你掌控", { exact: false })).toHaveCount(
+      0,
+    );
+    await expect(page.getByText("Fabric Only", { exact: false })).toHaveCount(
+      0,
+    );
   }
 });

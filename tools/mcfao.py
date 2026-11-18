@@ -60,7 +60,7 @@ BACKEND_TOOLS = (
     "config_reflection", "mdaf", "verify_aot_classpath", "patch_gl41_client", "renderer_profile",
     "cleanup_storage",
     "storage_config", "bundle_source", "host_tools", "verified_download", "glfw_runtime_contract",
-    "native_game_checks",
+    "native_game_checks", "app_icon",
 )
 
 
@@ -343,6 +343,18 @@ def script(name, *args):
     return [sys.executable, "-B", ROOT / "tools" / f"{name}.py", *args]
 
 
+def icon_options(args):
+    """Forward only the icon options the user actually set."""
+    options = []
+    if getattr(args, "icon_fit", "fit") == "fill":
+        options += ["--fit", "fill"]
+    if getattr(args, "icon_background", "transparent") != "transparent":
+        options += ["--background", args.icon_background]
+    if getattr(args, "icon_padding", 0):
+        options += ["--padding", str(args.icon_padding)]
+    return options
+
+
 def loader_client(pipeline, args, config, client, inputs):
     if args.loader == "vanilla":
         return client, None
@@ -446,6 +458,30 @@ def validate_package(app, staged, asset_hashes, renderer="metal"):
             raise ValueError(f"Embedded image UUID differs: {library.name}")
 
 
+def verify_icon(app: Path, name: str):
+    """Require the packaged icon catalog and the Info.plist keys actool emits."""
+    info = plistlib.loads((app / "Info.plist").read_bytes())
+    primary = info.get("CFBundleIcons", {}).get("CFBundlePrimaryIcon", {})
+    if primary.get("CFBundleIconName") != name or not primary.get("CFBundleIconFiles"):
+        raise ValueError(f"Packaged app does not declare the {name} icon")
+    for artifact in ("Assets.car", f"{name}60x60@2x.png", f"{name}76x76@2x~ipad.png"):
+        if not (app / artifact).is_file():
+            raise ValueError(f"Packaged app is missing the {artifact} icon asset")
+
+
+def icon_build_dir(build: Path) -> Path:
+    """Locate the verified compiled icon of a completed build."""
+    build = Path(build).resolve(strict=True)
+    checkpoint = read_json(build / "icon" / "checkpoint.json")
+    attempt = checkpoint.get("attempt")
+    if not isinstance(attempt, str) or not attempt:
+        raise ValueError("The completed build has no compiled app icon")
+    product = (build / "icon" / attempt / "product").resolve(strict=True)
+    if not product.is_relative_to(build / "icon") or tree_files(product) != checkpoint.get("filesSHA256"):
+        raise ValueError("Compiled app icon changed since the build")
+    return product / "compiled"
+
+
 def read_provisioning_profile(path: Path) -> dict | None:
     """Decode a `.mobileprovision` CMS blob into the few facts packaging needs."""
     try:
@@ -510,14 +546,18 @@ def resolve_development_team(bundle_identifier: str = BUNDLE_IDENTIFIER,
     return team
 
 
-def device_xcode(staged: Path, assets: Path, team: str | None = None, *, renderer="metal", unsigned=False, bundle_id=BUNDLE_IDENTIFIER) -> list:
+def device_xcode(staged: Path, assets: Path, team: str | None = None, *, renderer="metal", unsigned=False,
+                 bundle_id=BUNDLE_IDENTIFIER, icon: Path | None = None, icon_name: str | None = None) -> list:
     team = ("" if unsigned else resolve_development_team(bundle_id)) if team is None else team
+    icon_settings = ([f"FAOT_APP_ICON_DIR={icon}", f"FAOT_APP_ICON_NAME={icon_name}"]
+                     if icon and icon_name else [])
     return [
         "/usr/bin/xcodebuild", "-project", ROOT / "ios/C0Harness/C0Harness.xcodeproj",
         "-scheme", "WorldDevice", "-destination", "generic/platform=iOS",
         f"FAOT_GRAPHICS_NATIVE_DIR={staged}", f"FAOT_CLIENT_LIBRARY={staged / 'client-graph.dylib'}",
         f"FAOT_GAME_ASSETS_DIR={assets}", f"DEVELOPMENT_TEAM={team}", f"FAOT_RENDERER={renderer}",
         f"PRODUCT_BUNDLE_IDENTIFIER={bundle_id}",
+        *icon_settings,
         *(["CODE_SIGNING_ALLOWED=NO", "CODE_SIGNING_REQUIRED=NO"] if unsigned else []),
     ]
 
@@ -540,6 +580,9 @@ def verify(output: Path, device: str | None) -> dict:
     app = output / report["app"]
     if not app.resolve().is_relative_to(output) or tree_files(app) != report["appFilesSHA256"]:
         raise ValueError(f"Packaged app content differs from the build manifest: {app}")
+    icon = report.get("appIcon")
+    if icon and icon.get("assetName"):
+        verify_icon(app, icon["assetName"])
     logs = output / "verify" / uuid4().hex
     if report.get("ipa") and (sha256(Path(report["ipa"])) != report["sha256"] or Path(report["ipa"]).stat().st_size != report["bytes"]):
         raise ValueError("IPA changed since packaging")
@@ -569,6 +612,10 @@ def export_ipa(args) -> dict:
     if (checkpoint["key"] != manifest["buildKey"] or not staged.is_relative_to(stage)
             or tree_files(staged) != checkpoint["filesSHA256"]):
         raise ValueError("Staged iPhone build inputs changed")
+    icon = manifest.get("appIcon")
+    icon_settings = {}
+    if icon and icon.get("assetName"):
+        icon_settings = dict(icon=icon_build_dir(build), icon_name=icon["assetName"])
     output.mkdir(parents=True, exist_ok=False)
 
     def step(name, argv, timeout=300):
@@ -582,7 +629,7 @@ def export_ipa(args) -> dict:
     renderer = manifest.get("renderer", "metal")
     bundle_id = evidence.get("bundleID", BUNDLE_IDENTIFIER)
     seed = build / "instance-seed"
-    step("archive", [*device_xcode(staged, assets, renderer=renderer, bundle_id=bundle_id),
+    step("archive", [*device_xcode(staged, assets, renderer=renderer, bundle_id=bundle_id, **icon_settings),
                      *([f"FAOT_INSTANCE_DATA_DIR={seed}"] if seed.is_dir() else []), "-derivedDataPath", output / "DerivedData",
                      "-archivePath", archive, "archive"])
     step("export-log", ["/usr/bin/xcodebuild", "-exportArchive", "-archivePath", archive,
@@ -600,6 +647,8 @@ def export_ipa(args) -> dict:
     if len(apps) != 1:
         raise ValueError("Expected one exported iPhoneOS app")
     validate_package(apps[0], staged, evidence["assetsSHA256"], renderer)
+    if icon and icon.get("assetName"):
+        verify_icon(apps[0], icon["assetName"])
     result = {"status": "DEVELOPMENT_IPA_VERIFIED", "target": TARGET, "ipa": str(ipa),
               "sha256": sha256(ipa), "bytes": ipa.stat().st_size, "build": str(build),
               "exportOptionsSHA256": sha256(options),
@@ -642,6 +691,13 @@ def build(args, config):
         manifest.update({"unsigned": getattr(args, "unsigned", False), "bundleID": getattr(args, "bundle_id", BUNDLE_IDENTIFIER),
                          "heapGiB": getattr(args, "heap_gib", 9), "parallelism": getattr(args, "parallelism", 4)})
         manifest["loader"] = args.loader
+        icon = getattr(args, "icon", None)
+        icon_name = None
+        if icon:
+            from app_icon import icon_path, source_facts, icon_document_name, ICON_NAME as default_icon_name
+            icon = icon_path(str(icon))
+            icon_name = icon_document_name(icon) if icon.suffix.lower() == ".icon" else default_icon_name
+            manifest["appIcon"] = source_facts(icon)
         instance = getattr(args, "instance_data", None)
         if instance:
             instance = instance.resolve()
@@ -750,11 +806,20 @@ def build(args, config):
                     shutil.copytree(instance / directory, seed / directory, dirs_exist_ok=True)
             if (instance / "options.txt").is_file():
                 shutil.copy2(instance / "options.txt", seed / "options.txt")
+        pipeline_icon = None
+        if icon:
+            icon_build = pipeline.step("icon", script(
+                "app_icon", "--icon", icon, "--output", "{product}",
+                *icon_options(args)), timeout=900)
+            pipeline_icon = icon_build / "compiled"
         app = pipeline.step("package", [
-            *device_xcode(staged, config["assets"], renderer=renderer, unsigned=manifest["unsigned"], bundle_id=manifest["bundleID"]),
+            *device_xcode(staged, config["assets"], renderer=renderer, unsigned=manifest["unsigned"], bundle_id=manifest["bundleID"],
+                          icon=pipeline_icon, icon_name=icon_name),
             *([f"FAOT_INSTANCE_DATA_DIR={seed}"] if seed else []), "-derivedDataPath", "{product}", "build"],
             outputs=lambda attempt: attempt / "product/Build/Products/World Device-iphoneos/C0Harness.app")
         validate_package(app, staged, manifest["assetsSHA256"], renderer)
+        if icon_name:
+            verify_icon(app, icon_name)
         if seed and tree_files(seed) != tree_files(app / "instance-seed"):
             raise ValueError("Packaged instance seed changed")
         facts = app_facts(app, args.device, output / "verify" / uuid4().hex, renderer, not manifest["unsigned"])
@@ -771,6 +836,7 @@ def build(args, config):
             "renderer": renderer, "sourceCommit": manifest["sourceCommit"],
             "ipa": str(ipa), "bytes": ipa.stat().st_size, "sha256": sha256(ipa),
             "signature": "UNSIGNED" if manifest["unsigned"] else "DEVELOPMENT_SIGNED",
+            "appIcon": ({"assetName": icon_name, **manifest["appIcon"]} if icon_name else None),
             "loader": args.loader, "loaderReport": str(loader_report) if loader_report else None,
             "inputsSHA256": sha256(saved), "aotCommand": str(aot / "analysis/command.json"),
             "linkReport": str(linked / "result.json"), "app": str(app.relative_to(output)),
@@ -796,6 +862,14 @@ def main(argv=None):
     compile_command.add_argument("--renderer", choices=("metal", "gl41"), default=os.environ.get("FAOT_RENDERER", "metal"))
     compile_command.add_argument("--unsigned", action="store_true")
     compile_command.add_argument("--bundle-id", default=BUNDLE_IDENTIFIER)
+    compile_command.add_argument("--icon", type=Path,
+                                 help="Own artwork for the app icon: an .icon document or a supported image")
+    compile_command.add_argument("--icon-fit", choices=("fit", "fill"), default="fit",
+                                 help="Preserve the whole image (fit) or crop it to the square (fill)")
+    compile_command.add_argument("--icon-background", default="transparent",
+                                 help="transparent or #RRGGBB behind a non-square image")
+    compile_command.add_argument("--icon-padding", type=int, default=0,
+                                 help="Percentage of transparent margin around the artwork (0-30)")
     compile_command.add_argument("--heap-gib", type=int, choices=(6,7,8,9), default=9)
     compile_command.add_argument("--parallelism", type=int, choices=range(1,9), default=4)
     compile_command.add_argument("--prepare-only", action="store_true",
@@ -820,6 +894,8 @@ def main(argv=None):
                 compile_command.error("Fabric requires --mods and either --prepare-only or --audited-mods")
         elif args.mods or args.prepare_only or args.audited_mods or args.trace_agent:
             compile_command.error("Mod options are only valid for Fabric")
+        if not 0 <= args.icon_padding <= 30:
+            compile_command.error("--icon-padding must be between 0 and 30")
     # Some checkouts relocate heavy evidence, caches and Rust artifacts through
     # symlinks declared in an untracked external-storage.json. Pause before
     # creating any output when that personal mapping is unavailable.

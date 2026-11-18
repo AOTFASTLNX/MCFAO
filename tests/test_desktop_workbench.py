@@ -201,17 +201,17 @@ class WorkbenchTests(unittest.TestCase):
         self.assertEqual(w.read_json(metadata)['components'][1]['version'], '0.19.2')
         self.assertIn('0.19.2', messages[0])
 
-    def test_force_request_keeps_audit_and_persists_override_at_launch(self):
+    def test_force_request_persists_override_at_launch(self):
         from types import SimpleNamespace
         source = self.prism()
         metadata = source / 'mmc-pack.json'
         data = w.read_json(metadata); data['components'][1]['version'] = '0.19.2'; w.write_json(metadata, data)
         lock = self.root / 'compiler'; lock.mkdir(); w.write_json(lock / 'fabric.lock.json', {'fabricLoader':'0.19.3'})
         export = self.root / 'export.plist'; export.write_bytes(plistlib.dumps({'method':'debugging'}))
-        request = dict(workspace=str(self.root), loader='fabric', source=str(source), output=str(self.root/'output'), config='unused', exportOptions=str(export), audited=True)
+        request = dict(workspace=str(self.root), loader='fabric', source=str(source), output=str(self.root/'output'), config='unused', exportOptions=str(export))
         with patch.object(w, 'workspace_path', return_value=self.root), patch.object(w, 'config_summary'), patch.object(w.native_dependencies, 'preflight'):
             self.assertEqual(w.validate_request(request), self.root)
-            with self.assertRaisesRegex(ValueError, '审计'): w.validate_request(dict(request, audited=False))
+            self.assertEqual(w.validate_request(dict(request, audited=False)), self.root)
             with self.assertRaisesRegex(ValueError, '布尔'): w.validate_request(dict(request, forceCompile='true'))
             with patch.object(w.subprocess, 'Popen', return_value=SimpleNamespace(pid=12345)):
                 job = w.start(request)
@@ -314,6 +314,48 @@ class WorkbenchTests(unittest.TestCase):
         self.assertIn('FAOT_RENDERER=gl41',argv)
         self.assertIn('generic/platform=iOS',argv)
 
+    def test_xcode_receives_the_compiled_custom_icon(self):
+        game = self.root / "staged"
+        icon = self.root / "compiled-icon"
+        argv = device_xcode(game, self.root, team='ABCDEFGHIJ', renderer='gl41',
+                            icon=icon, icon_name='Brand')
+        self.assertIn('FAOT_APP_ICON_DIR=' + str(icon), list(map(str, argv)))
+        self.assertIn('FAOT_APP_ICON_NAME=Brand', argv)
+        stock = device_xcode(game, self.root, team='ABCDEFGHIJ', renderer='gl41')
+        self.assertFalse(any(str(arg).startswith('FAOT_APP_ICON_') for arg in stock))
+
+    def test_icon_request_is_validated_before_a_build_starts(self):
+        export = self.root / 'export.plist'
+        export.write_bytes(plistlib.dumps({'method': 'debugging'}))
+        request = dict(workspace=str(self.root), loader='vanilla',
+                       output=str(self.root / 'output'), config='unused',
+                       exportOptions=str(export))
+        image = self.root / 'artwork.png'
+        image.write_bytes(b'icon')
+        with patch.object(w, 'workspace_path', return_value=self.root), patch.object(w, 'config_summary'), patch.object(w.native_dependencies, 'preflight'):
+            self.assertEqual(w.validate_request(dict(request, icon=str(image))), self.root)
+            with self.assertRaisesRegex(ValueError, '图标'):
+                w.validate_request(dict(request, icon=str(self.root / 'missing.png')))
+            with self.assertRaisesRegex(ValueError, '缩放'):
+                w.validate_request(dict(request, icon=str(image), iconFit='stretch'))
+            with self.assertRaisesRegex(ValueError, '背景'):
+                w.validate_request(dict(request, icon=str(image), iconBackground='red'))
+            with self.assertRaisesRegex(ValueError, '留白'):
+                w.validate_request(dict(request, icon=str(image), iconPadding=40))
+
+    def test_icon_preview_returns_a_png_data_url(self):
+        image = self.root / 'artwork.png'
+        image.write_bytes(b'icon')
+        jobs = self.root / 'artifacts/desktop-jobs'
+        def render(source, output, **_):
+            output.write_bytes(b'\x89PNG\r\n\x1a\n')
+        with patch.object(w, 'storage_paths', return_value={'jobs': jobs}), \
+                patch.object(w, 'workspace_path', return_value=self.root), \
+                patch.object(w.app_icon, 'render_preview', side_effect=render):
+            result = w.icon_preview({'workspace': str(self.root), 'fields': {'icon': str(image)}})
+        self.assertTrue(result['data'].startswith('data:image/png;base64,'))
+        self.assertTrue(Path(result['path']).is_file())
+
     def test_execute_runs_literal_argv_and_persists_output(self):
         value = "中文 ' $(echo BAD)"
         stages = []
@@ -394,7 +436,7 @@ class WorkbenchTests(unittest.TestCase):
         source = self.prism()
         metadata = source / 'mmc-pack.json'
         data = w.read_json(metadata); data['components'][1]['version'] = '0.19.2'; w.write_json(metadata, data)
-        request = dict(workspace=str(w.ROOT), loader='fabric', source=str(source), config='unused', exportOptions='unused', audited=True, forceCompile=True)
+        request = dict(workspace=str(w.ROOT), loader='fabric', source=str(source), config='unused', exportOptions='unused', forceCompile=True)
         folder = self.root/'job'; folder.mkdir(); (folder/'launch').touch()
         path = folder/'job.json'
         w.write_json(path, dict(id='a'*32, state='queued', stage='validate', request=request, build=str(self.root/'build'), folder=str(folder)))
@@ -578,5 +620,36 @@ class WorkbenchTests(unittest.TestCase):
         self.assertFalse(report['usage'][0]['available'])
         self.assertTrue(report['warnings'])
         self.assertFalse((self.root / 'disconnected').exists())
+
+    def test_bootstrap_recovers_saved_configuration_outside_source_tree(self):
+        # A packaged source tree omits artifacts/, so the saved configuration is
+        # the only record of the user's absolute input paths.
+        workspace = self.root / 'source'
+        (workspace / 'tools').mkdir(parents=True)
+        jobs = self.root / 'jobs'
+        folder = jobs / 'configs'
+        folder.mkdir(parents=True)
+        values = {key: str(self.root / key) for key in w.KEYS}
+        saved = folder / ('a' * 32 + '.json')
+        w.write_json(saved, values)
+        w.write_json(folder / ('b' * 32 + '.json'), {'prepared': 'incomplete'})
+        with patch.object(w, 'storage_paths', return_value=dict(cache=self.root, builds=self.root, jobs=jobs, rust=self.root)):
+            result = w.bootstrap(workspace)
+        self.assertEqual(result['config'], str(saved))
+        self.assertEqual(result['configFields'], values)
+
+    def test_bootstrap_prefers_a_valid_saved_configuration_over_an_incomplete_one(self):
+        workspace = self.root / 'source'
+        workspace.mkdir()
+        jobs = self.root / 'jobs'
+        folder = jobs / 'configs'
+        folder.mkdir(parents=True)
+        values = {key: str(self.root / key) for key in w.KEYS}
+        older = folder / ('c' * 32 + '.json')
+        w.write_json(older, values)
+        w.write_json(folder / ('d' * 32 + '.json'), {'prepared': 'incomplete'})
+        with patch.object(w, 'storage_paths', return_value=dict(cache=self.root, builds=self.root, jobs=jobs, rust=self.root)):
+            result = w.bootstrap(workspace)
+        self.assertEqual(result['config'], str(older))
 
 if __name__=='__main__': unittest.main()

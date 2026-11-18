@@ -21,6 +21,9 @@ export const accentOptions = [
   { value: "#D96A6A", label: "红色" },
   { value: "#E5AB55", label: "橙色" },
   { value: "#34A77D", label: "绿色" },
+  // macOS systemGray. The readableAccent() step keeps the filled control
+  // legible in light appearance and the native gray in dark appearance.
+  { value: "#8E8E93", label: "灰色" },
 ] as const;
 
 function luminance(hex: string): number {

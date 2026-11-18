@@ -1,0 +1,481 @@
+{
+  "config": {
+    "argv": [
+      "/Users/kexin/.workbuddy/binaries/node/versions/22.22.2-2/bin/node",
+      "/Users/kexin/Documents/ChatGPT/MCFAO/desktop/node_modules/.bin/playwright",
+      "test",
+      "tests/onboarding.spec.ts",
+      "--config=/private/tmp/ncl-temporary-skip.config.mjs",
+      "--workers=2",
+      "--output=/private/tmp/ncl-temporary-skip-final-results"
+    ],
+    "configFile": "/private/tmp/ncl-temporary-skip.config.mjs",
+    "rootDir": "/Users/kexin/Documents/ChatGPT/MCFAO/desktop/tests",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": true,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 2
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/private/tmp/ncl-temporary-skip-final-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 2
+        },
+        "id": "",
+        "name": "",
+        "testDir": "/Users/kexin/Documents/ChatGPT/MCFAO/desktop/tests",
+        "testIgnore": [],
+        "testMatch": [
+          "**/disabled-controls.spec.ts",
+          "**/full-build.spec.ts",
+          "**/motion.spec.ts",
+          "**/native-dependencies.spec.ts",
+          "**/onboarding.spec.ts",
+          "**/portability.spec.ts",
+          "**/storage-management.spec.ts",
+          "**/titlebar.spec.ts",
+          "**/workspace.spec.ts"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "filteredProjects": [
+      {
+        "grep": {},
+        "grepInvert": null,
+        "outputDir": "/private/tmp/ncl-temporary-skip-final-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 2
+        },
+        "name": "",
+        "testDir": "/Users/kexin/Documents/ChatGPT/MCFAO/desktop/tests",
+        "snapshotDir": "/Users/kexin/Documents/ChatGPT/MCFAO/desktop/tests",
+        "testIgnore": [],
+        "testMatch": [
+          "**/disabled-controls.spec.ts",
+          "**/full-build.spec.ts",
+          "**/motion.spec.ts",
+          "**/native-dependencies.spec.ts",
+          "**/onboarding.spec.ts",
+          "**/portability.spec.ts",
+          "**/storage-management.spec.ts",
+          "**/titlebar.spec.ts",
+          "**/workspace.spec.ts"
+        ],
+        "timeout": 30000,
+        "use": {
+          "baseURL": "http://127.0.0.1:1433",
+          "viewport": {
+            "width": 1440,
+            "height": 1000
+          },
+          "trace": "retain-on-failure"
+        },
+        "dependencies": [],
+        "ignoreSnapshots": false,
+        "__projectId": ""
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "/Users/kexin/Documents/ChatGPT/MCFAO/artifacts/desktop/onboarding/temporary-skip-tests.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "default",
+    "updateSourceMethod": "patch",
+    "version": "1.65.1",
+    "workers": 2,
+    "webServer": {
+      "command": "node node_modules/vite/bin/vite.js preview --host 127.0.0.1 --port 1433 --strictPort --outDir /Users/kexin/Documents/ChatGPT/MCFAO/desktop/dist",
+      "cwd": "/Users/kexin/Documents/ChatGPT/MCFAO/desktop",
+      "url": "http://127.0.0.1:1433",
+      "reuseExistingServer": false
+    }
+  },
+  "suites": [
+    {
+      "title": "onboarding.spec.ts",
+      "file": "onboarding.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "first launch completes four gated steps once, persists paths and places accounts first",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 4961,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-18T11:05:03.835Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "fe534f0825407f213faa-7c9c99b58d2f3f08fd44",
+          "file": "onboarding.spec.ts",
+          "line": 176,
+          "column": 1
+        },
+        {
+          "title": "missing publisher configuration permits explicit temporary skip and remembers it",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 2674,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-18T11:05:03.830Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "fe534f0825407f213faa-9c128603f35139f522a0",
+          "file": "onboarding.spec.ts",
+          "line": 243,
+          "column": 1
+        },
+        {
+          "title": "failed qualification and cancellation cannot advance or save initial configuration",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 1051,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-18T11:05:06.767Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "fe534f0825407f213faa-517518f58a739cc93d0b",
+          "file": "onboarding.spec.ts",
+          "line": 280,
+          "column": 1
+        },
+        {
+          "title": "existing files reuse the storage policy dialog and cancelling the picker never saves",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 873,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-18T11:05:07.823Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "fe534f0825407f213faa-5ab0bb99fbae0160ef8a",
+          "file": "onboarding.spec.ts",
+          "line": 300,
+          "column": 1
+        },
+        {
+          "title": "account switching preserves the old identity on failure and replaces it only after verification",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 902,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-18T11:05:08.701Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "fe534f0825407f213faa-d03e492bdb17572576fb",
+          "file": "onboarding.spec.ts",
+          "line": 325,
+          "column": 1
+        },
+        {
+          "title": "a completed guide requires native verification even with a forged completion flag",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 139,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-18T11:05:09.050Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "fe534f0825407f213faa-b60b7e8a1eaf64b71ea8",
+          "file": "onboarding.spec.ts",
+          "line": 340,
+          "column": 1
+        },
+        {
+          "title": "failed session refresh retains identity and permits a new login",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 145,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-18T11:05:09.194Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "fe534f0825407f213faa-af79d9b6d22c2b4c9912",
+          "file": "onboarding.spec.ts",
+          "line": 351,
+          "column": 1
+        },
+        {
+          "title": "corrupt saved build settings cannot crash the guide or be overwritten by directory selection",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 526,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-18T11:05:09.346Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "fe534f0825407f213faa-bed105f9c4f485f91ceb",
+          "file": "onboarding.spec.ts",
+          "line": 366,
+          "column": 1
+        },
+        {
+          "title": "light guide fits minimum window and small preview with reduced motion",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 414,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-18T11:05:09.608Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "fe534f0825407f213faa-529a519d9ecf5e401b69",
+          "file": "onboarding.spec.ts",
+          "line": 388,
+          "column": 3
+        },
+        {
+          "title": "dark guide fits minimum window and small preview with reduced motion",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 428,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-18T11:05:09.878Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "fe534f0825407f213faa-f282aea6a731ef91c178",
+          "file": "onboarding.spec.ts",
+          "line": 388,
+          "column": 3
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-11-18T11:05:03.016Z",
+    "duration": 7335.715999999999,
+    "expected": 10,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

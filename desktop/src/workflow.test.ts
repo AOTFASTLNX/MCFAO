@@ -26,10 +26,9 @@ const form = {
   exportOptions: "/export",
   output: "/out",
   source: "/fixture",
-  audited: true,
 };
 describe("executable workflow", () => {
-  it("unsigned mode skips signing fields while retaining build and audit requirements", () => {
+  it("unsigned mode skips signing fields while retaining build requirements", () => {
     const unsigned = {
       ...form,
       unsigned: true,
@@ -38,17 +37,54 @@ describe("executable workflow", () => {
     };
     expect(buildProblems(unsigned, report, true)).toEqual([]);
     expect(
-      buildProblems({ ...unsigned, audited: false }, report, true).join(),
-    ).toContain("审计");
-    expect(
       buildProblems({ ...unsigned, config: "" }, report, true).join(),
     ).toContain("构建配置");
     const restored = restoreForm(JSON.stringify(unsigned));
     expect(restored.unsigned).toBe(true);
-    expect(restored.audited).toBe(false);
     expect(() => restoreForm(JSON.stringify({ unsigned: "yes" }))).toThrow();
   });
-  it("requires selection for resource-aware reports and retains user choices on reopen", () => {
+  it("keeps a custom icon with its layout options across restarts", () => {
+    const custom = {
+      ...form,
+      icon: "/art/Brand.icon",
+      iconFit: "fill" as const,
+      iconBackground: "#FFFFFF",
+      iconPadding: 12,
+    };
+    const restored = restoreForm(JSON.stringify(custom));
+    expect(restored.icon).toBe("/art/Brand.icon");
+    expect(restored.iconFit).toBe("fill");
+    expect(restored.iconBackground).toBe("#FFFFFF");
+    expect(restored.iconPadding).toBe(12);
+    expect(restoreForm(null).icon).toBe("");
+    expect(restoreForm(null).iconFit).toBe("fit");
+  });
+  it("rejects malformed icon settings", () => {
+    expect(() =>
+      restoreForm(JSON.stringify({ ...form, iconFit: "stretch" })),
+    ).toThrow("缩放");
+    expect(() =>
+      restoreForm(JSON.stringify({ ...form, iconBackground: "red" })),
+    ).toThrow("背景");
+    expect(() =>
+      restoreForm(JSON.stringify({ ...form, iconPadding: 31 })),
+    ).toThrow("留白");
+    expect(() =>
+      restoreForm(JSON.stringify({ ...form, iconPadding: 1.5 })),
+    ).toThrow("留白");
+  });
+  it("flags unsupported icon files before a build starts", () => {
+    expect(
+      buildProblems({ ...form, icon: "/art/notes.txt" }, report, true).join(),
+    ).toContain("图标");
+    expect(
+      buildProblems({ ...form, icon: "/art/Brand.icon" }, report, true),
+    ).toEqual([]);
+    expect(
+      buildProblems({ ...form, icon: "/art/Brand.SVG" }, report, true),
+    ).toEqual([]);
+  });
+  it("requires selection for resource-aware reports within the session", () => {
     const resourceReport = {
       ...report,
       resources_fingerprint: "a".repeat(64),
@@ -79,24 +115,12 @@ describe("executable workflow", () => {
       buildProblems({ ...form, resourceSelection }, resourceReport, true),
     ).toEqual([]);
     expect(
-      restoreForm(JSON.stringify({ ...form, resourceSelection }))
-        .resourceSelection,
-    ).toEqual(resourceSelection);
-    expect(
       buildProblems(
         { ...form, resourceSelection: { ...resourceSelection, included: [] } },
         resourceReport,
         true,
       ).join(),
     ).toContain("至少保留");
-    expect(() =>
-      restoreForm(
-        JSON.stringify({
-          ...form,
-          resourceSelection: { ...resourceSelection, included: [5] },
-        }),
-      ),
-    ).toThrow();
   });
   it("allows complete checked Fabric input", () =>
     expect(buildProblems(form, report, true)).toEqual([]));
@@ -105,17 +129,11 @@ describe("executable workflow", () => {
   it("rejects an imported report for a different path", () =>
     expect(
       buildProblems({ ...form, source: "/other" }, report, true).join(),
-    ).toContain("当前来源"));
+    ).toContain("重新选择整合包"));
   it("blocks a report with errors", () =>
     expect(
       buildProblems(form, { ...report, fatal: true }, true).join(),
     ).toContain("阻断"));
-  it("requires explicit audit for each session", () => {
-    expect(
-      buildProblems({ ...form, audited: false }, report, true).join(),
-    ).toContain("审计");
-    expect(restoreForm(JSON.stringify(form)).audited).toBe(false);
-  });
   it("warns about mismatched Loader versions without blocking", () =>
     expect(
       buildProblems(form, { ...report, fabric_loader_version: "0.1" }, true),
@@ -133,26 +151,37 @@ describe("executable workflow", () => {
       ),
     ).toEqual([]);
   });
-  it("keeps invalid sources and audit requirements when forcing compilation", () => {
-    const forced = { ...form, forceCompile: true, audited: false };
+  it("keeps invalid source requirements when forcing compilation", () => {
+    const forced = { ...form, forceCompile: true };
     expect(
       buildProblems(forced, { ...report, fatal: true }, true).join(),
     ).toContain("阻断");
-    expect(buildProblems(forced, report, true).join()).toContain("审计");
-    expect(buildProblems(forced, null, true).join()).toContain("检查当前来源");
+    expect(buildProblems(forced, null, true).join()).toContain(
+      "重新选择整合包",
+    );
+  });
+  it("never restores a stored pack or its resource selection", () => {
+    const restored = restoreForm(
+      JSON.stringify({
+        ...form,
+        resourceSelection: {
+          source: form.source,
+          fingerprint: "a".repeat(64),
+          included: ["local:mods/one.jar"],
+        },
+      }),
+    );
+    expect(restored.source).toBe("");
+    expect(restored.resourceSelection).toBeNull();
   });
   it("requires force mode to be selected again after reopening", () => {
     expect(
       restoreForm(JSON.stringify({ ...form, forceCompile: true })).forceCompile,
     ).toBe(false);
   });
-  it("supports vanilla without mod source or audit", () =>
+  it("supports vanilla without a mod source", () =>
     expect(
-      buildProblems(
-        { ...form, loader: "vanilla", source: "", audited: false },
-        null,
-        true,
-      ),
+      buildProblems({ ...form, loader: "vanilla", source: "" }, null, true),
     ).toEqual([]));
   it("validates stored settings before use", () => {
     expect(() => restoreForm("[]")).toThrow();

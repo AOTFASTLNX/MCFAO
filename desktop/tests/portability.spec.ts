@@ -35,7 +35,7 @@ test("unsigned export hides signing requirements, persists choice and shows inst
   await expect(page.getByLabel("Apple Team ID")).toHaveValue("BAD");
 });
 
-test("storage settings are distinct and ownership starts unchecked in both themes", async ({
+test("storage settings are distinct and unverified game download stays disabled in both themes", async ({
   page,
 }) => {
   await page.goto("/");
@@ -56,9 +56,8 @@ test("storage settings are distinct and ownership starts unchecked in both theme
     page.getByRole("button", { name: "保存存储位置并检查空间", exact: true }),
   ).toBeDisabled();
   await page.getByRole("button", { name: "设置", exact: true }).click();
-  await expect(
-    page.getByRole("checkbox", { name: /我合法拥有 Minecraft Java Edition/ }),
-  ).not.toBeChecked();
+  await expect(page.getByRole("heading", { name: "账号管理" })).toBeVisible();
+  await expect(page.getByText("请先在账号管理中登录并验证")).toBeVisible();
   await expect(
     page.getByRole("button", { name: "从官方源下载游戏与资源", exact: true }),
   ).toBeDisabled();
@@ -75,16 +74,19 @@ test("storage settings are distinct and ownership starts unchecked in both theme
   }
 });
 
-test("desktop setup and directory changes use bounded actions with explicit ownership", async ({
+test("desktop setup and directory changes use bounded actions after account verification", async ({
   page,
 }) => {
   await page.addInitScript(() => {
     const calls: unknown[] = [];
+    // This suite starts after the separate first-launch flow.
+    localStorage.setItem("ncl.onboarding.v1", JSON.stringify({ version: 1, accepted: true, storageRoot: "/fixture", completed: true }));
     Object.assign(window, {
       isTauri: true,
       __calls: calls,
       __TAURI_INTERNALS__: {
         invoke: async (command: string, args: Record<string, unknown>) => {
+          if (command === "account_action") return { configured: true, verified: true, profile: { id: "a".repeat(32), name: "FixturePlayer" }, verifiedAt: Date.now() / 1000, verifiedUntil: Date.now() / 1000 + 3600 };
           if (command === "default_workspace") return "/fixture/bundled-source";
           if (command === "system_accent") return "#3478D4";
           if (command === "workbench_action") {
@@ -128,14 +130,11 @@ test("desktop setup and directory changes use bounded actions with explicit owne
     .click();
   await expect(page.getByText(/现有数据未迁移/)).toBeVisible();
   await page.getByRole("button", { name: "设置", exact: true }).click();
-  const owned = page.getByRole("checkbox", {
-    name: /我合法拥有 Minecraft Java Edition/,
-  });
-  await owned.check();
+  await expect(page.locator(".settings-account").getByText("FixturePlayer", { exact: true })).toBeVisible();
   await page
     .getByRole("button", { name: "从官方源下载游戏与资源", exact: true })
     .click();
-  await expect(owned).not.toBeChecked();
+  await expect(page.getByRole("checkbox", { name: /我合法拥有/ })).toHaveCount(0);
   const calls = await page.evaluate(
     () =>
       (

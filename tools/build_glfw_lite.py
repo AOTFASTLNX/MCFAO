@@ -10,12 +10,27 @@ from bootstrap_toolchain import sha256
 from capture import ROOT, capture
 from graphics_common import register_tree
 from glfw_runtime_contract import validate_glfw_renderer
+from inventory_client_native_calls import glfw_symbols
 
 # Mod polling is absent from the vanilla client call inventory. These functions
 # are required by malilib's per-tick key recheck as well as direct game input.
 INPUT_POLL_EXPORTS = frozenset({
     "glfwGetMouseButton", "glfwGetKey", "glfwGetCursorPos",
 })
+
+# Generated evidence is not part of a packaged source tree, so the caller
+# (workbench or CLI) supplies either the client JAR or an inventory that was
+# produced from it.
+DEFAULT_INVENTORY = ROOT / "artifacts/evidence/client-native-call-inventory.json"
+
+
+def load_inventory(path: Path) -> dict:
+    path = Path(path)
+    if not path.is_file():
+        raise FileNotFoundError(
+            "client native call inventory missing: " + str(path) +
+            "; pass --client-inventory with the inventory generated for this client")
+    return json.loads(path.read_text())
 
 def validate_input_exports(symbols: set[str]) -> None:
     missing = INPUT_POLL_EXPORTS - symbols
@@ -30,12 +45,30 @@ def required_symbols(inventory: dict) -> set[str]:
     return set(INPUT_POLL_EXPORTS) | {m["name"] for m in inventory["methods"] if m["owner"] in
             ("org/lwjgl/glfw/GLFW","org/lwjgl/glfw/GLFWNativeCocoa") and m["name"].startswith("glfw")}
 
+
+def required_symbols_for_client(client: Path) -> set[str]:
+    client = Path(client)
+    if not client.is_file():
+        raise FileNotFoundError("client JAR missing: " + str(client))
+    return set(INPUT_POLL_EXPORTS) | glfw_symbols(client)
+
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output",type=Path,required=True)
     parser.add_argument("--sdk",choices=("iphoneos","iphonesimulator"),default="iphonesimulator")
+    parser.add_argument("--client",type=Path,help="client JAR the GLFW subset must satisfy")
+    parser.add_argument("--client-inventory",type=Path,
+                        help="client-native-call-inventory.json generated from the client being built")
     parser.add_argument("--test-host",action="store_true")
     args=parser.parse_args(argv)
+    if args.client:
+        client=Path(args.client).resolve()
+        required=required_symbols_for_client(client)
+        inputs={"client":str(client),"clientSHA256":sha256(client)}
+    else:
+        inventory_path=Path(args.client_inventory or DEFAULT_INVENTORY).resolve()
+        required=required_symbols(load_inventory(inventory_path))
+        inputs={"clientInventory":str(inventory_path),"clientInventorySHA256":sha256(inventory_path)}
     output=args.output.resolve();output.mkdir(parents=True,exist_ok=False)
     source=ROOT/"ios/glfw-lite"
     target="arm64-apple-ios17.0"+("-simulator" if args.sdk=="iphonesimulator" else "")
@@ -46,12 +79,12 @@ def main(argv=None):
          "-framework","QuartzCore","-framework","CoreGraphics","-framework","Metal","-framework","GameController","-install_name","@rpath/libglfw.dylib","-o",str(binary)]
     result={"status":"BLOCKED","gateC0":"BLOCKED","target":target,
             "scope":"GLFW native subset only; no Java bridge or Minecraft renderer acceptance",
+            **inputs,
             "sourcesSHA256":{str(p.relative_to(ROOT)):sha256(p) for p in source.iterdir() if p.is_file()}}
     build=capture(cmd,output/"compile",180);result["compile"]=build
     if build["exitCode"]==0:
         symbols=subprocess.check_output(["xcrun","nm","-gUj",str(binary)],text=True)
         (output/"exports.txt").write_text(symbols)
-        required=required_symbols(json.loads((ROOT/"artifacts/evidence/client-native-call-inventory.json").read_text()))
         result["requiredCExports"]=sorted(required)
         result["missingCExports"]=sorted(required-exported_symbols(symbols))
         platform=subprocess.check_output(["xcrun","vtool","-show-build",str(binary)],text=True)

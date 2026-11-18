@@ -13,9 +13,12 @@ from graphics_common import register_tree
 from run_b0_reference import sandbox_policy
 
 def main(argv=None):
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--output',type=Path,required=True);args=parser.parse_args(argv)
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--output',type=Path,required=True)
+    parser.add_argument('--prepared',type=Path,default=ROOT/'artifacts/b0/prepared-04',
+                        help='prepared client directory containing result.json')
+    args=parser.parse_args(argv)
     out=args.output.resolve();out.mkdir(parents=True,exist_ok=False)
-    manifest=json.loads((ROOT/'artifacts/b0/prepared-04/result.json').read_text());references=[];client=None
+    manifest=json.loads((Path(args.prepared)/'result.json').read_text());references=[];client=None
     for entry in manifest['referenceLibraries']:
         path=Path(entry['path'])
         if any(name in path.name for name in ('fabric-loader-','sponge-mixin-','intermediary-')):continue
