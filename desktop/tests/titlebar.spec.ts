@@ -51,7 +51,9 @@ for (const theme of ["light", "dark"] as const) {
           ),
         ).toBe(true);
         await page
-          .locator(".main-content")
+          .locator(
+            ".step-scroll, .main-content[data-docked] > .page-column:not([data-builder]), .main-content:not([data-docked])",
+          )
           .evaluate((pane) => pane.scrollTo(0, pane.scrollHeight));
         await expect(page.locator(".topbar")).toBeInViewport();
         expect((await page.locator(".topbar").boundingBox())!.y).toBe(0);
@@ -77,7 +79,7 @@ for (const theme of ["light", "dark"] as const) {
         );
       }
       await page
-        .locator(".main-content")
+        .locator(".step-scroll")
         .evaluate((pane) => pane.scrollTo(0, 0));
       await page.screenshot({
         path: `../artifacts/desktop/titlebar-compact/${theme}-${size.width}.png`,
@@ -158,7 +160,7 @@ test("the page scroll bar belongs to the pane below the title bar", async ({
   });
   await expect(page.getByText("导入检查报告", { exact: true })).toBeVisible();
   const scroll = await page.evaluate(() => {
-    const pane = document.querySelector<HTMLElement>(".main-content")!;
+    const pane = document.querySelector<HTMLElement>(".step-scroll")!;
     const topbar = document.querySelector<HTMLElement>(".topbar")!;
     pane.scrollTop = pane.scrollHeight;
     return {
@@ -171,9 +173,8 @@ test("the page scroll bar belongs to the pane below the title bar", async ({
       // The scroll bar hugs the window edge, not the centred content column.
       paneRight: pane.getBoundingClientRect().right,
       viewport: innerWidth,
-      contentRight: document
-        .querySelector(".builder-panel")!
-        .getBoundingClientRect().right,
+      contentRight: document.querySelector(".stepper")!.getBoundingClientRect()
+        .right,
       overflowY: getComputedStyle(pane).overflowY,
     };
   });
@@ -211,8 +212,8 @@ test("a loaded report keeps the document inside the window", async ({
     await page.evaluate(() => ({
       documentFits: document.documentElement.scrollHeight <= innerHeight,
       paneScrolls:
-        document.querySelector<HTMLElement>(".main-content")!.scrollHeight >
-        document.querySelector<HTMLElement>(".main-content")!.clientHeight,
+        document.querySelector<HTMLElement>(".step-scroll")!.scrollHeight >
+        document.querySelector<HTMLElement>(".step-scroll")!.clientHeight,
     })),
   ).toEqual({ documentFits: true, paneScrolls: true });
 });
@@ -249,7 +250,7 @@ test("every page scrolls in the pane without a second window scroll bar", async 
   }
 });
 
-test("page actions float over the content instead of scrolling away", async ({
+test("builder content scrolls behind fixed bars and clears them at the ends", async ({
   page,
 }) => {
   const report = JSON.parse(
@@ -257,64 +258,119 @@ test("page actions float over the content instead of scrolling away", async ({
       encoding: "utf8",
     }),
   );
-  await page.setViewportSize({ width: 1100, height: 760 });
+  await page.setViewportSize({ width: 1100, height: 1200 });
   await page.goto("/");
-  await page.getByRole("button", { name: "设置", exact: true }).click();
-  await page.getByRole("button", { name: "构建 IPA", exact: true }).click();
-  const builder = await page.evaluate(() => {
-    const probe = (selector: string) => {
-      const element = document.querySelector<HTMLElement>(selector)!;
-      const style = getComputedStyle(element);
+  const pane = page.locator(".step-scroll");
+  const measure = (fraction: number) =>
+    pane.evaluate((body, fraction) => {
+      const workspace = body.closest(".main-content")!.getBoundingClientRect();
+      const maxScroll = body.scrollHeight - body.clientHeight;
+      body.scrollTop = maxScroll * fraction;
+      const top = document.querySelector(".stepper")!.getBoundingClientRect();
+      const bottom = document
+        .querySelector(".wizard-footer")!
+        .getBoundingClientRect();
+      const scroller = body.getBoundingClientRect();
+      const content = body.querySelector<HTMLElement>(".step-body")!;
+      const first = body.querySelector<HTMLElement>(
+        ".step-scroll-column",
+      )!.firstElementChild!;
       return {
-        position: style.position,
-        radius: style.borderTopLeftRadius,
+        maxScroll,
+        scrollTop: body.scrollTop,
+        topInset: top.top - workspace.top,
+        bottomInset: workspace.bottom - bottom.bottom,
+        scrollsBehindBothBars:
+          scroller.top < top.top && scroller.bottom > bottom.bottom,
+        startClear: first.getBoundingClientRect().top >= top.bottom,
+        endClear: content.getBoundingClientRect().bottom <= bottom.top,
       };
-    };
-    return {
-      stepper: probe(".stepper"),
-      wizard: probe(".wizard-footer"),
-    };
-  });
-  await page.getByRole("button", { name: "构建记录", exact: true }).click();
-  const toolbar = await page.locator(".page-toolbar").evaluate((element) => {
-    const style = getComputedStyle(element);
-    return {
-      position: style.position,
-      radius: style.borderTopLeftRadius,
-    };
-  });
-  for (const capsule of [...Object.values(builder), toolbar]) {
-    expect(capsule.position).toBe("sticky");
-    expect(Number.parseFloat(capsule.radius)).toBeGreaterThanOrEqual(999);
-  }
+    }, fraction);
 
-  await page.getByRole("button", { name: "构建 IPA", exact: true }).click();
-  // A long step makes the pane scroll, which is when the capsules pin.
+  const short = await measure(0);
+  expect(short).toMatchObject({
+    maxScroll: 0,
+    topInset: 8,
+    bottomInset: 8,
+    scrollsBehindBothBars: true,
+    startClear: true,
+    endClear: true,
+  });
+
+  await page.setViewportSize({ width: 800, height: 640 });
   await page.locator("input[type=file]").setInputFiles({
     name: "preflight.json",
     mimeType: "application/json",
     buffer: Buffer.from(JSON.stringify(report)),
   });
-  await expect(page.getByText("导入检查报告", { exact: true })).toBeVisible();
-  const pane = await page.locator(".main-content").evaluate((element) => {
-    // Measure before reaching the content's natural bottom.
-    element.scrollTo(0, (element.scrollHeight - element.clientHeight) / 2);
-    const stepper = document.querySelector(".stepper")!.getBoundingClientRect();
-    const footer = document
-      .querySelector(".wizard-footer")!
-      .getBoundingClientRect();
-    const box = element.getBoundingClientRect();
-    return {
-      scrolled: element.scrollTop,
-      stepperPinned: Math.round(stepper.top - box.top),
-      footerPinned: Math.round(box.bottom - footer.bottom),
-    };
+  await expect(page.getByRole("button", { name: "导出报告" })).toBeVisible();
+  for (const fraction of [0, 0.5, 1]) {
+    const long = await measure(fraction);
+    expect(long.maxScroll).toBeGreaterThan(0);
+    expect(
+      Math.abs(long.scrollTop - long.maxScroll * fraction),
+    ).toBeLessThanOrEqual(1);
+    expect(long).toMatchObject({
+      topInset: short.topInset,
+      bottomInset: short.bottomInset,
+      scrollsBehindBothBars: true,
+    });
+    if (fraction === 0) {
+      expect(long.startClear).toBe(true);
+      expect(long.endClear).toBe(false);
+    }
+    if (fraction === 1) {
+      expect(long.startClear).toBe(false);
+      expect(long.endClear).toBe(true);
+    }
+  }
+
+  await page.getByRole("button", { name: "3 构建环境", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "准备你的构建环境" }),
+  ).toBeInViewport();
+  await expect(page.locator(".step-body")).toHaveAttribute(
+    "data-phase",
+    "idle",
+  );
+  expect(await pane.evaluate((body) => body.scrollTop)).toBe(0);
+  expect(await measure(0)).toMatchObject({
+    topInset: short.topInset,
+    bottomInset: short.bottomInset,
   });
-  expect(pane.scrolled).toBeGreaterThan(0);
-  // Both capsules stop an 8 px inset from the pane edges, clear of the top
-  // bar and the window bottom.
-  expect(pane.stepperPinned).toBe(8);
-  expect(pane.footerPinned).toBe(8);
+});
+
+test("history and environment actions stay above their scrolling pages", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1100, height: 760 });
+  await page.goto("/");
+  for (const [route, action] of [
+    ["构建记录", "新建构建"],
+    ["环境与资源", "检测环境"],
+  ] as const) {
+    await page.getByRole("button", { name: route, exact: true }).click();
+    const toolbar = page.locator(".page-toolbar");
+    await expect(toolbar.getByRole("button", { name: action })).toBeVisible();
+    const position = await toolbar.boundingBox();
+    // An empty history can fit in the window, so force a tall list for this check.
+    const result = await page.locator(".page-column").evaluate((body) => {
+      const spacer = document.createElement("div");
+      spacer.style.height = `${body.clientHeight}px`;
+      body.append(spacer);
+      body.scrollTop = body.scrollHeight;
+      const result = {
+        scrollTop: body.scrollTop,
+        toolbarTop: document
+          .querySelector(".page-toolbar")!
+          .getBoundingClientRect().top,
+      };
+      spacer.remove();
+      return result;
+    });
+    expect(result.scrollTop).toBeGreaterThan(0);
+    expect(result.toolbarTop).toBe(position!.y);
+  }
 });
 
 test("environment and history drop the outer card for dividers", async ({

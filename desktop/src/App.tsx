@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type ReactNode,
@@ -692,12 +693,43 @@ export default function App() {
   const reviewStep = steps.length - 1;
   const stepView = useStepContent(step);
   const stepper = useSlidingIndicator<HTMLDivElement>(step);
+  const { containerRef: stepperRef } = stepper;
+  const stepScrollRef = useRef<HTMLDivElement>(null);
+  const wizardFooterRef = useRef<HTMLElement>(null);
   const pageIndex = pages.findIndex(([id]) => id === page);
   const sidebar = useSlidingIndicator<HTMLElement>(pageIndex);
   const pageView = usePageCrossfade(page);
   const visiblePage = pageView.page;
   const loaderMoving = useSelectionPulse(form.loader);
   const visibleStep = stepView.phase === "idle" ? step : stepView.step;
+  useLayoutEffect(() => {
+    const scroll = stepScrollRef.current;
+    const top = stepperRef.current;
+    const bottom = wizardFooterRef.current;
+    if (visiblePage !== "builder" || !scroll || !top || !bottom) return;
+
+    const updateInsets = () => {
+      scroll.style.setProperty(
+        "--stepper-height",
+        `${top.getBoundingClientRect().height}px`,
+      );
+      scroll.style.setProperty(
+        "--wizard-footer-height",
+        `${bottom.getBoundingClientRect().height}px`,
+      );
+    };
+    updateInsets();
+    const observer = new ResizeObserver(updateInsets);
+    observer.observe(top);
+    observer.observe(bottom);
+    return () => observer.disconnect();
+  }, [visiblePage, stepperRef]);
+
+  useLayoutEffect(() => {
+    const scroll = stepScrollRef.current;
+    if (scroll) scroll.scrollTop = 0;
+  }, [stepView.step]);
+
   function goToStep(target: number) {
     const next = Math.max(0, Math.min(steps.length - 1, target));
     if (next === step) return;
@@ -1356,6 +1388,38 @@ export default function App() {
       />
     </>
   );
+  const builderPage = visiblePage === "builder";
+  const hasPageToolbar =
+    visiblePage === "history" || visiblePage === "environment";
+  const dockedPage = builderPage || hasPageToolbar;
+  const pageBanners = (
+    <>
+      {storageIssue && <Note error>{storageIssue}</Note>}
+      {error && !storageChange && (
+        <div className="error-banner banner-enter" role="alert">
+          <CircleAlert size={19} />
+          <span>{error}</span>
+          <button aria-label="关闭错误" onClick={() => setError("")}>
+            <X size={17} />
+          </button>
+        </div>
+      )}
+      {notice && (
+        <div className="success-banner banner-enter" role="status">
+          <CheckCircle2 size={18} />
+          {notice}
+        </div>
+      )}
+      {!native && (
+        <div className="preview-banner banner-enter">
+          <Cpu size={17} />
+          <span>
+            当前为浏览器预览。请启动桌面应用，使用本地文件选择、真实编译和开发签名。
+          </span>
+        </div>
+      )}
+    </>
+  );
   return (
     <div
       className="app-shell"
@@ -1462,101 +1526,147 @@ export default function App() {
             <span className="version">v{PRODUCT_VERSION} · 实验版</span>
           </div>
         </header>
-        <div className="main-content">
-          <div className="page-column" data-phase={pageView.phase}>
-            {storageIssue && <Note error>{storageIssue}</Note>}
-            {error && !storageChange && (
-              <div className="error-banner banner-enter" role="alert">
-                <CircleAlert size={19} />
-                <span>{error}</span>
-                <button aria-label="关闭错误" onClick={() => setError("")}>
-                  <X size={17} />
-                </button>
-              </div>
-            )}
-            {notice && (
-              <div className="success-banner banner-enter" role="status">
-                <CheckCircle2 size={18} />
-                {notice}
-              </div>
-            )}
-            {!native && (
-              <div className="preview-banner banner-enter">
-                <Cpu size={17} />
-                <span>
-                  当前为浏览器预览。请启动桌面应用，使用本地文件选择、真实编译和开发签名。
-                </span>
-              </div>
-            )}
-            {visiblePage === "builder" && (
-              <>
-                <div className="workflow-layout">
-                  <section className="builder-panel">
-                    <div
-                      className="stepper"
-                      aria-label="构建步骤"
-                      aria-keyshortcuts="Alt+ArrowLeft Alt+ArrowRight"
-                      ref={stepper.containerRef}
-                      data-motion-moving={stepper.moving ? "true" : "false"}
+        <div className="main-content" data-docked={dockedPage || undefined}>
+          {hasPageToolbar && (
+            <div className="page-toolbar-row" data-phase={pageView.phase}>
+              {visiblePage === "history" ? (
+                <div className="page-toolbar">
+                  <div className="page-toolbar-actions">
+                    <button
+                      className="primary"
+                      onClick={() => {
+                        nav("builder", true);
+                        setStep(0);
+                      }}
                     >
-                      <MotionIndicator
-                        indicatorRef={stepper.indicatorRef}
-                        moving={stepper.moving}
-                      />
-                      {steps.map((s, i) => (
-                        <button
-                          key={s}
-                          data-motion-item
-                          data-step-index={i}
-                          title={s}
-                          className={
-                            "step " +
-                            (step === i
-                              ? "current"
-                              : checkedSteps.includes(i)
-                                ? "complete"
-                                : "")
-                          }
-                          aria-current={step === i ? "step" : undefined}
-                          onClick={() => goToStep(i)}
-                          data-locked={
-                            i > step &&
-                            !steps
-                              .slice(step, i)
-                              .every((_, offset) => stepGate(step + offset))
-                              ? "true"
-                              : undefined
-                          }
-                        >
-                          <span
-                            className="step-number"
-                            data-state={
-                              step === i
-                                ? "current"
-                                : checkedSteps.includes(i)
-                                  ? "complete"
-                                  : "pending"
-                            }
-                          >
-                            {step === i ? (
-                              <span className="step-digit">{i + 1}</span>
-                            ) : checkedSteps.includes(i) ? (
-                              <Check
-                                className="step-check"
-                                size={14}
-                                aria-hidden="true"
-                              />
-                            ) : (
-                              <span className="step-digit">{i + 1}</span>
-                            )}
-                          </span>
-                          <span className="step-label">{s}</span>
-                          {i < steps.length - 1 && (
-                            <ChevronRight className="step-chevron" size={14} />
-                          )}
-                        </button>
-                      ))}
-                    </div>
+                      <Plus size={17} />
+                      新建构建
+                    </button>
+                    <button
+                      className="secondary"
+                      disabled={
+                        !native ||
+                        !!busy ||
+                        !!active ||
+                        (!form.unsigned && !form.exportOptions)
+                      }
+                      onClick={() =>
+                        void attempt("正在导出现有构建", async () => {
+                          const path = await choosePath(
+                            "选择已完成的构建目录（含 result.json）",
+                            true,
+                          );
+                          if (!path) return;
+                          const next = await workbench<BuildJob>(
+                            { ...form, existingBuild: path },
+                            "start",
+                          );
+                          setJobs((old) => mergeJob(old, next));
+                          setSelected(next.id);
+                          setRefresh((v) => v + 1);
+                        })
+                      }
+                    >
+                      <Download size={16} />
+                      从已有构建导出 IPA
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="page-toolbar">
+                  <button
+                    className="primary"
+                    disabled={!native || !!busy || !form.config}
+                    title={
+                      !native || busy || !form.config
+                        ? controlReason
+                        : undefined
+                    }
+                    onClick={() => void detect()}
+                  >
+                    <RefreshCw size={17} />
+                    检测环境
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+          <div
+            className="page-column"
+            data-phase={pageView.phase}
+            data-builder={builderPage || undefined}
+          >
+            {!builderPage && pageBanners}
+            {builderPage && (
+              <section className="builder-panel">
+                <div
+                  className="stepper"
+                  aria-label="构建步骤"
+                  aria-keyshortcuts="Alt+ArrowLeft Alt+ArrowRight"
+                  ref={stepperRef}
+                  data-motion-moving={stepper.moving ? "true" : "false"}
+                >
+                  <MotionIndicator
+                    indicatorRef={stepper.indicatorRef}
+                    moving={stepper.moving}
+                  />
+                  {steps.map((s, i) => (
+                    <button
+                      key={s}
+                      data-motion-item
+                      data-step-index={i}
+                      title={s}
+                      className={
+                        "step " +
+                        (step === i
+                          ? "current"
+                          : checkedSteps.includes(i)
+                            ? "complete"
+                            : "")
+                      }
+                      aria-current={step === i ? "step" : undefined}
+                      onClick={() => goToStep(i)}
+                      data-locked={
+                        i > step &&
+                        !steps
+                          .slice(step, i)
+                          .every((_, offset) => stepGate(step + offset))
+                          ? "true"
+                          : undefined
+                      }
+                    >
+                      <span
+                        className="step-number"
+                        data-state={
+                          step === i
+                            ? "current"
+                            : checkedSteps.includes(i)
+                              ? "complete"
+                              : "pending"
+                        }
+                      >
+                        {step === i ? (
+                          <span className="step-digit">{i + 1}</span>
+                        ) : checkedSteps.includes(i) ? (
+                          <Check
+                            className="step-check"
+                            size={14}
+                            aria-hidden="true"
+                          />
+                        ) : (
+                          <span className="step-digit">{i + 1}</span>
+                        )}
+                      </span>
+                      <span className="step-label">{s}</span>
+                      {i < steps.length - 1 && (
+                        <ChevronRight className="step-chevron" size={14} />
+                      )}
+                    </button>
+                  ))}
+                </div>
+                <div className="step-scroll" ref={stepScrollRef}>
+                  <div className="step-scroll-column">
+                    {pageBanners}
                     <StepBody
                       step={visibleStep}
                       phase={stepView.phase}
@@ -2235,107 +2345,65 @@ export default function App() {
                         </>
                       )}
                     </StepBody>
-                    <footer className="wizard-footer">
-                      <button
-                        className="text-button"
-                        disabled={step === 0 || !!busy}
-                        onClick={() => goToStep(step - 1)}
-                      >
-                        <ChevronLeft size={16} />
-                        上一步
-                      </button>
-                      <span
-                        className="wizard-count"
-                        aria-label={`第 ${step + 1} 步，共 ${steps.length} 步`}
-                      >
-                        <span aria-hidden="true">
-                          <AnimatedNumber value={step + 1} /> / {steps.length}
-                        </span>
-                      </span>
-                      {step < reviewStep ? (
-                        <button
-                          className="primary"
-                          data-action="next"
-                          disabled={!nextAllowed || !!busy}
-                          onClick={() => goToStep(step + 1)}
-                        >
-                          下一步
-                          <ArrowRight size={17} />
-                        </button>
-                      ) : (
-                        <button
-                          className="primary"
-                          data-action="build"
-                          disabled={
-                            problems.length > 0 ||
-                            !!busy ||
-                            !!active ||
-                            checks?.ready === false
-                          }
-                          title={
-                            problems.length > 0
-                              ? problems[0]
-                              : busy || active
-                                ? controlReason
-                                : checks?.ready === false
-                                  ? "环境检查未通过，请先处理上方标出的项目。"
-                                  : undefined
-                          }
-                          onClick={() => void begin()}
-                        >
-                          <Hammer size={17} />
-                          构建 IPA
-                        </button>
-                      )}
-                    </footer>
-                  </section>
+                  </div>
                 </div>
-              </>
+                <footer className="wizard-footer" ref={wizardFooterRef}>
+                  <button
+                    className="text-button"
+                    disabled={step === 0 || !!busy}
+                    onClick={() => goToStep(step - 1)}
+                  >
+                    <ChevronLeft size={16} />
+                    上一步
+                  </button>
+                  <span
+                    className="wizard-count"
+                    aria-label={`第 ${step + 1} 步，共 ${steps.length} 步`}
+                  >
+                    <span aria-hidden="true">
+                      <AnimatedNumber value={step + 1} /> / {steps.length}
+                    </span>
+                  </span>
+                  {step < reviewStep ? (
+                    <button
+                      className="primary"
+                      data-action="next"
+                      disabled={!nextAllowed || !!busy}
+                      onClick={() => goToStep(step + 1)}
+                    >
+                      下一步
+                      <ArrowRight size={17} />
+                    </button>
+                  ) : (
+                    <button
+                      className="primary"
+                      data-action="build"
+                      disabled={
+                        problems.length > 0 ||
+                        !!busy ||
+                        !!active ||
+                        checks?.ready === false
+                      }
+                      title={
+                        problems.length > 0
+                          ? problems[0]
+                          : busy || active
+                            ? controlReason
+                            : checks?.ready === false
+                              ? "环境检查未通过，请先处理上方标出的项目。"
+                              : undefined
+                      }
+                      onClick={() => void begin()}
+                    >
+                      <Hammer size={17} />
+                      构建 IPA
+                    </button>
+                  )}
+                </footer>
+              </section>
             )}
             {visiblePage === "history" && (
               <>
-                <div className="page-toolbar">
-                  <div className="page-toolbar-actions">
-                    <button
-                      className="primary"
-                      onClick={() => {
-                        nav("builder", true);
-                        setStep(0);
-                      }}
-                    >
-                      <Plus size={17} />
-                      新建构建
-                    </button>
-                    <button
-                      className="secondary"
-                      disabled={
-                        !native ||
-                        !!busy ||
-                        !!active ||
-                        (!form.unsigned && !form.exportOptions)
-                      }
-                      onClick={() =>
-                        void attempt("正在导出现有构建", async () => {
-                          const path = await choosePath(
-                            "选择已完成的构建目录（含 result.json）",
-                            true,
-                          );
-                          if (!path) return;
-                          const next = await workbench<BuildJob>(
-                            { ...form, existingBuild: path },
-                            "start",
-                          );
-                          setJobs((old) => mergeJob(old, next));
-                          setSelected(next.id);
-                          setRefresh((v) => v + 1);
-                        })
-                      }
-                    >
-                      <Download size={16} />
-                      从已有构建导出 IPA
-                    </button>
-                  </div>
-                </div>
                 <div className="history-layout">
                   <section className="job-list-panel flat">
                     <div className="list-heading">
@@ -2838,21 +2906,6 @@ export default function App() {
                     )}
                   </div>
                 )}
-                <div className="page-toolbar">
-                  <button
-                    className="primary"
-                    disabled={!native || !!busy || !form.config}
-                    title={
-                      !native || busy || !form.config
-                        ? controlReason
-                        : undefined
-                    }
-                    onClick={() => void detect()}
-                  >
-                    <RefreshCw size={17} />
-                    检测环境
-                  </button>
-                </div>
                 {dependencyJob && (
                   <DependencyTask
                     job={dependencyJob}
