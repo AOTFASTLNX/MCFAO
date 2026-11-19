@@ -10,6 +10,9 @@ publish = false
 name = "fabricaot_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+local-testing = []
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

@@ -6,8 +6,9 @@ import sys
 import tarfile
 import tempfile
 import unittest
+from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
-from prepare_shader_toolchain import extract
+from prepare_shader_toolchain import cache_inputs, extract
 from verify_evidence import verify
 from translate_shaders import interface_locations,validate_bindings
 
@@ -31,6 +32,28 @@ class ShaderInterfaceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'Undeclared'):validate_bindings(pipeline,data,{'resources':[]})
 
 class ShaderToolCacheTests(unittest.TestCase):
+    def test_cached_source_root_ignores_macos_metadata(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            archives = root / 'archives'
+            archives.mkdir()
+            archive = archives / 'source.tar.gz'
+            with tarfile.open(archive, 'w:gz') as stream:
+                info = tarfile.TarInfo('source/CMakeLists.txt')
+                info.size = 5
+                stream.addfile(info, io.BytesIO(b'fixed'))
+            lock = root / 'lock.json'
+            lock.write_text(json.dumps({'tool': {'file': archive.name, 'size': archive.stat().st_size,
+                                                 'sha256': hashlib.sha256(archive.read_bytes()).hexdigest()}}))
+            with patch('prepare_shader_toolchain.CACHE', root), patch('prepare_shader_toolchain.LOCK', lock):
+                self.assertEqual(cache_inputs(), {'tool': root / 'tool/source'})
+                (root / 'tool/._source').write_bytes(bytes.fromhex('00051607'))
+                (root / 'tool/__MACOSX').mkdir()
+                self.assertEqual(cache_inputs(), {'tool': root / 'tool/source'})
+                (root / 'tool/unexpected').mkdir()
+                with self.assertRaisesRegex(ValueError, 'Unexpected shader tool root'):
+                    cache_inputs()
+
     def test_archive_cannot_escape_extraction_directory(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp);archive=root/'source.tar.gz'

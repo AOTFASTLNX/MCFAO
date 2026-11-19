@@ -151,7 +151,7 @@ xcodebuild -project ios/C0Harness/C0Harness.xcodeproj -scheme WorldSimulator \
   -derivedDataPath "$DERIVED" \
   FAOT_GRAPHICS_NATIVE_DIR="$STAGED" FAOT_CLIENT_LIBRARY="$STAGED/client-graph.dylib" \
   build | tail -15
-APP=$(find "$DERIVED/Build/Products" -maxdepth 2 -name '*.app' | head -1)
+APP=$(find "$DERIVED/Build/Products" -maxdepth 2 -type d -name '*.app' | head -1)
 [ -n "$APP" ] || die "no simulator app"
 log "app: $APP"
 

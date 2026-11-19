@@ -26,6 +26,9 @@ class IOSRuntimeBuildTests(unittest.TestCase):
                 base = root / "src/java.base" / platform / "native/libjava"
                 base.mkdir(parents=True)
                 (base / "Same.c").write_text(platform)
+                (base / "._Same.c").write_bytes(b"\x00\x05\x16\x07\xff")
+                (base / "__MACOSX").mkdir()
+                (base / "__MACOSX" / "OnlyMetadata.c").write_bytes(b"\xff")
             files = jdk_sources(root, "libjava")
             self.assertEqual(len(files), 1)
             self.assertEqual(files[0].read_text(), "macosx")

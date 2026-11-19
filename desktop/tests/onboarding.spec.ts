@@ -10,6 +10,8 @@ async function install(
     account?: boolean;
     resume?: boolean;
     refreshFails?: boolean;
+    verificationDeferred?: boolean;
+    localTesting?: boolean;
   } = {},
 ) {
   await page.addInitScript((options) => {
@@ -34,6 +36,7 @@ async function install(
       saved: 0,
       opened: 0,
       calls: [] as string[],
+      setupState: "",
     };
     if (!sessionStorage.getItem("onboarding-fixture-seeded")) {
       if (options.complete || options.resume)
@@ -44,6 +47,7 @@ async function install(
             accepted: true,
             storageRoot: options.complete ? "/fixture/NCL Data" : "",
             completed: !!options.complete,
+            verificationDeferred: !!options.verificationDeferred,
           }),
         );
       sessionStorage.setItem("onboarding-fixture-seeded", "true");
@@ -61,6 +65,10 @@ async function install(
           }
           if (command === "account_action") {
             state.calls.push("account:" + args.action);
+            if (options.localTesting) {
+              if (args.action !== "status") throw new Error("本地测试版无需登录");
+              return { configured: false, verified: false, profile: null, loginRequired: false };
+            }
             if (["status", "refresh", "cancel"].includes(args.action)) {
               if (args.action === "refresh" && options.refreshFails)
                 throw new Error("暂时无法连接账号验证服务");
@@ -101,6 +109,16 @@ async function install(
           if (command === "plugin:dialog|open") return state.directory;
           if (command === "workbench_action") {
             state.calls.push(args.action);
+            if (args.action === "setup-start") {
+              if ((!state.verified && !options.localTesting) || args.request.fields?.owned !== true)
+                throw new Error("正版资格未验证");
+              state.setupState = "running";
+              return { state: "running", message: "正在下载并校验工具链" };
+            }
+            if (args.action === "setup-status")
+              return state.setupState === "ready"
+                ? { state: "ready", config: "/fixture/NCL Data/jobs/setup/config.json" }
+                : { state: state.setupState || "idle", message: "正在下载并校验工具链" };
             if (args.action === "storage-change-plan")
               return {
                 token: "plan",
@@ -120,7 +138,8 @@ async function install(
             if (args.action === "bootstrap")
               return {
                 workspace: "/fixture/source",
-                config: "",
+                config: state.setupState === "ready" ? "/fixture/NCL Data/jobs/setup/config.json" : "",
+                setup: state.setupState === "running" ? { state: "running" } : undefined,
                 exportOptions: "",
                 output: "/fixture/builds",
                 configFields: {},
@@ -217,7 +236,7 @@ test("first launch completes four gated steps once, persists paths and places ac
     page.getByRole("heading", { name: "为构建留出空间" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "下一步", exact: true }).click();
-  await page.getByRole("button", { name: "开始使用", exact: true }).click();
+  await page.getByRole("button", { name: "稍后下载", exact: true }).click();
   await expect(page.getByRole("navigation", { name: "主导航" })).toBeVisible();
   expect(
     await page.evaluate(() => (window as any).__onboardingTest.saved),
@@ -271,7 +290,7 @@ test("missing publisher configuration permits explicit temporary skip and rememb
   await expect(
     page.getByText("Minecraft Java Edition · 正版资格已验证", { exact: true }),
   ).toHaveCount(0);
-  await page.getByRole("button", { name: "开始使用" }).click();
+  await page.getByRole("button", { name: "稍后下载" }).click();
   await expect(page.getByRole("navigation", { name: "主导航" })).toBeVisible();
   await page.reload();
   await expect(page.getByRole("navigation", { name: "主导航" })).toBeVisible();
@@ -295,6 +314,34 @@ test("failed qualification and cancellation cannot advance or save initial confi
   expect(
     await page.evaluate(() => (window as any).__onboardingTest.saved),
   ).toBe(0);
+});
+
+test("a configured account that fails verification can still defer explicitly", async ({
+  page,
+}) => {
+  await install(page, { configured: true });
+  await page.goto("/");
+  await accept(page);
+  await patch(page, { failure: "Minecraft 服务拒绝了本应用的登录请求（HTTP 403）" });
+  await page.getByRole("button", { name: "使用 Microsoft 账号登录" }).click();
+  await expect(page.getByRole("alert")).toContainText("403");
+  await expect(
+    page.getByRole("button", { name: "下一步", exact: true }),
+  ).toBeDisabled();
+  await page.getByRole("button", { name: "暂时跳过正版验证" }).click();
+  await expect(
+    page.getByRole("heading", { name: "为构建留出空间" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "选择目录", exact: true }).click();
+  await page.getByRole("button", { name: "下一步", exact: true }).click();
+  await expect(
+    page.getByText("正版验证已暂时跳过", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Minecraft Java Edition · 正版资格已验证", { exact: true }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "稍后下载" }).click();
+  await expect(page.getByRole("navigation", { name: "主导航" })).toBeVisible();
 });
 
 test("existing files reuse the storage policy dialog and cancelling the picker never saves", async ({
@@ -417,3 +464,69 @@ for (const theme of ["light", "dark"] as const)
         .evaluate((element) => getComputedStyle(element).transitionDuration),
     ).toBe("0s");
   });
+
+test("the step after storage can start preparation and the workbench resumes it", async ({ page }) => {
+  await install(page, { resume: true, account: true });
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "为构建留出空间" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "一键下载并准备" })).toHaveCount(0);
+  await page.getByRole("button", { name: "选择目录", exact: true }).click();
+  await expect(page.getByText("已选择储存目录", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "下一步", exact: true }).click();
+  await page.getByRole("button", { name: "一键下载并准备" }).click();
+  await expect(page.getByText("正在下载并校验工具链")).toBeVisible();
+  await page.getByRole("button", { name: "开始使用", exact: true }).click();
+  await page.getByRole("button", { name: "环境与资源", exact: true }).click();
+  await patch(page, { setupState: "ready" });
+  await expect(page.getByRole("button", { name: "重新检查并准备" })).toBeVisible();
+  await expect.poll(() => page.evaluate(
+    () => JSON.parse(localStorage.getItem("ncl.builder.v2")!).config,
+  )).toBe("/fixture/NCL Data/jobs/setup/config.json");
+});
+
+test("environment preparation offers login and adopts the generated configuration", async ({ page }) => {
+  await install(page, { complete: true, verificationDeferred: true });
+  await page.goto("/");
+  await page.getByRole("button", { name: "环境与资源", exact: true }).click();
+  const setup = page.getByRole("region", { name: "自动准备构建环境" });
+  await expect(page.getByRole("button", { name: "选择配置文件" })).toHaveCount(0);
+  await expect(setup.getByRole("button", { name: "一键下载并准备" })).toHaveCount(0);
+  await setup.getByRole("button", { name: "使用 Microsoft 账号登录" }).click();
+  await expect(setup.getByLabel("登录验证码")).toHaveText("ABCD1234");
+  await patch(page, { ready: true });
+  await setup.getByRole("button", { name: "一键下载并准备" }).click();
+  await expect(setup.getByText("正在下载并校验工具链")).toBeVisible();
+  const detect = page.getByRole("button", { name: "检测环境", exact: true });
+  await expect(detect).toBeDisabled();
+  await patch(page, { setupState: "ready" });
+  await expect(detect).toBeEnabled();
+  await expect(setup.getByText("构建配置已自动生成并保存，可以开始构建。")).toBeVisible();
+  await expect.poll(() => page.evaluate(
+    () => JSON.parse(localStorage.getItem("ncl.builder.v2")!).config,
+  )).toBe("/fixture/NCL Data/jobs/setup/config.json");
+});
+
+test("the local test package skips account verification and prepares a configuration", async ({ page }) => {
+  await install(page, { localTesting: true });
+  await page.goto("/");
+  await expect(page.getByRole("progressbar")).toHaveAttribute("aria-valuemax", "3");
+  await expect(page.getByText("正版登录", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "了解并继续" }).click();
+  await expect(page.getByRole("heading", { name: "为构建留出空间" })).toBeVisible();
+  await page.getByRole("button", { name: "选择目录", exact: true }).click();
+  await expect(page.getByText("已选择储存目录", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "下一步", exact: true }).click();
+  await page.getByRole("button", { name: "一键下载并准备" }).click();
+  await expect(page.getByText("正在下载并校验工具链")).toBeVisible();
+  await page.getByRole("button", { name: "开始使用", exact: true }).click();
+  await page.getByRole("button", { name: "环境与资源", exact: true }).click();
+  await patch(page, { setupState: "ready" });
+  await expect(page.getByRole("button", { name: "检测环境", exact: true })).toBeEnabled();
+  const calls: string[] = await page.evaluate(() => (window as any).__onboardingTest.calls);
+  // StrictMode mounts the provider twice, so status may be requested twice;
+  // what matters is that no sign-in or refresh is attempted at all.
+  const accountCalls = calls.filter((action) => action.startsWith("account:"));
+  expect(accountCalls.length).toBeGreaterThan(0);
+  expect([...new Set(accountCalls)]).toEqual(["account:status"]);
+  expect(calls).toContain("setup-start");
+});

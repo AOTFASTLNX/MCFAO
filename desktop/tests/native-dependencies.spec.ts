@@ -140,6 +140,7 @@ test("inventory lists seven dependencies, changed files and four states in both 
 }, testInfo) => {
   await desktop(page);
   await page.getByRole("button", { name: "环境与资源", exact: true }).click();
+  await page.locator(".environment-disclosure summary").filter({ hasText: "原生依赖库" }).click();
   const manager = page.getByRole("region", { name: "原生依赖库管理" });
   await expect(manager.getByRole("heading", { level: 3 })).toHaveText([
     "GLFW-lite",
@@ -169,6 +170,7 @@ test("inventory lists seven dependencies, changed files and four states in both 
     await page.getByRole("button", { name: "设置", exact: true }).click();
     await page.getByRole("button", { name: theme, exact: true }).click();
     await page.getByRole("button", { name: "环境与资源", exact: true }).click();
+    await page.locator(".environment-disclosure summary").filter({ hasText: "原生依赖库" }).click();
     await page.setViewportSize({ width: 800, height: 900 });
     expect(
       await page.evaluate(
@@ -183,6 +185,7 @@ test("individual rebuild uses start/status/cancel and marks LWJGL stale after GL
 }) => {
   await desktop(page);
   await page.getByRole("button", { name: "环境与资源", exact: true }).click();
+  await page.locator(".environment-disclosure summary").filter({ hasText: "原生依赖库" }).click();
   await page
     .getByRole("button", { name: "重建 GLFW-lite", exact: true })
     .click();
@@ -226,6 +229,7 @@ test("whole rebuild follows dependency order and failed task keeps old paths wit
 }) => {
   await desktop(page);
   await page.getByRole("button", { name: "环境与资源", exact: true }).click();
+  await page.locator(".environment-disclosure summary").filter({ hasText: "原生依赖库" }).click();
   await page
     .getByRole("button", { name: "按顺序整体重建", exact: true })
     .click();
@@ -276,6 +280,7 @@ test("wizard rejects stale dependencies before IPA start and offers one-click re
     .getByRole("button", { name: "构建 IPA", exact: true })
     .last()
     .click();
+  await page.locator(".environment-disclosure summary").filter({ hasText: "原生依赖库" }).click();
   await expect(
     page.getByRole("region", { name: "原生依赖库管理" }),
   ).toBeVisible();

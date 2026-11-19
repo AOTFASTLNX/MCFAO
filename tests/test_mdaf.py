@@ -56,11 +56,16 @@ class MdafMetadataTests(unittest.TestCase):
             (two / "reflect-config.json").write_text(json.dumps([
                 {"name": "mod.Test", "methods": [{"name": "b"}]}]))
             (one / "proxy-config.json").write_text(json.dumps([["mod.Proxy", "mod.Api"]]))
+            (one / "._proxy-config.json").write_bytes(bytes.fromhex("00051607"))
             metadata, conflicts = merge_agent_metadata([one, two])
             self.assertEqual(conflicts, [])
             self.assertEqual([item["name"] for item in metadata["reflect-config.json"][0]["methods"]],
                              ["a", "b"])
             self.assertEqual(metadata["proxy-config.json"], [["mod.Proxy", "mod.Api"]])
+            self.assertNotIn("._proxy-config.json", metadata)
+            (two / "broken-config.json").write_text("{")
+            with self.assertRaisesRegex(ValueError, "Invalid tracing-agent file broken-config.json"):
+                merge_agent_metadata([one, two])
 
     def test_reflection_types_members_and_parameter_signatures_are_checked(self):
         with tempfile.TemporaryDirectory() as temporary:

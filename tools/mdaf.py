@@ -6,6 +6,7 @@ import struct
 import zipfile
 from pathlib import Path
 
+from mod_file_policy import is_metadata
 
 PLATFORM_PREFIXES = ("java.", "javax.", "jdk.", "sun.", "com.sun.", "org.graalvm.")
 
@@ -83,6 +84,8 @@ def load_agent_metadata(directory: Path):
     """Read the files emitted by GraalVM's tracing agent without executing them."""
     files = {}
     for path in sorted(directory.glob("*.json")):
+        if is_metadata(path.name):
+            continue
         try:
             files[path.name] = json.loads(path.read_text())
         except (OSError, json.JSONDecodeError) as error:

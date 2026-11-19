@@ -11,6 +11,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from bootstrap_toolchain import ROOT, sha256
+from mod_file_policy import is_metadata
 
 
 def extract_source(archive: Path, destination: Path, commit: str):
@@ -56,7 +57,7 @@ def main():
         if not destination.exists():
             path = extract_source(archive, destination, spec["commit"])
         else:
-            children = list(destination.iterdir())
+            children = [path for path in destination.iterdir() if not is_metadata(path.name)]
             if len(children) != 1 or not children[0].name.endswith("-" + spec["commit"]):
                 raise ValueError("Existing source directory is inconsistent")
             path = children[0]

@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import struct
 import sys
 from pathlib import Path
 
 from capture import ROOT
 from graphics_common import register_tree
+from storage_config import cache_path
 from verified_download import fetch
 
 COMMIT = "54d20f9a7b22c8cadc026cbad8eb1a386a1e6efe"
@@ -32,7 +34,10 @@ APACHE = ("https://www.apache.org/licenses/LICENSE-2.0.txt",
 def download(url: str, destination: Path, expected_bytes: int, expected_sha: str) -> str:
     # Share the bounded HTTPS transport, redirect allowlist and system CA roots
     # with the other desktop dependency downloads. TLS verification stays on.
-    fetch({'url': url, 'size': expected_bytes, 'sha256': expected_sha}, destination.resolve())
+    cached = cache_path('graphics/gl41-runtime').resolve() / destination.name
+    fetch({'url': url, 'size': expected_bytes, 'sha256': expected_sha}, cached)
+    if cached != destination.resolve():
+        shutil.copyfile(cached, destination)
     return expected_sha
 
 

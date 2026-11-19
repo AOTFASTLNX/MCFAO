@@ -302,7 +302,7 @@ xcodebuild -project ios/C0Harness/C0Harness.xcodeproj -scheme WorldDevice \
   FAOT_CLIENT_LIBRARY="$PWD/$G/world-device-input-02/client-graph.dylib" \
   FAOT_GAME_ASSETS_DIR="$PWD/$G/game-assets-01/assets" \
   build | tail -25
-APP=$(find "$G/world-device-01/DerivedData/Build/Products" -maxdepth 2 -name '*.app' | head -1)
+APP=$(find "$G/world-device-01/DerivedData/Build/Products" -maxdepth 2 -type d -name '*.app' | head -1)
 test -n "$APP" || die "no .app produced"
 if [ "${SLIM_ASSETS:-0}" = "1" ] && [ -d "$APP/assets" ]; then
   log "slim: dropping the bundled asset tree (they are pushed into the app container instead)"
@@ -317,7 +317,7 @@ cp -R "$APP" dist/Payload/
 PACKAGE_APP="$(find dist/Payload -maxdepth 1 -type d -name '*.app' -print -quit)"
 test -n "$PACKAGE_APP" || die "missing packaged .app"
 python3 -B tools/renderer_profile.py --app "$PACKAGE_APP" --renderer "$RENDERER"
-(cd dist && /usr/bin/zip -qry "$WORK/NCL-game.ipa" Payload)
+(cd dist && /usr/bin/zip -qry "$WORK/NCL-game.ipa" Payload -x '*/._*' '*/.DS_Store' '*/__MACOSX/*')
 unzip -tq "$WORK/NCL-game.ipa" > "$WORK/ipa-zip-test.txt"
 shasum -a 256 "$WORK/NCL-game.ipa" | tee "$WORK/ipa-sha256.txt"
 printf '%s\n' "$SRC_HEAD" > "$WORK/source-sha.txt"

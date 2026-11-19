@@ -13,6 +13,8 @@ from pathlib import Path
 from bootstrap_toolchain import sha256
 from capture import ROOT, capture
 from inspect_ios_candidate import inspect
+from mod_file_policy import content_paths, copy_ignore
+from native_image_home import native_image_home
 
 
 def run(home: Path, output: Path, mode: str) -> dict:
@@ -41,8 +43,8 @@ def run(home: Path, output: Path, mode: str) -> dict:
         stage = "compile-java25"
         if step(stage, [home / "bin/javac", "--release", "25", "-d", classes,
                         fixture / "src/fabricaot/probe/A1Probe.java"]):
-            shutil.copytree(fixture / "resources", classes, dirs_exist_ok=True)
-            shutil.copytree(fixture / "metadata", classes, dirs_exist_ok=True)
+            shutil.copytree(fixture / "resources", classes, dirs_exist_ok=True, ignore=copy_ignore)
+            shutil.copytree(fixture / "metadata", classes, dirs_exist_ok=True, ignore=copy_ignore)
             library = output / "liba1probe.dylib"
             ios = mode.startswith("ios-")
             sdk = "iphoneos" if ios else "macosx"
@@ -98,7 +100,10 @@ def run(home: Path, output: Path, mode: str) -> dict:
                                  "-H:CAPCacheDir=" + str(cap_cache),
                                  "-H:TempDirectory=" + str(output / "native-tmp")]
                     argv += ["fabricaot.probe.A1Probe"]
-                    if step(stage, argv, 300):
+                    with native_image_home(home) as build_home:
+                        argv[0] = build_home / "bin/native-image"
+                        built = step(stage, argv, 300)
+                    if built:
                         if mode == "desktop-aot":
                             stage = "run-desktop-aot"
                             ok = semantic_result(stage, [output / "a1probe", library, output / "scratch"])
@@ -113,12 +118,14 @@ def run(home: Path, output: Path, mode: str) -> dict:
 def finish(output, mode, status, stage, steps):
     binaries = {}
     paths = [output / name for name in ("a1probe", "a1probe.dylib", "a1probe.o", "liba1probe.dylib")]
-    paths += list((output / "native-tmp").rglob("*.o"))
+    if (output / "native-tmp").is_dir():
+        paths.extend(p for p in content_paths(output / "native-tmp") if p.suffix == ".o")
     for path in paths:
         if path.is_file():
             binaries[str(path.relative_to(output))] = {"sha256": sha256(path), "bytes": path.stat().st_size}
-    inputs = {str(path.relative_to(ROOT)): sha256(path) for path in (ROOT / "interop/a1").rglob("*") if path.is_file()}
-    for relative in ("tools/run_a1_probe.py", "tools/capture.py", "tools/inspect_ios_candidate.py", "compiler/toolchains.lock.json"):
+    inputs = {str(path.relative_to(ROOT)): sha256(path) for path in content_paths(ROOT / "interop/a1") if path.is_file()}
+    for relative in ("tools/run_a1_probe.py", "tools/capture.py", "tools/inspect_ios_candidate.py",
+                     "tools/mod_file_policy.py", "tools/native_image_home.py", "compiler/toolchains.lock.json"):
         inputs[relative] = sha256(ROOT / relative)
     result = {"mode": mode, "status": status, "lastStage": stage,
               "iosGateA1": "BLOCKED", "deviceRun": "NOT RUN",

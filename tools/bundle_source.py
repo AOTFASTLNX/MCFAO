@@ -7,6 +7,8 @@ from pathlib import Path
 import shutil
 import subprocess
 
+from mod_file_policy import content_paths, is_metadata
+
 ROOT = Path(__file__).resolve().parents[1]
 TREES = {'tools', 'compiler', 'interop', 'ios', 'tests', 'ci', 'docs'}
 EXTENSIONS = {'.py', '.java', '.c', '.cpp', '.cc', '.m', '.mm', '.h', '.hpp', '.swift', '.json',
@@ -14,11 +16,14 @@ EXTENSIONS = {'.py', '.java', '.c', '.cpp', '.cc', '.m', '.mm', '.h', '.hpp', '.
               '.xcconfig', '.glsl', '.metal', '.fsh', '.vsh', '.css', '.cmake', '.classtweaker', '.accesswidener'}
 EXCLUDED = {'target', 'node_modules', '__pycache__', '.codex', 'xcuserdata',
             'evidence', 'artifacts', 'saves', 'accounts', '.cache', '.git'}
+B1_EVIDENCE = 'artifacts/evidence/b1-user-device-run-01/result.json'
 
 
 def allowed(name):
+    if name == B1_EVIDENCE:
+        return True
     p = Path(name)
-    if p.is_absolute() or '..' in p.parts or any(x in EXCLUDED or x.startswith('._') for x in p.parts): return False
+    if p.is_absolute() or '..' in p.parts or is_metadata(name) or any(x in EXCLUDED for x in p.parts): return False
     if 'build' in p.parts and not name.startswith('interop/fabric/tool/mcfao/build/'): return False
     if 'assets' in p.parts and not name.startswith('interop/fabric/fixture/resources/assets/'): return False
     if name in ('AGENTS.md', 'README.md', 'LICENSE', 'LICENSE.md', 'NOTICE'): return True
@@ -40,7 +45,7 @@ def stage(output, root=ROOT):
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
         files[name] = hashlib.sha256(source.read_bytes()).hexdigest()
-    for name in ('tools/mcfao.py', 'tools/desktop_workbench.py', 'tools/first_run.py', 'compiler/asm.lock.json',
+    for name in (B1_EVIDENCE, 'tools/mcfao.py', 'tools/desktop_workbench.py', 'tools/first_run.py', 'compiler/asm.lock.json',
                  'tools/account_service.py', 'compiler/microsoft-auth.json',
                  'interop/b0/src/fabricaot/b0/ParentEntrypoint.java',
                  'interop/fabric/tool/mcfao/build/AotExport.java', 'interop/b0/resources/fabricaot-b0.classtweaker',
@@ -60,9 +65,10 @@ def source_identity(root=ROOT):
         return dict(sourceCommit=subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip(),
                     sourceDiffSHA256=hashlib.sha256(subprocess.check_output(['git', '-C', str(root), 'diff', 'HEAD', '--'])).hexdigest())
     data = json.loads(manifest.read_text())
-    actual = {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest() for p in root.rglob('*')
-              if p.is_file() and p.name != 'bundle-manifest.json' and '__pycache__' not in p.parts}
-    if any(p.is_symlink() for p in root.rglob('*')) or actual != data['filesSHA256']:
+    paths = list(content_paths(root))
+    actual = {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest() for p in paths
+              if p.is_file() and not p.is_symlink() and p != manifest and '__pycache__' not in p.relative_to(root).parts}
+    if any(p.is_symlink() for p in paths) or actual != data['filesSHA256']:
         raise ValueError('Bundled source content differs from its build manifest')
     return {key: data[key] for key in ('sourceCommit', 'sourceDiffSHA256')}
 

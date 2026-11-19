@@ -6,6 +6,7 @@ import re
 import struct
 import zipfile
 
+from mod_file_policy import is_metadata
 
 YACL_HANDLER = "dev/isxander/yacl3/config/v2/api/ConfigClassHandler"
 
@@ -603,11 +604,16 @@ def reflection_from_jar(path):
                 or sum(item.file_size for item in entries) > 2 * 1024**3):
             raise ValueError("Configuration scan archive exceeds budget")
         for item in entries:
-            if not item.filename.endswith(".class") or item.filename.startswith(("META-INF/", "mcfao/mod-files/")):
+            name = item.filename
+            if (not name.endswith(".class") or name.startswith(("META-INF/", "mcfao/mod-files/"))
+                    or is_metadata(name)):
                 continue
-            shape = class_shape(jar.read(item))
-            if shape["name"] + ".class" != item.filename:
-                raise ValueError(f"Configuration scan class path mismatch: {item.filename}")
+            try:
+                shape = class_shape(jar.read(item))
+            except (ValueError, IndexError, struct.error) as error:
+                raise ValueError(f"{error}: {path}!{name}") from error
+            if shape["name"] + ".class" != name:
+                raise ValueError(f"Configuration scan class path mismatch: {name}")
             shapes[shape["name"]] = shape
             sites.extend(shape["reflection"])
             forname.extend(shape["forName"])

@@ -22,11 +22,11 @@ from pathlib import Path
 import plistlib
 import shutil
 import subprocess
-import zipfile
 import sys
 
 from capture import ROOT, capture
-from mcfao import read_json, sha256, tree_files, write_json
+from mcfao import read_json, sha256, tree_files, write_json, write_payload_ipa
+from mod_file_policy import content_paths, copy_content_file, local_build_temp
 
 TARGET = "ios-arm64"
 STATUS = "SIGNED_DEVICE_APP"
@@ -35,7 +35,7 @@ STATUS = "SIGNED_DEVICE_APP"
 def macho_files(app: Path) -> list[Path]:
     """Every Mach-O inside the bundle: the executable and its bundled dylibs."""
     found = []
-    for item in sorted(app.rglob("*")):
+    for item in sorted(content_paths(app)):
         if not item.is_file():
             continue
         kind = subprocess.run(["/usr/bin/file", "-b", str(item)], check=True,
@@ -60,8 +60,10 @@ def strip_signature(app: Path, logs: Path) -> list[str]:
         # `--remove-signature` is idempotent and leaves an unsigned Mach-O that any
         # signing tool can replace; without it a stale LC_CODE_SIGNATURE survives the
         # copy and re-signing tools report the bundle as already signed by another team.
-        capture(["/usr/bin/codesign", "--remove-signature", str(binary)],
-                logs / f"strip-{binary.name}", 120)
+        log = logs / f"strip-{binary.name}"
+        result = capture(["/usr/bin/codesign", "--remove-signature", str(binary)], log, 120)
+        if result["exitCode"] or result["timedOut"]:
+            raise ValueError(f"Could not remove the Mach-O signature: {binary.name}. Logs: {log}")
         removed.append(str(binary.relative_to(app)))
     return removed
 
@@ -84,25 +86,20 @@ def run(build: Path, output: Path) -> dict:
     output.mkdir(parents=True)
     logs = output / "logs"
     logs.mkdir()
-    payload = output / "Payload"
-    payload.mkdir()
-    staged = payload / app.name
-    capture(["/usr/bin/ditto", str(app), str(staged)], logs / "copy", 600)
-    removed = strip_signature(staged, logs)
-
     ipa = output / f"{app.name.removesuffix('.app')}-unsigned.ipa"
-    # --norsrc keeps AppleDouble `__MACOSX/._*` entries out of the archive; they are not
-    # part of an IPA and some signing tools reject or duplicate them.
-    capture(["/usr/bin/ditto", "-c", "-k", "--norsrc", "--keepParent",
-             str(payload), str(ipa)], logs / "zip", 600)
-    if not ipa.is_file() or ipa.stat().st_size == 0:
-        raise RuntimeError(f"IPA was not written: {ipa}")
-    with zipfile.ZipFile(ipa) as archive:
-        junk = [name for name in archive.namelist() if name.startswith("__MACOSX")]
-    if junk:
-        raise RuntimeError(f"IPA carries resource-fork entries: {junk[:3]}")
-
-    info = plistlib.loads((staged / "Info.plist").read_bytes())
+    with local_build_temp("mcfao-unsigned-ipa-") as scratch:
+        staged = scratch / app.name
+        for source in content_paths(app):
+            if source.is_symlink() or not source.is_file():
+                raise ValueError(f"Unexpected entry in the app payload: {source}")
+            destination = staged / source.relative_to(app)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            copy_content_file(source, destination)
+        if tree_files(staged) != manifest["appFilesSHA256"]:
+            raise ValueError("Staged app differs from the build manifest")
+        removed = strip_signature(staged, logs)
+        write_payload_ipa(staged, ipa)
+        info = plistlib.loads((staged / "Info.plist").read_bytes())
     result = {
         "status": "UNSIGNED_IPA_EXPORTED",
         "ipa": str(ipa),

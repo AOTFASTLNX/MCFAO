@@ -11,6 +11,7 @@ from pathlib import Path
 
 from bootstrap_toolchain import sha256
 from capture import ROOT, capture
+from mod_file_policy import content_paths, is_metadata
 
 
 def jar_bytes(files: dict[str, bytes]) -> bytes:
@@ -19,6 +20,8 @@ def jar_bytes(files: dict[str, bytes]) -> bytes:
         for name, data in sorted(files.items()):
             if name.startswith("/") or ".." in Path(name).parts or "\\" in name:
                 raise ValueError("unsafe JAR entry")
+            if is_metadata(name):
+                continue
             info = zipfile.ZipInfo(name, (1980, 1, 1, 0, 0, 0))
             info.compress_type = zipfile.ZIP_DEFLATED
             info.external_attr = 0o100644 << 16
@@ -75,23 +78,25 @@ def main(argv=None):
     classes = output / "classes"
     classes.mkdir()
     fixture = ROOT / "interop/b0"
-    sources = sorted((fixture / "src").rglob("*.java")) + sorted((fixture / "bootstrap").rglob("*.java"))
+    sources = sorted(p for p in content_paths(fixture) if p.suffix == ".java"
+                     and p.relative_to(fixture).parts[0] in ("src", "bootstrap"))
     command = [str(home / "bin/javac"), "--release", "25", "-proc:none", "-cp",
                os.pathsep.join(entry["path"] for entry in engine), "-d", str(classes), *map(str, sources)]
     result = capture(command, output / "compile", 180)
     if result["exitCode"] or result["timedOut"]:
         print(json.dumps(result, indent=2))
         return 1
-    compiled = {str(path.relative_to(classes)): path.read_bytes() for path in classes.rglob("*.class")}
+    compiled = {str(path.relative_to(classes)): path.read_bytes()
+                for path in content_paths(classes) if path.suffix == ".class"}
     nested = {name: data for name, data in compiled.items() if name.startswith("fabricaot/b0/nested/")}
     nested.update({str(path.relative_to(fixture / "nested-resources")): path.read_bytes()
-                   for path in (fixture / "nested-resources").rglob("*") if path.is_file()})
+                   for path in content_paths(fixture / "nested-resources") if path.is_file()})
     nested_data = jar_bytes(nested)
     (output / "nested.jar").write_bytes(nested_data)
     parent = {name: data for name, data in compiled.items()
               if not name.startswith(("fabricaot/b0/nested/", "fabricaot/b0/bootstrap/"))}
     parent.update({str(path.relative_to(fixture / "resources")): path.read_bytes()
-                   for path in (fixture / "resources").rglob("*") if path.is_file()})
+                   for path in content_paths(fixture / "resources") if path.is_file()})
     parent["META-INF/jars/fabricaot-b0-nested.jar"] = nested_data
     (output / "fixture.jar").write_bytes(jar_bytes(parent))
     bootstrap = {name: data for name, data in compiled.items() if name.startswith("fabricaot/b0/bootstrap/")}
@@ -104,7 +109,7 @@ def main(argv=None):
             if not path.is_file() or sha256(path) != entry["sha256"]:
                 raise ValueError("baseline library changed: " + str(path))
             libraries.append(entry)
-    inputs = {str(p.relative_to(ROOT)): sha256(p) for p in fixture.rglob("*") if p.is_file()}
+    inputs = {str(p.relative_to(ROOT)): sha256(p) for p in content_paths(fixture) if p.is_file()}
     for name in ("tools/prepare_b0.py", "tools/run_b0_reference.py", "compiler/fabric.lock.json"):
         inputs[name] = sha256(ROOT / name)
     manifest = {"status": "PREPARED", "gateB0": "BLOCKED", "gateB1": "BLOCKED",

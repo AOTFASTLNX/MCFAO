@@ -59,12 +59,15 @@ test("missing build configuration greys the environment actions and names the ca
     exact: true,
   });
   await expect(detect).toBeDisabled();
+  await expect(rebuild).toHaveCount(0);
+  await page.locator(".environment-disclosure summary").filter({ hasText: "原生依赖库" }).click();
   await expect(rebuild).toBeDisabled();
-  await expect(page.getByText(/尚未选择构建配置/).first()).toBeVisible();
-  await expect(detect).toHaveAttribute("title", /尚未选择构建配置/);
+  await expect(page.getByText("自动准备完成后即可检测环境。")).toBeVisible();
+  await expect(detect).toHaveAttribute("title", /构建环境尚未准备/);
   await expect(
     page.getByRole("button", { name: "选择配置文件", exact: true }),
-  ).toBeEnabled();
+  ).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "一键下载并准备" })).toBeEnabled();
 
   const disabled = await detect.evaluate((element) => {
     const style = getComputedStyle(element);
@@ -116,17 +119,20 @@ test("a configured workspace keeps the environment actions enabled", async ({
   await desktop(page, "/fixture/config.json");
   const detect = page.getByRole("button", { name: "检测环境", exact: true });
   await expect(detect).toBeEnabled();
-  await expect(page.getByText(/尚未选择构建配置/)).toHaveCount(0);
-  const accent = await detect.evaluate((element) => {
+  await expect(page.getByText("自动准备完成后即可检测环境。")).toHaveCount(0);
+  // The builder toolbar no longer carries this action; it lives in the
+  // environment row as a secondary control. What matters is that a configured
+  // workspace does not dim it the way the unconfigured case does.
+  await expect(detect).not.toHaveAttribute("title");
+  const enabled = await detect.evaluate((element) => {
+    const style = getComputedStyle(element);
     const probe = document.createElement("div");
     probe.style.background = "var(--accent)";
     document.body.append(probe);
-    const token = getComputedStyle(probe).backgroundColor;
+    const accent = getComputedStyle(probe).backgroundColor;
     probe.remove();
-    return {
-      background: getComputedStyle(element).backgroundColor,
-      token,
-    };
+    return { background: style.backgroundColor, accent, cursor: style.cursor };
   });
-  expect(accent.background).toBe(accent.token);
+  expect(enabled.cursor).not.toBe("not-allowed");
+  expect(enabled.background).not.toBe(enabled.accent);
 });

@@ -16,7 +16,7 @@
 
 在 desktop 执行 npm run build:mac。脚本会先检查所选目录的剩余空间，再用 Xcode actool 把仓库根目录的 NCB.icon 编译为 Assets.car 与 NCB.icns，保留浅色、深色与透明图层；随后运行 Tauri 开发包构建，把这两个资源放入 Contents/Resources，并让 CFBundleIconFile 与 CFBundleIconName 指向 NCB。最终在所选产物根的 desktop/ncl-builder-<version>/ 生成经临时签名与严格验签的 NCL Builder.app 及同名 zip；已有同名交付时使用新的目录后缀。工作台附带受控源码树，分发应用默认使用包内源码，不包含游戏文件；首次准备与外部客户端输入见 docs/DESKTOP.md 和 docs/BUILDING.md。正式分发签名和公证尚未验收。
 
-当前版本 0.2.7，界面、npm、Cargo 和 Tauri 版本号一致。交付位于 artifacts/desktop/ncl-builder-0.2.7/，保留旧版本目录；沿用已有配置迁移，并使用主项目已修复的沙盒路径解析和日志元数据过滤。
+当前版本 0.2.7，界面、npm、Cargo 和 Tauri 版本号一致。交付写入所选产物根的 desktop/ncl-builder-0.2.7/（默认 artifacts/desktop-builds/desktop/），同名目录已存在时追加时间戳后缀；旧版本目录可随时删除，重新打包即可再生成。沿用已有配置迁移，并使用主项目已修复的沙盒路径解析和日志元数据过滤。
 
 ## 使用
 
@@ -31,6 +31,7 @@
 ## 外观与日志
 
 - 外观默认跟随系统；设置页可固定浅色或深色，并切换交互强调色。
+- 窗口尺寸自动记忆：拖动调整后，下次启动按同一逻辑尺寸居中恢复，并限制在当前屏幕工作区内。记忆保存在应用配置目录的 `window.json`，最大化 / 全屏状态不会覆盖它。
 - 强调色默认读取 macOS 系统设置；浅色模式会自动调整填充色的明度，保证按钮文字可读。
 - 状态色固定表示成功、警告和错误。构建日志使用等宽字体，并同时用文字标签与颜色区分等级。
 - 动画由统一的 Motion System 管理：时长、缓动、位移与 Reduced Motion 共用同一组令牌；步骤、页面和侧边栏的选中层是单一测量图层。实现与覆盖清单见 [docs/DESKTOP_MOTION.md](../docs/DESKTOP_MOTION.md)。

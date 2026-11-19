@@ -316,19 +316,17 @@ test("drag target reports accepted and rejected payloads", async ({ page }) => {
   await expect(overlay).toContainText("Prism");
 });
 
-test("a long log keeps the reader in place until they return to the end", async ({
-  page,
-}) => {
+async function openRunningBuild(page: Page) {
   await page.addInitScript(() => {
     const job = {
       id: "a".repeat(32),
       name: "NCL fixture",
       state: "running",
-      stage: "aot",
+      stage: "source",
       startedAt: new Date(Date.now() - 65_000).toISOString(),
       folder: "/fixture/job",
       build: "/fixture/build",
-      request: { workspace: "/fixture" },
+      request: { workspace: "/fixture", loader: "fabric" },
       error: "",
       log: Array.from({ length: 200 }, (_, i) => `INFO step ${i}`).join("\n"),
     };
@@ -379,6 +377,62 @@ test("a long log keeps the reader in place until they return to the end", async 
     timeout: 15000,
   });
   await page.getByRole("button", { name: /^构建记录/ }).click();
+  await expect(
+    page.getByRole("heading", { name: "取得并校验内容", exact: true }),
+  ).toBeVisible();
+}
+
+test("running Fabric build stages fit their rows above the log", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1100, height: 760 });
+  await openRunningBuild(page);
+
+  const labels = page.locator(".pipeline-label");
+  const strip = page.locator(".job-stage-strip");
+  await expect(labels).toHaveCount(14);
+  for (const width of [1100, 800, 1440, 375]) {
+    await page.setViewportSize({ width, height: 760 });
+    expect(
+      await strip.evaluate(
+        (element) => element.scrollWidth <= element.clientWidth,
+      ),
+      `${width}px: stage summary fits`,
+    ).toBe(true);
+    const layout = await labels.evaluateAll((elements) => {
+      const logTop = document
+        .querySelector(".log-panel")!
+        .getBoundingClientRect().top;
+      return elements.map((label) => {
+        const range = document.createRange();
+        range.selectNodeContents(label);
+        const text = range.getBoundingClientRect();
+        const row = label.parentElement!.getBoundingClientRect();
+        return {
+          label: label.textContent,
+          lines: range.getClientRects().length,
+          fitsRow:
+            text.top >= row.top - 1 &&
+            text.right <= row.right + 1 &&
+            text.bottom <= row.bottom + 1,
+          aboveLog: text.bottom < logTop,
+        };
+      });
+    });
+    for (const { label, ...geometry } of layout) {
+      expect(geometry, `${width}px: ${label}`).toEqual({
+        lines: 1,
+        fitsRow: true,
+        aboveLog: true,
+      });
+    }
+  }
+});
+
+test("a long log keeps the reader in place until they return to the end", async ({
+  page,
+}) => {
+  await openRunningBuild(page);
   const scroll = page.locator(".log-scroll");
   await expect(page.locator(".log-line")).toHaveCount(200);
   await scroll.evaluate((element) => element.scrollTo(0, 0));

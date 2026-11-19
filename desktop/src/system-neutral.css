@@ -599,6 +599,10 @@ code {
 }
 
 .main-content {
+  --workspace-gutter: max(
+    var(--space-6),
+    calc((100% - 1460px) / 2 + var(--space-6))
+  );
   flex: 1;
   min-height: 0;
   width: 100%;
@@ -609,32 +613,61 @@ code {
   overscroll-behavior: contain;
 }
 
-/* Padding lives on an inner column: a sticky child cannot escape its parent's
-   padding box, so the capsules would stop short of the pane edges. */
-.page-column {
-  width: 100%;
-  padding-block: var(--space-6) var(--space-5);
-  padding-inline: max(
-    var(--space-6),
-    calc((100% - 1460px) / 2 + var(--space-6))
-  );
+.main-content[data-docked="true"] {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-block: 0;
 }
 
-/* Page changes cross-fade in place: no horizontal travel, no window or scroll
-   movement. The wrapper is the existing padded column, so the sticky capsules
-   keep their positioning context. */
+.page-column,
+.page-toolbar-row,
+.step-scroll-column {
+  width: 100%;
+  padding-inline: var(--workspace-gutter);
+}
+
 .page-column {
+  padding-block: var(--space-6) var(--space-5);
+}
+
+.main-content[data-docked="true"] > .page-column {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-block-start: var(--space-3);
+}
+
+.main-content[data-docked="true"] > .page-column[data-builder="true"] {
+  display: flex;
+  overflow: hidden;
+  padding: 0;
+}
+
+.page-toolbar-row {
+  flex: none;
+  padding-block: var(--space-2);
+  position: relative;
+  z-index: 1;
+}
+
+/* The toolbar and its page share the same route transition. */
+.page-column,
+.page-toolbar-row {
   opacity: 1;
   transition: opacity var(--motion-smooth) var(--motion-ease-out);
 }
 
-.page-column[data-phase="out"] {
+.page-column[data-phase="out"],
+.page-toolbar-row[data-phase="out"] {
   opacity: 0;
   pointer-events: none;
   transition-duration: var(--motion-normal);
 }
 
-.page-column[data-phase="in"] {
+.page-column[data-phase="in"],
+.page-toolbar-row[data-phase="in"] {
   opacity: 1;
   transition-duration: var(--motion-smooth);
 }
@@ -647,18 +680,41 @@ code {
   text-transform: uppercase;
 }
 
-.workflow-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  align-items: start;
-  gap: var(--space-4);
+.builder-panel {
+  --capsule-inset: var(--space-2);
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: space-between;
+  min-width: 0;
+  padding-block: var(--capsule-inset);
 }
 
-/* The builder sits on the window surface: steps read as one continuous page
-   instead of a card inside the window. Other panels keep their card. */
-.builder-panel {
-  /* Keeps the sticky capsules free of a scroll container of their own. */
-  overflow: visible;
+/* The scroller extends under both capsules, with room at its ends to bring
+   the first and last items clear of the overlays. */
+.step-scroll {
+  --scroll-start: calc(
+    var(--capsule-inset) + var(--stepper-height, 0px) + var(--space-4)
+  );
+  --scroll-end: calc(
+    var(--capsule-inset) + var(--wizard-footer-height, 0px) + var(--space-4)
+  );
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scroll-padding-block: var(--scroll-start) var(--scroll-end);
+}
+
+.step-scroll-column {
+  padding-block: var(--scroll-start) var(--scroll-end);
+}
+
+.stepper,
+.wizard-footer {
+  flex: none;
+  margin-inline: var(--workspace-gutter);
 }
 
 .panel,
@@ -670,16 +726,12 @@ code {
 }
 
 .stepper {
-  /* Floats over the page: sticky inside the scroll pane, so it stays put while
-     the step content scrolls underneath it. */
-  position: sticky;
-  top: var(--space-2);
+  position: relative;
   z-index: 5;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-1);
-  margin-bottom: var(--space-4);
   /* Even inset all round: each step pill sits the same distance from the
      capsule wall, so the caps read as concentric. */
   padding: 8px;
@@ -863,8 +915,8 @@ code {
 }
 
 /* Forward and back read differently: content leaves towards the side the user
-   came from and enters from the destination side. The panel itself stays in
-   place, so the sticky capsules and page height never jump. */
+   came from and enters from the destination side. The surrounding chrome
+   stays outside the scrolling step content. */
 .step-body {
   position: relative;
 }
@@ -1854,16 +1906,12 @@ code {
 }
 
 .wizard-footer {
-  /* Second floating capsule, pinned to the bottom of the scroll pane so the
-     navigation stays reachable while the step content scrolls. */
-  position: sticky;
-  bottom: var(--space-2);
+  position: relative;
   z-index: 5;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  margin-top: var(--space-4);
   /* Even inset on the three sides that meet the filled button, so its cap
      curves stay concentric with the capsule; the text keeps a wider lead-in. */
   --pill-inset: 7px;
@@ -3189,8 +3237,9 @@ code {
    not a second progress bar: completed and live stages are the only states. */
 .job-stage-strip {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0;
+  gap: var(--space-2);
   margin: var(--space-4) 0 0;
   padding: 9px 11px;
   border-radius: var(--radius-sm);
@@ -3199,20 +3248,21 @@ code {
 
 .job-stage-strip > span {
   display: flex;
-  flex: 1;
   align-items: center;
   gap: 5px;
-  min-width: 0;
   color: var(--dim);
   font-size: 9px;
   white-space: nowrap;
   transition: color var(--motion-normal) var(--motion-ease-out);
 }
 
+.job-stage-strip > span + span {
+  flex: 1 0 auto;
+}
+
 .job-stage-strip > span + span::before {
-  width: 100%;
+  flex: 1 0 var(--space-2);
   height: 1px;
-  margin: 0 6px 0 0;
   background: var(--input-border);
   content: "";
   transition: background-color var(--motion-normal) var(--motion-ease-out);
@@ -3283,9 +3333,12 @@ code {
   color: var(--dim);
   font-size: 9.5px;
   line-height: 1.4;
+  transition:
+    color var(--motion-normal) var(--motion-ease-out),
+    opacity var(--motion-normal) var(--motion-ease-out);
 }
 
-.pipeline > div > span {
+.pipeline-mark {
   display: grid;
   flex-shrink: 0;
   place-items: center;
@@ -3294,15 +3347,6 @@ code {
   border: 0;
   background: var(--layer-2);
   border-radius: 50%;
-}
-
-.pipeline > div {
-  transition:
-    color var(--motion-normal) var(--motion-ease-out),
-    opacity var(--motion-normal) var(--motion-ease-out);
-}
-
-.pipeline > div > .pipeline-mark {
   transition:
     background-color var(--motion-normal) var(--motion-ease-out),
     color var(--motion-normal) var(--motion-ease-out),
@@ -3338,23 +3382,16 @@ code {
   color: var(--success-text);
 }
 
-.pipeline > .done > span {
+.pipeline > .done > .pipeline-mark {
   background: var(--success-bg);
-  color: var(--success-text);
 }
 
 .pipeline > .running {
   color: var(--accent);
 }
 
-.pipeline > .running > span {
-  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
-  color: var(--accent);
-}
-
-/* Only the live stage breathes, and only while the task is actually running.
-   Finished, failed and cancelled stages keep a still mark. */
 .pipeline > .running > .pipeline-mark {
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
   animation: stage-breathe 2.4s var(--motion-ease-standard) infinite;
 }
 
@@ -3509,12 +3546,6 @@ code {
 }
 
 .page-toolbar {
-  /* Floats over the page: the actions stay reachable while the list below
-     scrolls underneath them. */
-  position: sticky;
-  /* Sticks a little below the top bar so its shadow never slides under it. */
-  top: var(--space-2);
-  z-index: 6;
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -4204,10 +4235,6 @@ code {
     --sidebar-width: 192px;
   }
 
-  .workflow-layout {
-    gap: var(--space-3);
-  }
-
   .step-content {
     padding: var(--space-4);
   }
@@ -4246,10 +4273,6 @@ code {
 
   .topbar {
     padding: 0 var(--space-4);
-  }
-
-  .workflow-layout {
-    grid-template-columns: minmax(0, 1fr);
   }
 
   .local-label {
@@ -4300,6 +4323,18 @@ code {
 
   .main-content {
     overflow: visible;
+  }
+
+  .app-shell:has(.main-content[data-docked="true"]) {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .app-shell:has(.main-content[data-docked="true"]) > main {
+    overflow: hidden;
   }
 
   .sidebar {
@@ -4566,7 +4601,10 @@ code {
 
   .page-column,
   .page-column[data-phase="out"],
-  .page-column[data-phase="in"] {
+  .page-column[data-phase="in"],
+  .page-toolbar-row,
+  .page-toolbar-row[data-phase="out"],
+  .page-toolbar-row[data-phase="in"] {
     opacity: 1 !important;
     transition: none !important;
   }

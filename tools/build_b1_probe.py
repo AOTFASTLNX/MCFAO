@@ -4,11 +4,14 @@ from __future__ import annotations
 from storage_config import cache_path
 
 import argparse
+from contextlib import ExitStack
 import json
 import shutil
 import socket
 import zipfile
 from pathlib import Path
+from mod_file_policy import content_paths, copy_ignore, is_metadata
+from native_image_home import native_image_home
 
 from bootstrap_toolchain import sha256
 from capture import ROOT, capture
@@ -34,6 +37,11 @@ def validate_b0_snapshot(b0: Path) -> dict:
 
 
 def main(argv=None):
+    with ExitStack() as resources:
+        return run(argv, resources)
+
+
+def run(argv, resources):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--b0", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
@@ -51,8 +59,8 @@ def main(argv=None):
     work = output / "work"
     for name in ("classes", "tmp", "home", "caps"):
         (work / name).mkdir(parents=True, exist_ok=True)
-    shutil.copytree(b0 / "sandbox/export", work / "classes", dirs_exist_ok=True)
-    shutil.copytree(ROOT / "interop/b1/metadata", work / "classes", dirs_exist_ok=True)
+    shutil.copytree(b0 / "sandbox/export", work / "classes", dirs_exist_ok=True, ignore=copy_ignore)
+    shutil.copytree(ROOT / "interop/b1/metadata", work / "classes", dirs_exist_ok=True, ignore=copy_ignore)
     engine = [Path(e["path"]) for e in manifest["engineLibraries"]]
     for entry in manifest["engineLibraries"]:
         if sha256(Path(entry["path"])) != entry["sha256"]:
@@ -82,6 +90,7 @@ def main(argv=None):
         for name in cache_info["capFiles"]:
             (work / "caps" / Path(name).name).write_bytes(archive.read(name))
     readable = [*dependencies, prepared / "driver.jar"]
+    home = resources.enter_context(native_image_home(home))
     policy = sandbox_policy(work, home, readable)
     native_image = (home / "bin/native-image").resolve(strict=True)
     policy += '(allow process-exec (literal ' + json.dumps(str(native_image)) + '))\n'
@@ -124,13 +133,14 @@ def main(argv=None):
         if built["exitCode"] or built["timedOut"] or len(objects) != 1:
             raise RuntimeError("Native Image object generation failed; inspect native-image logs")
         for header in work.glob("*.h"):
-            shutil.copy2(header, output / header.name)
+            if not is_metadata(header.name):
+                shutil.copy2(header, output / header.name)
         result["status"] = "COMPILED"
     except Exception as error:
         result["error"] = str(error)
     result["binaries"] = {str(p.relative_to(output)): {"bytes": p.stat().st_size, "sha256": sha256(p)}
                           for p in work.rglob("a1probe.o") if p.is_file()}
-    result["inputsSHA256"] = {str(p.relative_to(ROOT)): sha256(p) for p in (ROOT / "interop/b1").rglob("*") if p.is_file()}
+    result["inputsSHA256"] = {str(p.relative_to(ROOT)): sha256(p) for p in content_paths(ROOT / "interop/b1") if p.is_file()}
     result["sandboxPolicySHA256"] = sha256(policy_file)
     (output / "result.json").write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps(result, indent=2))

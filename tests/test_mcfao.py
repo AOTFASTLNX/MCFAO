@@ -225,15 +225,20 @@ class FabricInputTests(unittest.TestCase):
         nested = archive([("fabric.mod.json", '{"id":"test_nested","schemaVersion":1}')])
         root = self.jar([("fabric.mod.json", '{"id":"test_parent","schemaVersion":1,'
                          '"jars":[{"file":"META-INF/jars/child.jar"}]}'),
-                         ("META-INF/jars/child.jar", nested)])
+                         ("META-INF/jars/child.jar", nested),
+                         ("META-INF/jars/._child.jar", "metadata"),
+                         ("assets/mod/._native.dylib", "metadata")])
         report = inspect_archives([root], self.root)
         self.assertEqual([item[1] for item in report], ["test.jar", "test.jar!META-INF/jars/child.jar"])
         self.assertEqual([item[2]["id"] for item in report], ["test_parent", "test_nested"])
+        self.assertEqual(report[0][3], {"fabric.mod.json", "META-INF/jars/child.jar"})
 
     def test_unsafe_archive_member_is_rejected(self):
-        root = self.jar([("fabric.mod.json", '{"id":"test_mod"}'), ("../outside", "content")])
-        with self.assertRaisesRegex(ValueError, "Unsafe or duplicate"):
-            inspect_archives([root], self.root)
+        for name in ("../outside", "../._sidecar"):
+            with self.subTest(name=name):
+                root = self.jar([("fabric.mod.json", '{"id":"test_mod"}'), (name, "content")])
+                with self.assertRaisesRegex(ValueError, "Unsafe or duplicate"):
+                    inspect_archives([root], self.root)
 
     def test_duplicate_metadata_key_is_rejected(self):
         root = self.jar([("fabric.mod.json", '{"id":"test_mod","id":"other"}')])
@@ -445,17 +450,23 @@ class FabricInputTests(unittest.TestCase):
 
     def test_merge_preserves_resources_and_drops_stale_signatures(self):
         base = self.jar([("META-INF/CLIENT.RSA", "old signature"), ("pack.mcmeta", "{}"),
-                         ("net/minecraft/Target.class", "original")])
+                         ("net/minecraft/Target.class", "original"),
+                         ("net/minecraft/._Target.class", "metadata")])
         overlay = self.root / "overlay.jar"
         overlay.write_bytes(archive([("net/minecraft/Target.class", "modified"),
-                                     ("assets/mod/proof.txt", "proof")]))
+                                     ("assets/mod/proof.txt", "proof"),
+                                     ("mcfao/aot/._ModCatalog.class", "metadata"),
+                                     ("assets/mod/__MACOSX/nested/proof.txt", "metadata"),
+                                     ("assets/mod/.ordinary-hidden", "kept")]))
         output = self.root / "merged.jar"
         merge_client(base, overlay, output, {"net/minecraft/Target.class": {}})
         with zipfile.ZipFile(output) as jar:
             self.assertEqual(jar.read("net/minecraft/Target.class"), b"modified")
             self.assertEqual(jar.read("pack.mcmeta"), b"{}")
             self.assertEqual(jar.read("assets/mod/proof.txt"), b"proof")
+            self.assertEqual(jar.read("assets/mod/.ordinary-hidden"), b"kept")
             self.assertNotIn("META-INF/CLIENT.RSA", jar.namelist())
+            self.assertFalse(any("._" in name or "__MACOSX" in name for name in jar.namelist()))
 
 
 class RuntimeOverlayTests(unittest.TestCase):

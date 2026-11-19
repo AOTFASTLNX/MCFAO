@@ -19,6 +19,7 @@ import {
   useAccount,
 } from "./Account";
 import { choosePath, defaultWorkspace, native, workbench } from "./bridge";
+import { BuildSetup, setupIsRunning, useSetupProgress } from "./BuildSetup";
 import { StepBody } from "./MotionPrimitives";
 import { useStepContent } from "./motion";
 import {
@@ -41,7 +42,7 @@ import {
   type StorageChangePlan,
   type StoragePolicy,
 } from "./StorageChangeDialog";
-import { defaultForm, restoreForm, type BuildForm } from "./workflow";
+import { defaultForm, restoreForm, type BuildForm, type SetupState } from "./workflow";
 import {
   applyAccent,
   applyTheme,
@@ -98,9 +99,12 @@ function SessionGate({
   const preview =
     !native && new URLSearchParams(location.search).has("onboarding");
   const gated = native || preview;
-  const deferred = !!state.verificationDeferred && !account.configured;
+  const deferred = !!state.verificationDeferred;
   const ready =
-    !gated || (state.completed && !loading && (accountIsVerified(account) || deferred));
+    !gated ||
+    (state.completed &&
+      !loading &&
+      (account.loginRequired === false || accountIsVerified(account) || deferred));
   useEffect(() => {
     if (ready) return;
     const theme = resolveTheme(readThemePreference(), systemPrefersDark());
@@ -141,14 +145,15 @@ function SessionGate({
             重新登录或验证 Minecraft Java 版资格，即可继续使用工作台。
           </p>
           <AccountPanel />
-          {!account.configured && (
-            <button
-              className="secondary"
-              onClick={() => save({ ...state, verificationDeferred: true })}
-            >
-              暂时跳过正版验证
-            </button>
-          )}
+          <button
+            className="secondary"
+            onClick={() => save({ ...state, verificationDeferred: true })}
+          >
+            暂时跳过正版验证
+          </button>
+          <p className="onboarding-ownership">
+            跳过后账号仍未验证，构建产物仅供本机自用，不能证明正版资格。
+          </p>
         </main>
       </div>
     );
@@ -162,9 +167,10 @@ function Onboarding({
   onSave: (state: OnboardingState) => void;
 }) {
   const { account, code } = useAccount();
+  const localTesting = account.loginRequired === false;
   const verified = accountIsVerified(account);
-  const deferred = !!state.verificationDeferred && !account.configured;
-  const accountReady = verified || deferred;
+  const deferred = !!state.verificationDeferred;
+  const accountReady = localTesting || verified || deferred;
   const [step, setStep] = useState(() => onboardingStep(state, accountReady));
   const transition = useStepContent(step);
   const visibleStep = transition.phase === "idle" ? step : transition.step;
@@ -178,6 +184,8 @@ function Onboarding({
   const [plan, setPlan] = useState<StorageChangePlan | null>(null);
   const [selectedDirectory, setSelectedDirectory] = useState("");
   const [workspaceReady, setWorkspaceReady] = useState(!native);
+  const [setup, setSetup] = useState<SetupState | null>(null);
+  useSetupProgress(formRef, setup, setSetup);
   const locked = useRef(false);
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
@@ -204,6 +212,14 @@ function Onboarding({
   useEffect(() => {
     if (step > 1 && !accountReady) setStep(1);
   }, [accountReady, step]);
+  useEffect(() => {
+    if (step !== 3 || !native || !form.workspace) return;
+    let current = true;
+    void workbench<SetupState>(formRef.current, "setup-status")
+      .then((next) => { if (current) setSetup(next); })
+      .catch((e) => { if (current) setError(String(e)); });
+    return () => { current = false; };
+  }, [step, form.workspace]);
   async function attempt(label: string, action: () => Promise<void>) {
     if (locked.current) return;
     locked.current = true;
@@ -243,6 +259,7 @@ function Onboarding({
     // Persist the same form consumed by the workbench, without resetting other inputs.
     localStorage.setItem(FORM_KEY, JSON.stringify(updated));
     setForm(updated);
+    setSetup(null);
     onSave({ ...state, storageRoot: root });
     setPlan(null);
     setWarning(
@@ -278,7 +295,7 @@ function Onboarding({
     try {
       if (step === 0) {
         onSave({ ...state, accepted: true });
-        setStep(1);
+        setStep(localTesting ? 2 : 1);
       } else if (step === 1 && accountReady && !code) setStep(2);
       else if (step === 2 && state.storageRoot && accountReady) setStep(3);
       else if (
@@ -293,6 +310,9 @@ function Onboarding({
     }
   }
   const names = ["使用须知", "正版登录", "储存目录", "完成配置"];
+  const steps = localTesting ? [0, 2, 3] : [0, 1, 2, 3];
+  const position = steps.indexOf(step) + 1;
+  const count = steps.length;
   const titles = [
     "欢迎使用 NCL Builder",
     "登录你的正版账号",
@@ -322,23 +342,23 @@ function Onboarding({
           role="progressbar"
           aria-label="初始配置进度"
           aria-valuemin={0}
-          aria-valuemax={4}
-          aria-valuenow={step + 1}
-          aria-valuetext={`第 ${step + 1} 步，共 4 步：${names[step]}`}
+          aria-valuemax={count}
+          aria-valuenow={position}
+          aria-valuetext={`第 ${position} 步，共 ${count} 步：${names[step]}`}
         >
-          <span style={{ transform: `scaleX(${(step + 1) / 4})` }} />
+          <span style={{ transform: `scaleX(${position / count})` }} />
         </div>
         <ol className="onboarding-steps" aria-label="引导步骤">
-          {names.map((name, index) => (
+          {steps.map((item, index) => (
             <li
-              key={name}
-              aria-current={index === step ? "step" : undefined}
-              data-complete={index < step}
+              key={item}
+              aria-current={item === step ? "step" : undefined}
+              data-complete={item < step}
             >
               <span aria-hidden="true">
-                {index < step ? <Check size={12} /> : index + 1}
+                {item < step ? <Check size={12} /> : index + 1}
               </span>
-              {name}
+              {names[item]}
             </li>
           ))}
         </ol>
@@ -357,7 +377,8 @@ function Onboarding({
               <Icon size={32} strokeWidth={1.5} />
             </div>
             <span className="eyebrow">
-              NCL BUILDER · {String(visibleStep + 1).padStart(2, "0")} / 04
+              NCL BUILDER · {String(steps.indexOf(visibleStep) + 1).padStart(2, "0")} /{" "}
+              {String(count).padStart(2, "0")}
             </span>
             <h1 id="onboarding-title" ref={heading} tabIndex={-1}>
               {titles[visibleStep]}
@@ -368,9 +389,11 @@ function Onboarding({
                   "开始之前，先了解本软件的使用与分发边界。",
                   "登录拥有 Minecraft Java Edition 的账号，验证正版资格。",
                   "选择一个总目录，后续的构建产物与缓存就都有了归处。",
-                  deferred
-                    ? "储存目录已就绪，正版验证暂缓，可以开始准备构建。"
-                    : "账号和储存目录已就绪，可以开始导入内容、准备构建了。",
+                  localTesting
+                    ? "本地测试版可直接准备构建环境，无需 Microsoft 登录。"
+                    : deferred
+                      ? "储存目录已就绪，正版验证暂缓，可以开始准备构建。"
+                      : "账号和储存目录已就绪，可以开始导入内容、准备构建了。",
                 ][visibleStep]
               }
             </p>
@@ -410,22 +433,20 @@ function Onboarding({
             {visibleStep === 1 && (
               <>
                 <AccountPanel />
-                {!account.configured && (
-                  <button
-                    className="secondary"
-                    disabled={!!busy || !!code || transition.phase !== "idle"}
-                    onClick={() => {
-                      try {
-                        onSave({ ...state, verificationDeferred: true });
-                        setStep(2);
-                      } catch {
-                        setError("无法保存配置，请检查本地存储权限。");
-                      }
-                    }}
-                  >
-                    暂时跳过正版验证
-                  </button>
-                )}
+                <button
+                  className="secondary"
+                  disabled={!!busy || !!code || transition.phase !== "idle"}
+                  onClick={() => {
+                    try {
+                      onSave({ ...state, verificationDeferred: true });
+                      setStep(2);
+                    } catch {
+                      setError("无法保存配置，请检查本地存储权限。");
+                    }
+                  }}
+                >
+                  暂时跳过正版验证
+                </button>
                 <p className="onboarding-ownership">
                   依据相关法律与游戏许可要求，本软件不提供免费游玩 Minecraft
                   的功能。请仅使用你合法拥有的游戏文件。
@@ -474,19 +495,21 @@ function Onboarding({
             )}
             {visibleStep === 3 && (
               <div className="onboarding-summary">
-                <div>
-                  <CheckCircle2 size={20} aria-hidden="true" />
+                {!localTesting && (
                   <div>
-                    <strong>
-                      {verified ? account.profile?.name : "正版验证已暂时跳过"}
-                    </strong>
-                    <p>
-                      {verified
-                        ? "Minecraft Java Edition · 正版资格已验证"
-                        : "账号尚未验证，可在设置中稍后登录。"}
-                    </p>
+                    <CheckCircle2 size={20} aria-hidden="true" />
+                    <div>
+                      <strong>
+                        {verified ? account.profile?.name : "正版验证已暂时跳过"}
+                      </strong>
+                      <p>
+                        {verified
+                          ? "Minecraft Java Edition · 正版资格已验证"
+                          : "可在下方登录并验证正版资格。"}
+                      </p>
+                    </div>
                   </div>
-                </div>
+                )}
                 <div>
                   <FolderOpen size={20} aria-hidden="true" />
                   <div>
@@ -494,8 +517,19 @@ function Onboarding({
                     <p>{state.storageRoot}</p>
                   </div>
                 </div>
+                <BuildSetup
+                  setup={setup}
+                  disabled={!native || !workspaceReady || !!busy}
+                  onStart={() =>
+                    void attempt("正在启动环境准备", async () => {
+                      setSetup(await workbench<SetupState>(
+                        formRef.current, "setup-start", undefined, { owned: true },
+                      ));
+                    })
+                  }
+                />
                 <p className="onboarding-summary-hint">
-                  账号可在设置首行管理；储存位置可随时调整。
+                  也可以稍后在「环境与资源」页下载。
                 </p>
               </div>
             )}
@@ -518,7 +552,7 @@ function Onboarding({
           )}
           <footer className="onboarding-footer">
             <span className="onboarding-step-count">
-              第 {step + 1} 步，共 4 步
+              第 {position} 步，共 {count} 步
             </span>
             <div className="button-line">
               {step > 0 && (
@@ -527,7 +561,7 @@ function Onboarding({
                   disabled={!!busy || !!code || transition.phase !== "idle"}
                   onClick={() => {
                     setError("");
-                    setStep(step - 1);
+                    setStep(steps[position - 2]);
                   }}
                 >
                   <ChevronLeft size={16} aria-hidden="true" />
@@ -539,7 +573,9 @@ function Onboarding({
                 disabled={!canContinue || !!busy || transition.phase !== "idle"}
                 onClick={next}
               >
-                {step === 3 ? "开始使用" : step === 0 ? "了解并继续" : "下一步"}
+                {step === 3
+                  ? setupIsRunning(setup) || setup?.config ? "开始使用" : "稍后下载"
+                  : step === 0 ? "了解并继续" : "下一步"}
                 <ArrowRight size={16} aria-hidden="true" />
               </button>
             </div>
