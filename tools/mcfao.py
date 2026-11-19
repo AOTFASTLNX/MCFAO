@@ -32,7 +32,7 @@ from prepare_fabric_aot import TOOL as FABRIC_TOOL, mod_files
 from aot_compatibility import add_bytecode_results, issue, publish, transform_report
 from mdaf import AGENT_FILES
 from stage_game_assets import verified_assets
-from mod_file_policy import content_paths, is_metadata
+from mod_file_policy import content_paths, copy_ignore, is_metadata
 
 VERSION = "26.1.2"
 TARGET = "ios-arm64"
@@ -54,7 +54,7 @@ CONFIG_PATHS = (
 )
 OPTIONAL_CONFIG_PATHS = {"openjdkSource", "graalSource"}
 BACKEND_TOOLS = (
-    "mcfao", "import_instance", "mod_file_policy",
+    "mcfao", "import_instance", "mod_file_policy", "native_image_home",
     "split_methods", "build_method_splitter", "inject_metal_backend", "probe_client_graph",
     "build_ios_runtime", "link_c0_ios", "stage_device_xcode", "graphics_common",
     "stage_game_assets", "run_b0_reference", "capture", "inspect_ios_candidate",
@@ -83,7 +83,6 @@ def command(*argv) -> str:
 
 def tree_files(directory: Path) -> dict:
     files = {}
-    from mod_file_policy import content_paths
     for item in sorted(content_paths(directory)):
         if item.is_symlink():
             raise ValueError(f"Unexpected symbolic link in build input or output: {item}")
@@ -168,11 +167,12 @@ def inputs(config: dict, renderer: str = "metal") -> tuple[dict, Path, list[Path
                  home / "lib/modules", home / "lib/libjava.dylib",
                  home / "lib/server/libjvm.dylib"):
         add(file)
-    for file in sorted((home / "lib/svm").rglob("*")):
+    for file in sorted(content_paths(home / "lib/svm")):
         if file.is_file():
             add(file)
-    for file in sorted((home / "include").rglob("*.h")):
-        add(file)
+    for file in sorted(content_paths(home / "include")):
+        if file.suffix == ".h":
+            add(file)
     for name in ("result.json", "driver.jar"):
         add(config["prepared"] / name, prepared["binaries"][name]["sha256"] if name == "driver.jar" else None)
     for name in ("versionMetadata", "b1Evidence"):
@@ -193,7 +193,7 @@ def inputs(config: dict, renderer: str = "metal") -> tuple[dict, Path, list[Path
             for filename in selected[name]:
                 files[filename] = sha256(directory / filename)
             if name == "lwjgl":
-                files.update({p.name: sha256(p) for p in directory.glob("*-ios.jar")})
+                files.update({p.name: sha256(p) for p in directory.glob("*-ios.jar") if not is_metadata(p.name)})
             if name == "shaders":
                 files.update({f"bundle/{p}": h for p, h in tree_files(directory / "bundle").items()})
         fingerprints.update({str(directory / p): h for p, h in files.items()})
@@ -256,8 +256,8 @@ def inputs(config: dict, renderer: str = "metal") -> tuple[dict, Path, list[Path
     for name in BACKEND_TOOLS:
         add(ROOT / "tools" / f"{name}.py")
     for directory in ("compiler", "ios/C0Harness"):
-        for path in sorted((ROOT / directory).rglob("*")):
-            if path.is_file() and "build" not in path.parts and "xcuserdata" not in path.parts and path.name != ".DS_Store":
+        for path in sorted(content_paths(ROOT / directory)):
+            if path.is_file() and "build" not in path.parts and "xcuserdata" not in path.parts:
                 add(path)
     sources = runtime_sources(config)
     for name, source in sources.items():
@@ -271,7 +271,7 @@ def inputs(config: dict, renderer: str = "metal") -> tuple[dict, Path, list[Path
         }
         for relative in roots[name]:
             for file in sorted((source / relative).rglob("*")):
-                if file.is_file():
+                if file.is_file() and not is_metadata(file.relative_to(source / relative)):
                     add(file)
     return {
         "schema": 1, "version": VERSION, "loader": "vanilla", "mappingNamespace": "official",
@@ -457,11 +457,23 @@ def validate_package(app, staged, asset_hashes, renderer="metal"):
         raise ValueError("Packaged game assets changed")
     # Codesign modifies dylib bytes. Compare the Mach-O UUIDs to establish provenance.
     for library in staged.glob("*.dylib"):
+        if is_metadata(library.name):
+            continue
         packaged = frameworks / library.name
         before = command("/usr/bin/xcrun", "dwarfdump", "--uuid", library).split()[:3]
         after = command("/usr/bin/xcrun", "dwarfdump", "--uuid", packaged).split()[:3]
         if len(before) != 3 or before != after:
             raise ValueError(f"Embedded image UUID differs: {library.name}")
+
+
+def write_payload_ipa(app: Path, ipa: Path):
+    with zipfile.ZipFile(ipa, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=1) as archive:
+        for file in sorted(content_paths(app)):
+            if file.is_file():
+                archive.write(file, (Path("Payload") / app.name / file.relative_to(app)).as_posix())
+    with zipfile.ZipFile(ipa) as archive:
+        if archive.testzip() is not None:
+            raise ValueError("IPA CRC check failed")
 
 
 def verify_icon(app: Path, name: str):
@@ -513,6 +525,8 @@ def installed_provisioning_profiles(directories=PROFILE_DIRECTORIES) -> list:
     profiles = []
     for directory in directories:
         for path in sorted(Path(directory).expanduser().glob("*.mobileprovision")):
+            if is_metadata(path.name):
+                continue
             profile = read_provisioning_profile(path)
             if profile:
                 profiles.append(profile)
@@ -651,7 +665,7 @@ def export_ipa(args) -> dict:
         raise ValueError(f"Expected one exported IPA: {output / 'export'}")
     ipa = ipas[0]
     unpacked = output / "unpacked"
-    step("unpack", ["/usr/bin/ditto", "-x", "-k", ipa, unpacked])
+    step("unpack", ["/usr/bin/ditto", "--norsrc", "--noextattr", "--noqtn", "-x", "-k", ipa, unpacked])
     apps = [p for p in (unpacked / "Payload").glob("*.app") if not is_metadata(p.name)]
     if len(apps) != 1:
         raise ValueError("Expected one exported iPhoneOS app")
@@ -763,7 +777,7 @@ def build(args, config):
         if loader_report:
             tracing = read_json(loader_report).get("tracingAgent", {})
             candidate = Path(tracing["path"]) if tracing.get("path") else None
-            if candidate and candidate.is_dir() and any(candidate.glob("*.json")):
+            if candidate and candidate.is_dir() and any(not is_metadata(p.name) for p in candidate.glob("*.json")):
                 tracing_path = candidate
         # 9 GiB is the largest setting the 50%-of-physical-memory ceiling allows on this 18 GiB
         # host; probe_client_graph.py checks current headroom before analysis starts.
@@ -844,7 +858,7 @@ def build(args, config):
             seed.mkdir(exist_ok=True)
             for directory in ("config", "defaultconfigs", "resourcepacks", "shaderpacks", "kubejs", "scripts"):
                 if (instance / directory).is_dir():
-                    shutil.copytree(instance / directory, seed / directory, dirs_exist_ok=True)
+                    shutil.copytree(instance / directory, seed / directory, dirs_exist_ok=True, ignore=copy_ignore)
             if (instance / "options.txt").is_file():
                 shutil.copy2(instance / "options.txt", seed / "options.txt")
         pipeline_icon = None
@@ -865,13 +879,7 @@ def build(args, config):
             raise ValueError("Packaged instance seed changed")
         facts = app_facts(app, args.device, output / "verify" / uuid4().hex, renderer, not manifest["unsigned"])
         ipa = output / "NCL-game.ipa"
-        with zipfile.ZipFile(ipa, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=1) as archive:
-            for file in sorted(app.rglob("*")):
-                if file.is_file():
-                    archive.write(file, str(Path("Payload") / app.name / file.relative_to(app)))
-        with zipfile.ZipFile(ipa) as archive:
-            if archive.testzip() is not None:
-                raise ValueError("IPA CRC check failed")
+        write_payload_ipa(app, ipa)
         write_json(output / "result.json", {
             "status": "UNSIGNED_DEVICE_APP" if manifest["unsigned"] else "SIGNED_DEVICE_APP", "target": TARGET, "buildKey": key,
             "renderer": renderer, "sourceCommit": manifest["sourceCommit"],

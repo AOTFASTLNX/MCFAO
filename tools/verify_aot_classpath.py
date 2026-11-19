@@ -19,6 +19,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from mod_file_policy import content_paths, is_metadata
+
 ROOT = Path(__file__).resolve().parents[1]
 JAVA = cache_path('toolchains/graalvm-25.0.2/graalvm-community-openjdk-25.0.2+10.1/Contents/Home/bin')
 
@@ -74,9 +76,9 @@ def class_names(entries: list[str]) -> list[str]:
         if path.suffix == ".jar":
             with __import__("zipfile").ZipFile(path) as archive:
                 names.extend(n for n in archive.namelist()
-                             if n.endswith(".class") and not n.startswith("META-INF/"))
+                             if n.endswith(".class") and not n.startswith("META-INF/") and not is_metadata(n))
         elif path.is_dir():
-            names.extend(str(p.relative_to(path)) for p in path.rglob("*.class"))
+            names.extend(p.relative_to(path).as_posix() for p in content_paths(path) if p.suffix == ".class")
     return sorted(set(names))
 
 

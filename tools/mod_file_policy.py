@@ -1,6 +1,10 @@
 """Shared filesystem policy for macOS metadata; never inspect or rewrite Mod bytes."""
+from contextlib import contextmanager
 from pathlib import Path
 import os
+import shutil
+import sys
+import tempfile
 
 
 def _walk_error(error):
@@ -35,6 +39,21 @@ def mod_candidates(root):
 
 def copy_ignore(directory, names):
     return [name for name in names if is_metadata(name)]
+
+
+def copy_content_file(source, destination):
+    """Copy bytes and mode only, without Finder metadata or resource forks."""
+    shutil.copyfile(source, destination)
+    shutil.copymode(source, destination)
+    return destination
+
+
+@contextmanager
+def local_build_temp(prefix):
+    # Stage on the host volume even when capture() points TMPDIR into a build
+    # directory on external storage.
+    with tempfile.TemporaryDirectory(prefix=prefix, dir="/private/tmp" if sys.platform == "darwin" else None) as directory:
+        yield Path(directory).resolve(strict=True)
 
 
 def clean_staged_metadata(root):

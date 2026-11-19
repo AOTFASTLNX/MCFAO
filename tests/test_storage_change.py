@@ -58,6 +58,16 @@ class StorageChangeTests(unittest.TestCase):
         self.assertEqual(data['build'], self.new['builds'] + '/build')
         self.assertEqual((Path(self.new['builds']) / 'game.ipa').read_bytes(), b'retain identical bytes')
 
+    def test_migration_does_not_parse_appledouble_sidecars_as_task_json(self):
+        configs = self.old['jobs'] / 'configs'
+        configs.mkdir()
+        (configs / 'test.json').write_text(json.dumps({'root': str(self.old['cache'])}))
+        (configs / '._test.json').write_bytes(bytes.fromhex('00051607'))
+        self.apply('migrate')
+        copied = Path(self.new['jobs']) / 'configs'
+        self.assertEqual(json.loads((copied / 'test.json').read_text())['root'], self.new['cache'])
+        self.assertEqual((copied / '._test.json').read_bytes(), bytes.fromhex('00051607'))
+
     def test_delete_only_reviewed_roots_and_unlinks_internal_links(self):
         private = self.root / 'private.txt'
         private.write_text('retain')

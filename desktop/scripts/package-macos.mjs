@@ -5,6 +5,7 @@ import fs from "node:fs";
 
 const desktopRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = path.resolve(desktopRoot, "..");
+const localTesting = process.argv.includes("--local-testing");
 if (process.platform !== "darwin") throw new Error("此打包命令需要 macOS。");
 if (process.arch !== "arm64") throw new Error("此打包命令需要 Apple Silicon macOS。");
 const armCargoBin = path.join(process.env.HOME || "", ".cargo", "bin");
@@ -13,7 +14,7 @@ process.env.PATH = armCargoBin + path.delimiter + (process.env.PATH || "");
 function run(command, args, cwd = desktopRoot) {
   const r = spawnSync(command, args, { cwd, stdio: "inherit" });
   if (r.error) throw r.error;
-  if (r.status !== 0) process.exit(r.status ?? 1);
+  if (r.status !== 0) throw new Error(`${command} 失败（退出码 ${r.status ?? 1}）`);
 }
 
 function capture(command, args, cwd = repoRoot) {
@@ -90,7 +91,10 @@ requireStorage();
 const storage = JSON.parse(capture('python3', ['-B', 'tools/storage_config.py', '--check']));
 process.env.CARGO_TARGET_DIR = storage.rust;
 compileBuilderIcon();
-run("npm", ["run", "tauri", "--", "build", "--debug", "--bundles", "app"]);
+run("npm", [
+  "run", "tauri", "--", "build", "--debug", "--bundles", "app",
+  ...(localTesting ? ["--features", "local-testing"] : []),
+]);
 
 const bundleDir = process.env.CARGO_TARGET_DIR
   ? path.join(process.env.CARGO_TARGET_DIR, "debug/bundle/macos")
@@ -105,30 +109,38 @@ for (const key of ["CFBundleIconFile", "CFBundleIconName"]) {
 assertIconIdentity(builtApp);
 
 const version = JSON.parse(fs.readFileSync(path.join(desktopRoot, "package.json"), "utf8")).version;
-const defaultDeliverDir = path.join(storage.builds, "desktop", `ncl-builder-${version}`);
+const defaultDeliverDir = path.join(storage.builds, "desktop", `ncl-builder-${version}${localTesting ? "-local-testing" : ""}`);
 const deliverDir = fs.existsSync(defaultDeliverDir) ? defaultDeliverDir + '-' + Date.now() : defaultDeliverDir;
-fs.mkdirSync(deliverDir, { recursive: true });
 const app = path.join(deliverDir, "NCL Builder.app");
-run("/usr/bin/rsync", [
-  "-a",
-  "--exclude", "._*",
-  "--exclude", ".DS_Store",
-  builtApp + "/",
-  app + "/",
-]);
-assertIconIdentity(app);
+const zip = path.join(deliverDir, localTesting ? "NCL-Builder-local-testing.app.zip" : "NCL Builder.app.zip");
 
-run("/usr/bin/codesign", [
-  "--force",
-  "--deep",
-  "--sign", "-",
-  "--identifier", "org.fabricaot.desktop",
-  app,
-]);
-run("/usr/bin/codesign", ["--verify", "--deep", "--strict", app]);
+function copyApp(source, destination) {
+  run("/usr/bin/rsync", [
+    "-a",
+    "--exclude", "._*",
+    "--exclude", ".DS_Store",
+    "--exclude", "__MACOSX",
+    source + "/",
+    destination + "/",
+  ]);
+}
 
-const zip = path.join(deliverDir, "NCL Builder.app.zip");
-run("/usr/bin/ditto", ["-c", "-k", "--norsrc", "--noextattr", "--noacl", "--keepParent", app, zip]);
+// Sign and verify on the system volume before publishing to the selected storage.
+const signingDir = fs.mkdtempSync("/private/tmp/ncl-builder-signing-");
+try {
+  const stagedApp = path.join(signingDir, "NCL Builder.app");
+  copyApp(builtApp, stagedApp);
+  assertIconIdentity(stagedApp);
+  run("/usr/bin/codesign", [
+    "--force", "--deep", "--sign", "-", "--identifier", "org.fabricaot.desktop", stagedApp,
+  ]);
+  run("/usr/bin/codesign", ["--verify", "--deep", "--strict", stagedApp]);
+  fs.mkdirSync(deliverDir, { recursive: true });
+  copyApp(stagedApp, app);
+  run("/usr/bin/ditto", ["-c", "-k", "--norsrc", "--noextattr", "--noacl", "--keepParent", stagedApp, zip]);
+} finally {
+  fs.rmSync(signingDir, { recursive: true, force: true });
+}
 
 console.log("本地工作台已打包并完成临时签名：" + app);
 console.log("压缩交付包：" + zip);

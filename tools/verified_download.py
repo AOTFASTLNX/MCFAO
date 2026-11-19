@@ -10,7 +10,7 @@ from uuid import uuid4
 
 TOOL_HOSTS = frozenset({'github.com', 'release-assets.githubusercontent.com', 'objects.githubusercontent.com',
     'codeload.github.com', 'raw.githubusercontent.com', 'cmake.org', 'www.apache.org',
-    'repo.maven.apache.org', 'repo1.maven.org', 'maven.fabricmc.net'})
+    'repo.maven.apache.org', 'repo1.maven.org', 'maven.fabricmc.net', 'ftp.gnu.org'})
 GAME_HOSTS = frozenset({'piston-meta.mojang.com', 'piston-data.mojang.com',
     'launcher.mojang.com', 'libraries.minecraft.net', 'resources.download.minecraft.net'})
 

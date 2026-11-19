@@ -138,7 +138,15 @@ def config_summary(value):
     return config, paths
 
 def bootstrap(workspace):
+    from first_run import status as setup_status
+    try:
+        setup = setup_status()
+    except (OSError, ValueError):
+        setup = dict(state='failed', message='无法读取环境准备状态，请检查存储位置后重试')
     config = next((p for p in (workspace / 'artifacts/integration-20261115/config-gl41.json', workspace / 'artifacts/mcfao-gl41.json', workspace / 'mcfao.local.json') if p.is_file()), None)
+    generated = setup.get('config')
+    if generated and Path(generated).is_file():
+        config = Path(generated)
     # A packaged source tree deliberately omits artifacts/, so a workbench
     # update must still find the configuration the user saved previously.
     if config is None:
@@ -151,7 +159,8 @@ def bootstrap(workspace):
         def recent(path):
             try: return path.stat().st_mtime
             except OSError: return 0
-        candidates = sorted(folder.glob('*.json'), key=recent, reverse=True)[:50] if folder and folder.is_dir() else []
+        candidates = sorted((p for p in folder.glob('*.json') if not is_metadata(p.name)),
+                            key=recent, reverse=True)[:50] if folder and folder.is_dir() else []
         for candidate in candidates:
             try: values = read_json(candidate)
             except (OSError, ValueError): continue
@@ -163,12 +172,6 @@ def bootstrap(workspace):
         try: fields = read_json(config)
         except (OSError, ValueError): pass
     bundled = (workspace / 'bundle-manifest.json').is_file()
-    setup = None
-    if bundled:
-        from first_run import start as start_setup
-        try: setup = start_setup()
-        except (OSError, ValueError, RuntimeError) as exc:
-            setup = dict(state='failed', message='首次准备暂停，请检查存储位置后重试', error=str(exc))
     return dict(workspace=str(workspace), bundled=bundled, setup=setup, config=str(config) if config else '', configFields=fields,
                 exportOptions=str(workspace / 'ios/C0Harness/ExportOptions.plist'),
                 output=str(storage_paths(workspace)['builds']), storage={k: str(v) for k, v in storage_paths(workspace).items()}, jobs=history(workspace))
@@ -885,11 +888,25 @@ def run_job(path):
     except InterruptedError as e: update(state='cancelled', error=str(e), finishedAt=now())
     except Exception as e: update(state='failed', error=str(e), finishedAt=now())
 
+def retry_request(job, workspace):
+    request = job['request']
+    if not request.get('workspace') or not (workspace / 'bundle-manifest.json').is_file():
+        return request
+    previous = Path(request['workspace'])
+    if (previous.parts[-3:] == ('Contents', 'Resources', 'source')
+            and previous.parents[2].suffix == '.app'):
+        return {**request, 'workspace': str(workspace)}
+    return request
+
+
 def start(request, retry=None):
     with control_lock(workspace_path(request.get('workspace', str(ROOT)))):
         return _start(request, retry)
 
 def _start(request, retry=None):
+    from first_run import status as setup_status
+    if setup_status().get('state') in ('queued', 'running'):
+        raise ValueError('请等待构建环境准备完成')
     if request.get('kind') == 'dependencies':
         return start_dependencies(request)
     workspace = validate_request(request)
@@ -915,7 +932,7 @@ def _start(request, retry=None):
             job['name'] = 'IPA 导出 · 26.1.2'
         if retry:
             old = read_json(job_path(workspace, retry))
-            if old['state'] in ACTIVE or old['state'] == 'succeeded' or old['request'] != request: raise ValueError('此任务不能重试')
+            if old['state'] in ACTIVE or old['state'] == 'succeeded' or retry_request(old, workspace) != request: raise ValueError('此任务不能重试')
             job['build'] = old['build']
             if old.get('sourceFolder'): job['sourceFolder'] = old['sourceFolder']
         path = folder / 'job.json'
@@ -1003,13 +1020,17 @@ def main():
                 else:
                     result = save_paths(request['fields'], workspace)
         elif args.action == 'setup-start':
-            from first_run import start as start_setup
-            result = start_setup(request.get('fields', {}).get('owned') is True)
+            from first_run import _start as start_setup
+            with control_lock(workspace):
+                if any(j['state'] in ACTIVE for j in history(workspace)):
+                    raise ValueError('请在构建结束后准备环境')
+                result = start_setup(request.get('fields', {}).get('owned') is True)
         elif args.action == 'setup-status':
             from first_run import status as setup_status
             result = setup_status()
         elif args.action == 'start': result = start(request)
-        elif args.action == 'retry': result = start(read_json(job_path(workspace, args.id))['request'], args.id)
+        elif args.action == 'retry':
+            result = start(retry_request(read_json(job_path(workspace, args.id)), workspace), args.id)
         elif args.action == 'resolve-exclusions': result = resolve_exclusions(workspace, args.id, request.get('fields', {}))
         elif args.action in ('storage-plan', 'storage-clean'): result = storage(args.action, request.get('fields', request))
         elif args.action == 'status': result = snapshot(job_path(workspace, args.id))

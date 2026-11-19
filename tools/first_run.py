@@ -1,4 +1,4 @@
-"""Persistent first-run download worker. No downloaded build script or Mod is executed."""
+"""Persistent download and local build-environment preparation worker."""
 from __future__ import annotations
 import argparse
 import fcntl
@@ -81,7 +81,11 @@ def _start(owned=False):
                 args = subprocess.check_output(['/bin/ps', '-p', str(old['pid']), '-o', 'args='], text=True, timeout=5)
                 if 'first_run.py' in args: return old
             except (KeyError, OSError, subprocess.SubprocessError): pass
-        if old.get('state') == 'ready' and old.get('cache') == str(storage_paths()['cache'].resolve()) and (not owned or old.get('client')): return old
+        if old.get('state') == 'ready' and old.get('cache') == str(storage_paths()['cache'].resolve()) and not owned:
+            return old
+        if owned:
+            from prepare_environment import check_host
+            check_host()
         state = dict(state='queued', totalBytes=sum(s['size'] for _, s in download_specs()), completedBytes=0,
                      message='准备下载固定版本工具链', owned=owned)
         write_state(path, state)
@@ -101,16 +105,21 @@ def run(path, owned=False):
         fcntl.flock(launch, fcntl.LOCK_EX)
     with (path.parent / 'worker.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        state = dict(state='running', pid=os.getpid(), completedBytes=0, cache=str(storage_paths()['cache'].resolve()),
+        state = dict(state='running', owned=owned, pid=os.getpid(), completedBytes=0, cache=str(storage_paths()['cache'].resolve()),
                      totalBytes=sum(s['size'] for _, s in download_specs()))
         def update(**fields):
             state.update(fields)
             write_state(path, state)
         try:
+            paths = storage_paths()
             require_mount('first-run worker')
-            require_space()
-            cache = storage_paths()['cache'].resolve()
-            update(message='下载并校验工具链，不执行第三方脚本')
+            require_space(paths)
+            cache = paths['cache'].resolve()
+            sdk = None
+            if owned:
+                from prepare_environment import check_host, prepare
+                sdk = check_host()
+            update(stage='toolchain', message='正在下载并校验工具链')
             for relative, spec in download_specs():
                 update(message='下载 / 校验 ' + relative.name)
                 fetch(spec, cache / relative)
@@ -140,9 +149,12 @@ def run(path, owned=False):
             if owned:
                 from acquire_client import acquire
                 client = cache / 'owned-client/26.1.2'
-                result = acquire(client, True, lambda message: update(message=message))
+                result = acquire(client, True, lambda message: update(stage='game', message=message))
                 update(client=str(client), clientMetadata=result['versionMetadata'], assets=result['assets'])
-            update(state='ready', javaHome=str(homes[0]), message='工具链下载和校验完成；iOS 编译前置产物仍需按构建说明准备。')
+                config = prepare(ROOT, paths, homes[0], client, result, sdk, update, write_state)
+                update(config=str(config))
+            update(state='ready', javaHome=str(homes[0]),
+                   message='构建环境已就绪' if owned else '工具链下载和校验完成')
         except Exception as exc:
             update(state='failed', error=str(exc), message='准备失败；已下载文件与日志保留，可重试')
             return 2

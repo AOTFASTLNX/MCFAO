@@ -37,6 +37,9 @@ class ClasspathProbeResultTests(unittest.TestCase):
             source.write_text("package mod; public final class Test { public void read() {} }")
             subprocess.run([str(JAVA / "javac"), "-d", str(classes), str(source)],
                            check=True, capture_output=True, timeout=60)
+            (classes / "mod/._Test.class").write_bytes(bytes.fromhex("00051607"))
+            (classes / "__MACOSX").mkdir()
+            (classes / "__MACOSX/Ignore.class").write_bytes(b"metadata")
             report = verify_entries([classes], JAVA, verify_members=True, timeout=60)
         self.assertEqual(report["classes"], 1)
         self.assertEqual(report["unloadable"], 0)

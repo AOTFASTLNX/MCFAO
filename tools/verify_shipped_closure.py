@@ -8,6 +8,8 @@ run-time error. Skips JDK types and types present on the recorded image classpat
 import argparse, glob, json, os, struct, sys, zipfile
 from collections import defaultdict
 
+from mod_file_policy import is_metadata
+
 def cp_class_refs(data):
     i = 8
     cpn = struct.unpack(">H", data[i:i+2])[0]; i += 2
@@ -56,17 +58,16 @@ def main():
     for q in cp_jars:
         try:
             with zipfile.ZipFile(q) as z:
-                outside |= {n[:-6] for n in z.namelist() if n.endswith(".class")}
+                outside |= {n[:-6] for n in z.namelist() if n.endswith(".class") and not is_metadata(n)}
         except zipfile.BadZipFile:
             pass
 
     present = set(); refs = defaultdict(set)
     with zipfile.ZipFile(args.jar) as z:
-        for n in z.namelist():
-            if n.endswith(".class") and not n.startswith("module-info"):
-                present.add(n[:-6])
-        for n in z.namelist():
-            if not n.endswith(".class") or n.startswith("module-info"): continue
+        classes = [n for n in z.namelist()
+                   if n.endswith(".class") and not n.startswith("module-info") and not is_metadata(n)]
+        present.update(n[:-6] for n in classes)
+        for n in classes:
             for r in cp_class_refs(z.read(n)):
                 # Constant-pool Class entries may hold array descriptors; reduce to the
                 # component type so "[Lfoo/Bar;" counts as a reference to foo/Bar.

@@ -16,6 +16,7 @@ import zipfile
 
 from bootstrap_toolchain import sha256
 from capture import ROOT, capture
+from mod_file_policy import content_paths, is_metadata, mod_candidates
 from prepare_b0 import jar_bytes, select_libraries
 from run_b0_reference import execute, require_run, sandbox_policy
 
@@ -71,6 +72,8 @@ def contains_control_characters(value):
 
 
 def read_entry(archive, name):
+    if is_metadata(name):
+        raise ValueError(f"Fabric metadata points to a macOS sidecar: {name}")
     if archive.getinfo(name).file_size > 1024**2:
         raise ValueError(f"Oversized Fabric metadata: {name}")
     data = archive.read(name)
@@ -108,7 +111,6 @@ def needs_reference_remapping(archive, name):
 
 
 def mod_files(directory):
-    from mod_file_policy import mod_candidates
     jars = mod_candidates(directory)
     if not jars or any(p.is_symlink() or not p.is_file() for p in jars):
         raise ValueError("Expected regular local .jar files in --mods")
@@ -135,7 +137,7 @@ def runtime_overlay_sources(roots):
     """Split the run-time overlay sources into the ones this pack can compile and the rest."""
     present = root_mod_ids(roots)
     compiled, skipped = [], []
-    for path in sorted((TOOL / "mcfao" / "aot").rglob("*.java")):
+    for path in sorted(p for p in content_paths(TOOL / "mcfao" / "aot") if p.suffix == ".java"):
         relative = path.relative_to(TOOL).as_posix()
         required = RUNTIME_OVERLAY_MODS.get(relative)
         if required and required not in present:
@@ -175,6 +177,7 @@ def inspect_archives(roots, work, *, metadata_only=False):
                 metadata = read_entry(archive, "fabric.mod.json")
             except (ValueError, KeyError) as error:
                 raise ValueError(f"{origin}!fabric.mod.json: {error}") from error
+            names = {name for name in names if not is_metadata(name)}
             inventory.append((path, origin, metadata, names))
             for nested in metadata.get("jars", []):
                 name = nested["file"]
@@ -363,14 +366,17 @@ def merge_client(client, overlay, output, changes, resources=()):
     """
     with (zipfile.ZipFile(client) as base, zipfile.ZipFile(overlay) as patch,
           zipfile.ZipFile(output, "x", compression=zipfile.ZIP_DEFLATED) as merged):
-        updated = set(patch.namelist())
+        updated = {name for name in patch.namelist() if not is_metadata(name)}
         declared = set(changes) | set(resources)
-        if updated.intersection(base.namelist()) != declared:
+        overlapping = updated.intersection(base.namelist())
+        if overlapping != declared:
             raise ValueError("Fabric overlay changes undocumented client entries: "
-                             + ", ".join(sorted(updated.intersection(base.namelist()) - declared)[:5]))
+                             + ", ".join(sorted(overlapping - declared)[:5]))
         for source in (base, patch):
             for member in source.infolist():
                 name = member.filename
+                if is_metadata(name):
+                    continue
                 if source == base and (name in updated or re.fullmatch(
                         r"META-INF/(?:[^/]+\.(?:SF|RSA|DSA|EC)|SIG-[^/]+)", name, re.I)):
                     continue
@@ -402,10 +408,12 @@ def compile_java(home, classpath, sources, classes, log):
 def build_fixture(prepared, output):
     home, libraries, engine, _ = load_reference(prepared)
     classes = output / "classes"
-    compile_java(home, [*engine, *libraries], (FIXTURE / "src").rglob("*.java"), classes, output / "compile")
-    contents = {str(p.relative_to(classes)): p.read_bytes() for p in classes.rglob("*.class")}
+    sources = (p for p in content_paths(FIXTURE / "src") if p.suffix == ".java")
+    compile_java(home, [*engine, *libraries], sources, classes, output / "compile")
+    contents = {str(p.relative_to(classes)): p.read_bytes()
+                for p in content_paths(classes) if p.suffix == ".class"}
     resources = FIXTURE / "resources"
-    contents.update({str(p.relative_to(resources)): p.read_bytes() for p in resources.rglob("*") if p.is_file()})
+    contents.update({str(p.relative_to(resources)): p.read_bytes() for p in content_paths(resources) if p.is_file()})
     mods = output / "mods"
     mods.mkdir()
     (mods / "mcfao-fixture.jar").write_bytes(jar_bytes(contents))
@@ -440,7 +448,7 @@ def prepare(prepared, client, mods, output, audited, trace_agent=False, renderer
     # Classes that replace run-time generated Mod code implement Mod APIs, so they compile
     # against the Mod jars and never enter the tool's own classpath. Keeping the two compilations
     # apart means the AOT host still sees Mod jars only through Knot.
-    tool_sources = [p for p in TOOL.rglob("*.java") if "aot" not in p.relative_to(TOOL).parts]
+    tool_sources = [p for p in content_paths(TOOL) if p.suffix == ".java" and "aot" not in p.relative_to(TOOL).parts]
     compile_java(home, classpath, tool_sources, classes, output / "compile")
     classpath.insert(0, classes)
     runtime_sources, overlay_skipped = runtime_overlay_sources(roots)
@@ -561,7 +569,7 @@ def prepare(prepared, client, mods, output, audited, trace_agent=False, renderer
         if attempt_trace_directory and attempt_trace_directory.is_dir():
             published_trace = output / f"tracing-agent-attempt-{attempt}"
             shutil.move(str(attempt_trace_directory), str(published_trace))
-            result_trace_files = sorted(published_trace.glob("*.json"))
+            result_trace_files = sorted(p for p in published_trace.glob("*.json") if not is_metadata(p.name))
             tracing_attempts.append({
                 "attempt": attempt,
                 "path": str(published_trace),
@@ -625,7 +633,7 @@ def prepare(prepared, client, mods, output, audited, trace_agent=False, renderer
         record["jarIds"] = {Path(origin).name: sorted(declared)
                             for origin, declared in sorted(ids_by_jar.items())}
         if retired.is_dir():
-            record["retiredJars"] = sorted(path.name for path in retired.glob("*.jar"))
+            record["retiredJars"] = sorted(path.name for path in mod_candidates(retired))
     transform = json.loads((work / "transform.json").read_text())
     output_jar = output / "client.jar"
     merge_client(client, work / "overlay.jar", output_jar, transform["gameTransforms"],

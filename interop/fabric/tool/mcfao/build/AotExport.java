@@ -8,6 +8,7 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.HexFormat;
@@ -16,6 +17,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
@@ -318,9 +320,11 @@ public final class AotExport implements Opcodes {
              var jar = new ZipOutputStream(Files.newOutputStream(output.resolve("overlay.jar")))) {
             for (var original : base.stream().toList()) {
                 String name = original.getName();
-                if (name.startsWith("assets/") || name.startsWith("data/")) resourceEntryNames.add(name);
+                if (!isMacMetadata(name) && (name.startsWith("assets/") || name.startsWith("data/")))
+                    resourceEntryNames.add(name);
             }
-            for (var original : base.stream().filter(e -> e.getName().endsWith(".class")).toList()) {
+            for (var original : base.stream().filter(e -> e.getName().endsWith(".class")
+                    && !isMacMetadata(e.getName())).toList()) {
                 String path = original.getName();
                 byte[] before;
                 try (var input = base.getInputStream(original)) {
@@ -382,8 +386,8 @@ public final class AotExport implements Opcodes {
             for (var mod : loader.getModsInternal()) {
                 if (!requested.contains(mod.getMetadata().getId())) continue;
                 for (Path root : mod.getRootPaths()) {
-                    try (var paths = Files.walk(root)) {
-                        for (Path path : paths.filter(Files::isRegularFile)
+                    try (var paths = contentFiles(root)) {
+                        for (Path path : paths
                                 .filter(p -> p.getFileName().toString().endsWith(".class")).toList()) {
                             byte[] data = Files.readAllBytes(path);
                             boolean container = indexOf(data,
@@ -426,8 +430,8 @@ public final class AotExport implements Opcodes {
                     var effective = new TreeMap<String, Path>();
                     var versioned = new TreeMap<String, TreeMap<Integer, Path>>();
                     boolean multiRelease = multiRelease(root);
-                    try (var paths = Files.walk(root)) {
-                        for (Path path : paths.filter(Files::isRegularFile).sorted().toList()) {
+                    try (var paths = contentFiles(root)) {
+                        for (Path path : paths.sorted().toList()) {
                             String name = root.relativize(path).toString();
                             if (!name.startsWith(VERSIONS)) {
                                 effective.put(name, path);
@@ -821,8 +825,8 @@ public final class AotExport implements Opcodes {
                 @SuppressWarnings("unchecked")
                 var iconPaths = new TreeSet<>(((Map<String,String>) snapshot.get("icons")).values());
                 for (Path root : (meta.getType().equals("builtin") ? List.<Path>of() : mod.getRootPaths())) {
-                    try (var tree = Files.walk(root)) {
-                        for (Path file : tree.filter(Files::isRegularFile).toList()) {
+                    try (var tree = contentFiles(root)) {
+                        for (Path file : tree.toList()) {
                             String relative = root.relativize(file).toString().replace('\\', '/');
                             if (!(relative.startsWith("assets/") || relative.startsWith("data/")
                                     || relative.startsWith("resourcepacks/") || relative.equals("pack.mcmeta")
@@ -905,15 +909,7 @@ public final class AotExport implements Opcodes {
             // First-party replacements for run-time generated code. They are compiled ahead of the
             // export against the same Mod jars, because the Mod APIs they implement are not part of
             // the vanilla reference classpath the tool itself is built from.
-            if (runtimeClasses != null) {
-                try (var tree = Files.walk(runtimeClasses)) {
-                    for (var path : tree.filter(item -> item.toString().endsWith(".class")).toList()) {
-                        String name = runtimeClasses.relativize(path).toString().replace('\\', '/');
-                        put(jar, names, name, Files.readAllBytes(path));
-                        runtimeExported.add(name);
-                    }
-                }
-            }
+            if (runtimeClasses != null) writeRuntimeClasses(runtimeClasses, jar, names, runtimeExported);
             for (String type : List.of("Operation", "WrapOperationRuntime", "IncorrectArgumentCountException")) {
                 String name = WRAP_OPERATION + type + ".class";
                 // The extras closure above may already have resolved the same class from Knot.
@@ -1467,7 +1463,7 @@ public final class AotExport implements Opcodes {
         // native binaries stay outside this rule. The allowed alphabet is literal in a glob.
         return !path.startsWith("META-INF/") && !path.startsWith("mcfao/mod-files/")
                 && !path.startsWith("assets/") && !path.startsWith("data/")
-                && Arrays.stream(path.split("/")).noneMatch(part -> part.equals("__MACOSX"))
+                && !isMacMetadata(path)
                 && path.matches("(?:[A-Za-z0-9_$-][A-Za-z0-9_.$-]*/)+"
                         + "[A-Za-z0-9_$-][A-Za-z0-9_.$-]*\\.(?:json|toml|properties|txt|xml|csv)");
     }
@@ -2191,8 +2187,8 @@ public final class AotExport implements Opcodes {
         try {
             Path root = Path.of(location.toURI());
             if (Files.isDirectory(root)) {
-                try (var tree = Files.walk(root.resolve("net/fabricmc"))) {
-                    for (Path file : tree.filter(Files::isRegularFile).toList()) {
+                try (var tree = contentFiles(root.resolve("net/fabricmc"))) {
+                    for (Path file : tree.toList()) {
                         String name = root.relativize(file).toString().replace('\\', '/');
                         if (name.matches("net/fabricmc/(api/.*|loader/api/metadata/.*|loader/impl/util/version/.*)\\.class"))
                             result.put(name, Files.readAllBytes(file));
@@ -2200,7 +2196,7 @@ public final class AotExport implements Opcodes {
                 }
             } else {
                 try (var loader = new ZipFile(root.toFile())) {
-                    for (var entry : loader.stream().filter(item -> item.getName()
+                    for (var entry : loader.stream().filter(item -> !isMacMetadata(item.getName()) && item.getName()
                             .matches("net/fabricmc/(api/.*|loader/api/metadata/.*|loader/impl/util/version/.*)\\.class")).toList()) {
                         try (var input = loader.getInputStream(entry)) {
                             result.put(entry.getName(), input.readAllBytes());
@@ -2223,7 +2219,7 @@ public final class AotExport implements Opcodes {
         try {
             var connection = (java.net.JarURLConnection) resource.openConnection();
             try (var source = new ZipFile(Path.of(connection.getJarFileURL().toURI()).toFile())) {
-                for (var entry : source.stream().filter(e -> e.getName().startsWith(prefix)
+                for (var entry : source.stream().filter(e -> !isMacMetadata(e.getName()) && e.getName().startsWith(prefix)
                         && e.getName().endsWith(".class")).toList()) {
                     try (var input = source.getInputStream(entry)) {
                         result.put(entry.getName(), input.readAllBytes());
@@ -2232,6 +2228,36 @@ public final class AotExport implements Opcodes {
             }
         } catch (Exception error) { throw new IllegalStateException("Cannot read pinned Mixin Guava", error); }
         return result;
+    }
+
+    // Mirror tools/mod_file_policy.py. Evaluate relative paths at the point of
+    // consumption because macOS can create sidecars after a staging copy.
+    private static boolean isMacMetadata(String relative) {
+        for (String part : relative.replace('\\', '/').split("/")) {
+            if (part.startsWith("._") || part.equals(".DS_Store") || part.equals("__MACOSX")) return true;
+        }
+        return false;
+    }
+
+    private static Stream<Path> contentFiles(Path root) throws IOException {
+        return Files.walk(root).filter(path -> !isMacMetadata(root.relativize(path).toString()))
+                .filter(Files::isRegularFile);
+    }
+
+    static void writeRuntimeClasses(Path root, ZipOutputStream jar, Set<String> names,
+                                    Collection<String> exported) throws IOException {
+        try (var files = contentFiles(root)) {
+            for (var path : files.filter(file -> file.getFileName().toString().endsWith(".class")).sorted().toList()) {
+                String name = root.relativize(path).toString().replace('\\', '/');
+                byte[] data = Files.readAllBytes(path);
+                if (data.length < 4 || (data[0] & 0xff) != 0xca || (data[1] & 0xff) != 0xfe
+                        || (data[2] & 0xff) != 0xba || (data[3] & 0xff) != 0xbe) {
+                    throw new IOException("Invalid runtime class header: " + name);
+                }
+                put(jar, names, name, data);
+                exported.add(name);
+            }
+        }
     }
 
     private static void put(ZipOutputStream jar, Set<String> names, String name, byte[] data) throws IOException {

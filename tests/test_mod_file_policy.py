@@ -1,7 +1,9 @@
 """Shared macOS metadata policy and integration regressions."""
 import hashlib
 import json
+import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -9,6 +11,7 @@ from unittest.mock import patch
 from zipfile import ZipFile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 import desktop_workbench as w
+from build_lwjgl_lite import filter_overlay_metadata
 from import_instance import import_instance
 from mcfao import Build, instance_files, tree_files, write_json
 from mod_file_policy import clean_staged_metadata, is_metadata
@@ -209,6 +212,38 @@ class MetadataTests(unittest.TestCase):
         repo = Path(__file__).resolve().parents[1]
         config = json.loads((repo / 'desktop/src-tauri/tauri.conf.json').read_text())
         self.assertEqual(config['bundle']['resources']['../../tools/mod_file_policy.py'], 'tools/mod_file_policy.py')
+
+    def test_generated_lwjgl_overlay_filters_only_metadata(self):
+        jar = self.root / 'lwjgl-ios.jar'
+        with ZipFile(jar, 'w') as archive:
+            archive.writestr('org/lwjgl/Fixture.class', b'fixture class')
+            archive.writestr('org/lwjgl/._Fixture.class', bytes.fromhex('00051607'))
+            archive.writestr('org/lwjgl/.ordinary-hidden', b'resource')
+        filter_overlay_metadata(jar)
+        with ZipFile(jar) as archive:
+            self.assertEqual(archive.namelist(), ['org/lwjgl/Fixture.class', 'org/lwjgl/.ordinary-hidden'])
+            self.assertEqual(archive.read('org/lwjgl/Fixture.class'), b'fixture class')
+            self.assertIsNone(archive.testzip())
+        clean = jar.read_bytes()
+        filter_overlay_metadata(jar)
+        self.assertEqual(jar.read_bytes(), clean)
+
+    @unittest.skipUnless(Path('/usr/bin/rsync').is_file(), 'Requires the macOS resource-copy tool')
+    def test_xcode_instance_seed_preserves_hidden_content_and_skips_metadata(self):
+        source = self.root / 'source'
+        (source / 'config/__MACOSX').mkdir(parents=True)
+        for name in ('config/game.json', 'config/.ordinary-hidden', 'config/._game.json',
+                     'config/.DS_Store', 'config/__MACOSX/game.json'):
+            (source / name).write_bytes(b'data')
+        script = Path(__file__).resolve().parents[1] / 'ios/C0Harness/embed_graphics_libraries.sh'
+        target = self.root / 'target'
+        subprocess.run(['/bin/sh', str(script)], check=True, capture_output=True, timeout=30,
+                       env={'PATH': os.defpath, 'FAOT_INSTANCE_DATA_DIR': str(source), 'TARGET_BUILD_DIR': str(target),
+                            'UNLOCALIZED_RESOURCES_FOLDER_PATH': 'Test.app'})
+        seed = target / 'Test.app/instance-seed'
+        self.assertEqual({p.relative_to(seed).as_posix() for p in seed.rglob('*') if p.is_file()},
+                         {'config/game.json', 'config/.ordinary-hidden'})
+        self.assertTrue((source / 'config/._game.json').is_file())
 
 
 if __name__ == '__main__': unittest.main()

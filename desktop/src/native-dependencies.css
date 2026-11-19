@@ -121,3 +121,104 @@
   background: var(--raised);
   border-radius: 12px;
 }
+
+.build-setup-account {
+  margin-top: 12px;
+}
+
+.environment-layout {
+  display: grid;
+  gap: var(--space-4);
+  max-width: 1100px;
+  margin-inline: auto;
+}
+
+.environment-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  column-gap: var(--space-5);
+  row-gap: var(--space-3);
+}
+
+.environment-row > div {
+  flex: 1 1 280px;
+  min-width: 0;
+}
+
+.environment-row :is(h2, h3) {
+  margin: 0;
+  font-size: 17px;
+}
+
+.environment-row p {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.environment-layout > .dependency-preflight,
+.environment-layout > .dependency-task,
+.environment-layout > .advanced {
+  margin: 0;
+}
+
+.environment-layout > .dependency-preflight,
+.environment-check {
+  padding: var(--space-5);
+  border-radius: var(--radius);
+  background: var(--raised);
+}
+
+.environment-check > .check-list {
+  margin-top: var(--space-4);
+}
+
+.environment-disclosure summary > small {
+  margin-inline-start: auto;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.environment-disclosure .dependency-manager {
+  margin-bottom: 0;
+}
+
+.environment-advanced-fields {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+
+.environment-advanced-fields button {
+  justify-self: start;
+}
+
+.dependency-preflight > :is(p, progress) {
+  margin-top: var(--space-3);
+}
+
+.advanced.environment-disclosure {
+  padding: 0;
+}
+
+.advanced.environment-disclosure > summary {
+  min-height: 48px;
+  padding-inline: var(--space-4);
+  gap: var(--space-3);
+  font-size: 13px;
+}
+
+.advanced.environment-disclosure > summary::after {
+  margin-inline-start: 0;
+}
+
+.environment-disclosure[open] > summary {
+  border-bottom: 1px solid var(--input-border);
+}
+
+.environment-layout :is([role="alert"], small) {
+  overflow-wrap: anywhere;
+}

@@ -7,6 +7,7 @@ import json
 import plistlib
 import shutil
 from pathlib import Path
+from mod_file_policy import is_metadata
 
 from bootstrap_toolchain import ROOT, sha256
 from capture import capture
@@ -49,6 +50,8 @@ def main(argv=None):
     result = capture(command, output / "link", 180)
     if result["exitCode"] == 0:
         for header in probe.glob("*.h"):
+            if is_metadata(header.name):
+                continue
             shutil.copy2(header, framework / "Headers" / header.name)
         info = {"CFBundleIdentifier": "org.fabricaot.research.runtime", "CFBundleName": "FabricAOTProbe",
                 "CFBundleExecutable": "FabricAOTProbe", "CFBundlePackageType": "FMWK",

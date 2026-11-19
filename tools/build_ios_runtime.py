@@ -16,6 +16,7 @@ from pathlib import Path
 
 from bootstrap_toolchain import ROOT, sha256
 from capture import capture
+from mod_file_policy import is_metadata
 
 
 def jdk_sources(jdk: Path, library: str, module: str = 'java.base') -> list[Path]:
@@ -26,9 +27,10 @@ def jdk_sources(jdk: Path, library: str, module: str = 'java.base') -> list[Path
         base = jdk / 'src' / module / platform / "native" / library
         if base.is_dir():
             for path in sorted(base.rglob("*.c")):
-                if "zlib" in path.relative_to(base).parts:
+                relative = path.relative_to(base)
+                if is_metadata(relative) or "zlib" in relative.parts:
                     continue  # Use the public iOS SDK's libz and matching headers.
-                selected[str(path.relative_to(base))] = path
+                selected[str(relative)] = path
     return [selected[key] for key in sorted(selected)]
 
 
@@ -75,7 +77,7 @@ def main(argv=None):
     target = "arm64-apple-ios17.0" + ("-simulator" if args.sdk == "iphonesimulator" else "")
     include_paths = {p.parent for platform in ("share", "unix", "macosx")
                      for p in (jdk / "src/java.base" / platform / "native").rglob("*.h")
-                     if "zlib" not in p.parts}
+                     if not is_metadata(p.relative_to(jdk)) and "zlib" not in p.parts}
     include_paths |= {headers, jdk / "build/fabricaot-host/jdk/include",
                       jdk / "src/hotspot/share/include", jdk / "src/hotspot/os/posix/include",
                       svm / "src/com.oracle.svm.native.libchelper/include"}

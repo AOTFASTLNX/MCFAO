@@ -8,7 +8,6 @@ from pathlib import Path
 
 from mod_file_policy import is_metadata
 
-
 PLATFORM_PREFIXES = ("java.", "javax.", "jdk.", "sun.", "com.sun.", "org.graalvm.")
 AGENT_FILES = frozenset({
     "reflect-config.json", "jni-config.json", "resource-config.json",

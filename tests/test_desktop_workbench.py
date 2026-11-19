@@ -564,6 +564,17 @@ class WorkbenchTests(unittest.TestCase):
         self.assertEqual(job['sourceFolder'], str(self.root / 'original-source'))
         self.assertNotEqual(job['id'], old_id)
 
+    def test_retry_after_app_update_uses_new_bundle_and_preserves_saved_inputs(self):
+        workspace = self.root / 'New.app/Contents/Resources/source'
+        workspace.mkdir(parents=True)
+        (workspace / 'bundle-manifest.json').touch()
+        old = str(self.root / 'Old.app/Contents/Resources/source')
+        job = {'request': {'workspace': old, 'config': '/saved/config.json', 'source': '/saved/pack.mrpack'}}
+        self.assertEqual(w.retry_request(job, workspace), {**job['request'], 'workspace': str(workspace)})
+        self.assertEqual(job['request']['workspace'], old)
+        custom = {'request': {**job['request'], 'workspace': str(self.root / 'custom-source')}}
+        self.assertEqual(w.retry_request(custom, workspace), custom['request'])
+
     def test_cancellation_marker_is_visible_without_racing_worker_state_writes(self):
         path = self.root / 'job.json'
         w.write_json(path, dict(id='f' * 32, state='running', stage='aot', pid=12345))

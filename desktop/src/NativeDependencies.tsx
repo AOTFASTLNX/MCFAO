@@ -93,7 +93,7 @@ export function NativeDependencies({
       aria-label="原生依赖库管理"
     >
       <div className="check-toolbar">
-        <h2>原生依赖库</h2>
+        <span>依赖维护</span>
         <button
           className="secondary"
           disabled={disabled || checking}
@@ -105,8 +105,7 @@ export function NativeDependencies({
         </button>
       </div>
       <p className="section-description">
-        按依赖顺序构建 iPhoneOS arm64 产物，成功后切换配置。新产物保存在
-        artifacts/graphics 下的独立时间戳目录。
+        重建成功后自动切换到新的依赖产物。
       </p>
       <div className="button-line">
         <button
@@ -156,7 +155,9 @@ export function NativeDependencies({
         <p role="status">
           {checking
             ? "正在比对源码、产物和依赖哈希…"
-            : "选择构建配置后可检查全部依赖库。"}
+            : error
+              ? "请处理上方错误后刷新依赖状态。"
+              : "环境准备完成后将自动检查依赖库。"}
         </p>
       ) : (
         <ol className="dependency-list">

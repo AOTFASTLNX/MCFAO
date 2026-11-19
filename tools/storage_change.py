@@ -9,6 +9,7 @@ import shutil
 import stat
 from uuid import uuid4
 
+from mod_file_policy import is_metadata
 from storage_config import ROLES, RESERVE, existing_parent, save_paths, storage_paths, validate_paths
 
 
@@ -125,6 +126,8 @@ def apply(values, policy, token, root):
             # archives, signed products, logs and input fingerprints stay intact.
             metadata = list(stages['jobs'].glob('*/job.json')) + list((stages['jobs'] / 'configs').glob('*.json'))
             for path in metadata:
+                if is_metadata(path.relative_to(stages['jobs'])):
+                    continue
                 if path.is_symlink() or not path.resolve().is_relative_to(stages['jobs'].resolve()):
                     raise ValueError('任务元数据不能是目录外链接：' + str(path))
                 data = json.loads(path.read_text())

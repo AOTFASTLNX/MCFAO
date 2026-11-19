@@ -559,6 +559,7 @@ test("vanilla form reaches review, validates team and never generates shell comm
   await page.goto("/");
   await page.getByRole("button", { name: "原版 26.1.2", exact: true }).click();
   await page.getByRole("button", { name: "下一步", exact: true }).click();
+  await page.getByText("高级配置 · 工具链和资源路径", { exact: true }).click();
   await page.getByLabel("NCL 项目目录", { exact: true }).fill("/local/repo");
   await page.getByLabel("构建配置", { exact: true }).fill("/local/config.json");
   await page.getByLabel("构建产物目录", { exact: true }).fill("/local/builds");
@@ -577,6 +578,7 @@ test("vanilla form reaches review, validates team and never generates shell comm
   await expect(page.getByText("--prepare-only")).toHaveCount(0);
   await page.reload();
   await page.getByRole("button", { name: "2 构建环境", exact: true }).click();
+  await page.getByText("高级配置 · 工具链和资源路径", { exact: true }).click();
   await expect(page.getByLabel("构建配置", { exact: true })).toHaveValue(
     "/local/config.json",
   );

@@ -7,6 +7,7 @@ import re
 import struct
 import zipfile
 
+from mod_file_policy import is_metadata
 
 YACL_HANDLER = "dev/isxander/yacl3/config/v2/api/ConfigClassHandler"
 
@@ -715,7 +716,8 @@ def reflection_from_jar(path, *, class_visitor=None, diagnostics=None):
             raise ValueError("Configuration scan archive exceeds budget")
         for item in entries:
             name = item.filename
-            if not name.endswith(".class") or name.startswith(("META-INF/", "mcfao/mod-files/")):
+            if (not name.endswith(".class") or name.startswith(("META-INF/", "mcfao/mod-files/"))
+                    or is_metadata(name)):
                 continue
             try:
                 shape = class_shape(jar.read(item), graph=class_visitor is not None)

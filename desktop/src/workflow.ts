@@ -108,6 +108,8 @@ export interface Checks {
 }
 export interface SetupState {
   state: string;
+  stage?: string;
+  config?: string;
   message?: string;
   completedBytes?: number;
   totalBytes?: number;
@@ -343,11 +345,13 @@ export function buildProblems(
   form: BuildForm,
   report: Report | null,
   desktop: boolean,
+  canPrepare = false,
 ): string[] {
   const result: string[] = [];
   if (!desktop) result.push("请在 NCL Builder 桌面应用中执行构建。");
   if (!form.workspace.trim()) result.push("请选择 NCL 项目目录。");
-  if (!form.config.trim()) result.push("请选择或创建构建配置。");
+  if (!form.config.trim() && !canPrepare)
+    result.push("请验证正版账号并自动生成构建配置。");
   if (!form.unsigned && !form.exportOptions.trim())
     result.push("请选择 IPA 开发导出配置。");
   if (!form.output.trim()) result.push("请选择构建产物目录。");

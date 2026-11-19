@@ -11,6 +11,7 @@ from capture import ROOT, capture
 from graphics_common import register_tree
 from glfw_runtime_contract import validate_glfw_renderer
 from inventory_client_native_calls import glfw_symbols
+from mod_file_policy import is_metadata
 
 # Mod polling is absent from the vanilla client call inventory. These functions
 # are required by malilib's per-tick key recheck as well as direct game input.
@@ -80,7 +81,8 @@ def main(argv=None):
     result={"status":"BLOCKED","gateC0":"BLOCKED","target":target,
             "scope":"GLFW native subset only; no Java bridge or Minecraft renderer acceptance",
             **inputs,
-            "sourcesSHA256":{str(p.relative_to(ROOT)):sha256(p) for p in source.iterdir() if p.is_file()}}
+            "sourcesSHA256":{str(p.relative_to(ROOT)):sha256(p) for p in source.iterdir()
+                             if p.is_file() and not is_metadata(p.name)}}
     build=capture(cmd,output/"compile",180);result["compile"]=build
     if build["exitCode"]==0:
         symbols=subprocess.check_output(["xcrun","nm","-gUj",str(binary)],text=True)

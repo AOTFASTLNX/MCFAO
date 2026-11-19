@@ -1,0 +1,14 @@
+{
+  "m4": {
+    "file": "m4-1.4.20.tar.gz",
+    "url": "https://ftp.gnu.org/gnu/m4/m4-1.4.20.tar.gz",
+    "size": 3501556,
+    "sha256": "6ac4fc31ce440debe63987c2ebbf9d7b6634e67a7c3279257dc7361de8bdb3ef"
+  },
+  "autoconf": {
+    "file": "autoconf-2.72.tar.gz",
+    "url": "https://ftp.gnu.org/gnu/autoconf/autoconf-2.72.tar.gz",
+    "size": 2143794,
+    "sha256": "afb181a76e1ee72832f6581c0eddf8df032b83e2e0239ef79ebedc4467d92d6e"
+  }
+}

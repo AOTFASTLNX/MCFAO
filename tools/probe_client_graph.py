@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 
 import argparse
+from contextlib import ExitStack
 import json
 import re
 import shutil
@@ -21,7 +22,8 @@ from lwjgl_codegen import CALLBACKS
 from config_reflection import reflection_from_jar
 from aot_compatibility import (RENDER_PIPELINES, add_bytecode_results, bytecode_report, issue,
                                publish, transform_report)
-from mod_file_policy import content_paths
+from mod_file_policy import content_paths, copy_content_file, copy_ignore, is_metadata
+from native_image_home import native_image_home
 from mdaf import (build_native_image_config, merge_agent_metadata,
                   validate_reflection_entries)
 from verify_aot_classpath import verify_entries
@@ -142,6 +144,11 @@ def collect_mdaf_configuration(maintained, inferred, tracing_directories, classp
 
 
 def main(argv=None):
+    with ExitStack() as resources:
+        return run(argv, resources)
+
+
+def run(argv, resources):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--prepared", type=Path, default=ROOT / "artifacts/b0/prepared-04")
@@ -299,7 +306,9 @@ def main(argv=None):
         if compiled["exitCode"]:parser.error("Window probe compilation failed; see window-probe-compile/stderr.log")
         jar=work/"window-probe.jar"
         with zipfile.ZipFile(jar,"w",compression=zipfile.ZIP_DEFLATED) as archive:
-            for path in sorted(classes.rglob("*.class")):archive.write(path,path.relative_to(classes).as_posix())
+            for path in sorted(content_paths(classes)):
+                if path.suffix == ".class":
+                    archive.write(path, path.relative_to(classes).as_posix())
         libraries.insert(0,jar)
         entry_class='fabricaot.graphics.'+probe_name
     if args.metal_probe:entry_class="fabricaot.graphics.MetalProbe"
@@ -313,7 +322,8 @@ def main(argv=None):
             parser.error('Verified diagnostic agent for this Java required')
         if sha256(agent/'liboomcensus.dylib')!=verified['librarySHA256']:parser.error('Agent changed')
         agent_library=work/'liboomcensus.dylib';shutil.copy2(agent/'liboomcensus.dylib',agent_library)
-    shutil.copytree(args.caps, work / "caps", dirs_exist_ok=True)
+    shutil.copytree(args.caps, work / "caps", dirs_exist_ok=True, ignore=copy_ignore,
+                    copy_function=copy_content_file)
     driver = prepared / "driver.jar"
     if sha256(driver) != manifest["binaries"]["driver.jar"]["sha256"]:
         parser.error("Control driver changed")
@@ -326,6 +336,10 @@ def main(argv=None):
         path = Path(entry["path"])
         if sha256(path) != entry["sha256"]: parser.error("Static runtime changed")
         runtime_files.append(path)
+    source_home = home
+    home = resources.enter_context(native_image_home(source_home))
+    if home != source_home and sha256(home / "bin/java") != manifest["javaSHA256"]:
+        raise ValueError("Staged Java differs from the verified toolchain")
     policy = sandbox_policy(work, home, [*libraries, driver, *runtime_files])
     # -H:CLibraryPath is handed to NativeLibraries as a directory, which lists it before analysis
     # ends; allowing only the archive files left that listing denied (Operation not permitted).
@@ -387,6 +401,7 @@ def main(argv=None):
               "buildParallelism":args.parallelism,
               "initializeAtBuildTime":args.initialize_at_build_time or None,
               "builderSHA256":sha256(Path(__file__)),
+              "nativeImageToolchain":{"source":str(source_home), "stagedWithoutMetadata":home != source_home},
               "diagnosticsHelperSHA256":sha256(ROOT/"tools/client_graph_diagnostics.py"),
               "clientJarOverride":client_jar_override}
     if args.graphics_bridge:
@@ -444,7 +459,7 @@ def main(argv=None):
                 required.update(row["definition"].split("::", 1)[0].replace(".", "/")
                                 for row in prepared_fabric["transform"]["entrypoints"])
             inferred, resources_config, findings, graph = bytecode_report(
-                candidate, libraries, args.renderer, java_home=home, required=sorted(required))
+                candidate, libraries, args.renderer, java_home=source_home, required=sorted(required))
             if resources_config["resources"]["includes"]:
                 static_metadata["resource-config.json"] = resources_config
             if any(row["severity"] == "blocker" for row in findings):
@@ -460,7 +475,7 @@ def main(argv=None):
         tracing_directories = [path.resolve(strict=True) for path in args.tracing_config]
         if not tracing_directories and args.client_jar:
             discovered = args.client_jar.resolve().parent / "tracing-agent"
-            if discovered.is_dir() and any(discovered.glob("*.json")):
+            if discovered.is_dir() and any(not is_metadata(p.name) for p in discovered.glob("*.json")):
                 tracing_directories.append(discovered)
         for directory in tracing_directories:
             if not directory.is_dir():
