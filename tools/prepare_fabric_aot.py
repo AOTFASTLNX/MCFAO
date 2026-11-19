@@ -1,5 +1,6 @@
 """Inspect Fabric jars or export an audited subset of the actual Knot client graph."""
 from __future__ import annotations
+from aot_compatibility import publish, transform_report
 
 import argparse
 from collections import defaultdict
@@ -163,7 +164,8 @@ def inspect_archives(roots, work, *, metadata_only=False):
             for item in members:
                 name = item.filename
                 relative = PurePosixPath(name)
-                if (relative.is_absolute() or ".." in relative.parts or "\\" in name
+                if (item.orig_filename != name or contains_control_characters(name)
+                        or item.flag_bits & 1 or relative.is_absolute() or ".." in relative.parts or "\\" in name
                         or str(relative) != name.rstrip("/") or name in names
                         or stat.S_ISLNK(item.external_attr >> 16)):
                     raise ValueError(f"Unsafe or duplicate JAR member: {origin}!{name}")
@@ -417,7 +419,7 @@ def build_fixture(prepared, output):
     (mods / "mcfao-fixture.jar").write_bytes(jar_bytes(contents))
 
 
-def prepare(prepared, client, mods, output, audited, trace_agent=False):
+def prepare(prepared, client, mods, output, audited, trace_agent=False, renderer="metal"):
     home, libraries, engine, report = load_reference(prepared)
     if client not in libraries or client.name != "26.1.2.jar":
         raise ValueError("The input must be the verified owned client in the prepared manifest")
@@ -502,21 +504,23 @@ def prepare(prepared, client, mods, output, audited, trace_agent=False):
     for row, (_, origin, _, _) in zip(metadata, inventory, strict=True):
         row["path"] = origin
     record = {"status": "FABRIC_METADATA_PARSED", "loader": "0.19.3", "namespace": "official",
-              "modSHA256": hashes, "mods": metadata,
+              "modSHA256": hashes, "mods": metadata, "renderer": renderer,
               "runtimeOverlays": {"compiled": [p.relative_to(TOOL).as_posix() for p in runtime_sources],
                                   "skipped": overlay_skipped}}
     if not audited:
         record["compatibility"] = inspect_compatibility(inventory, metadata, set(roots))
-        resolution = work / "resolution.json"
-        log = output / "resolve"
-        solved = execute([*sandbox_prefix, *java, *cp, "resolve", str(resolution), str(client), str(work),
-                          str(work / "game/mods")], log, work)
-        if solved["exitCode"] or solved["timedOut"]:
-            raise RuntimeError(f"Fabric Loader dependency discovery failed. Logs: {log}")
-        record["resolution"] = json.loads(resolution.read_text())
+    resolution = work / "resolution.json"
+    log = output / "resolve"
+    solved = execute([*sandbox_prefix, *java, *cp, "resolve", str(resolution), str(client), str(work),
+                      str(work / "game/mods")], log, work)
+    if solved["exitCode"] or solved["timedOut"]:
+        raise RuntimeError(f"Fabric Loader dependency discovery failed. Logs: {log}")
+    record["resolution"] = json.loads(resolution.read_text())
     (output / "result.json").write_text(json.dumps(record, indent=2) + "\n")
     if not audited:
         return
+    if record["resolution"]["status"] != "RESOLVED":
+        raise ValueError(record["resolution"]["reason"])
     skipped = transformation_checks(
         inventory, metadata,
         nested=[path not in set(roots) for path, _, _, _ in inventory],
@@ -560,7 +564,7 @@ def prepare(prepared, client, mods, output, audited, trace_agent=False):
                           "-Dfabric.gameMappingNamespace=official", f"-Dfabric.gameJarPath={client}",
                           f"-Dfabric.modsFolder={work / 'game/mods'}", *cp, "export", str(client),
                           str(work), str(request), str(work / "game"),
-                          str(runtime_classes) if runtime_classes else ""], log, work, timeout=900,
+                          str(runtime_classes) if runtime_classes else "", renderer], log, work, timeout=900,
                          cpu_seconds=900, file_size_bytes=MAX_EXPORT)
         if attempt_trace_directory and attempt_trace_directory.is_dir():
             published_trace = output / f"tracing-agent-attempt-{attempt}"
@@ -664,6 +668,8 @@ def main(argv=None):
     mode.add_argument("--audited-mods", action="store_true")
     parser.add_argument("--trace-agent", action="store_true",
                         help="Collect bounded GraalVM tracing metadata during the sandboxed audited export")
+    parser.add_argument("--renderer", choices=("gl41", "metal"), default="metal")
+    parser.add_argument("--compatibility-report", type=Path)
     args = parser.parse_args(argv)
     if args.trace_agent and not args.audited_mods:
         parser.error("--trace-agent requires --audited-mods")
@@ -676,7 +682,7 @@ def main(argv=None):
             build_fixture(args.prepared.resolve(), output)
         else:
             prepare(args.prepared.resolve(), args.client.resolve(), args.mods.resolve(), output,
-                    args.audited_mods, args.trace_agent)
+                    args.audited_mods, args.trace_agent, args.renderer)
     except (ValueError, OSError, KeyError, TypeError, RuntimeError, zipfile.BadZipFile) as error:
         failure = {
             "schemaVersion": 1, "policy": "REPORT_ONLY",
@@ -693,8 +699,11 @@ def main(argv=None):
         partial = json.loads(result_path.read_text()) if result_path.is_file() else {}
         partial.update(status="PREPARATION_FAILED", error=str(error), mdaf=failure)
         result_path.write_text(json.dumps(partial, indent=2) + "\n")
+        publish(args.compatibility_report, transform_report(partial))
         print(f"Fabric preparation failed: {error}", file=sys.stderr)
         return 2
+    if args.compatibility_report and not args.fixture:
+        publish(args.compatibility_report, transform_report(json.loads((output / "result.json").read_text())))
     print(output)
     return 0
 

@@ -31,6 +31,26 @@ export interface BuildForm {
   team: string;
   forceCompile: boolean;
 }
+type CompatibilityStage = "PASS" | "FAIL" | "SKIPPED" | "UNVERIFIED";
+export interface AotCompatibility {
+  modCount: number;
+  fixes: number;
+  warnings: number;
+  blockers: number;
+  findingGroups: number;
+  stages: Record<
+    "static" | "transform" | "aot" | "startup" | "device",
+    CompatibilityStage
+  >;
+  findings: {
+    code: string;
+    severity: "fix" | "warning" | "blocker";
+    location?: string | null;
+    target: string;
+    count: number;
+  }[];
+}
+
 export interface BuildJob {
   kind?: "dependencies";
   configFields?: Record<string, string>;
@@ -59,6 +79,7 @@ export interface BuildJob {
   log?: string;
   signature?: string;
   warning?: string;
+  compatibility?: AotCompatibility;
   compatibilityOverrides?: {
     code: string;
     sourceLoader: string;

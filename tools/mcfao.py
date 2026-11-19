@@ -29,6 +29,8 @@ from native_game_checks import verify_game_image
 from build_glfw_lite import exported_symbols, validate_input_exports
 from glfw_runtime_contract import validate_glfw_renderer
 from prepare_fabric_aot import TOOL as FABRIC_TOOL, mod_files
+from aot_compatibility import add_bytecode_results, issue, publish, transform_report
+from mdaf import AGENT_FILES
 from stage_game_assets import verified_assets
 from mod_file_policy import content_paths, copy_ignore, is_metadata
 
@@ -364,6 +366,8 @@ def loader_client(pipeline, args, config, client, inputs):
     # final client.jar; the budget now covers two Knot passes with headroom.
     prepare_args = ["--prepared", config["prepared"], "--client", client,
                     "--mods", args.mods.resolve(), "--output", "{product}",
+                    "--renderer", args.renderer,
+                    "--compatibility-report", pipeline.root / "compatibility.json",
                     "--audited-mods" if args.audited_mods else "--inspect"]
     if args.trace_agent:
         prepare_args.append("--trace-agent")
@@ -371,6 +375,7 @@ def loader_client(pipeline, args, config, client, inputs):
         "prepare_fabric_aot", *prepare_args), timeout=1800)
     report = prepared / "result.json"
     facts = read_json(report)
+    publish(pipeline.root / "compatibility.json", transform_report(facts))
     if facts["modSHA256"] != inputs["modsSHA256"]:
         raise ValueError(f"Mod JARs changed after input resolution: {report}")
     if args.prepare_only:
@@ -378,7 +383,8 @@ def loader_client(pipeline, args, config, client, inputs):
     if facts.get("excludedMods") or facts.get("retiredJars"):
         raise ValueError(f"Requested Fabric instance contains excluded Mods; review {report}. Build an explicitly selected subset separately.")
     jar = prepared / "client.jar"
-    if facts["status"] != "FABRIC_AOT_INPUT_PREPARED" or sha256(jar) != facts["outputJarSHA256"]:
+    if (facts["status"] != "FABRIC_AOT_INPUT_PREPARED" or facts.get("renderer") != args.renderer
+            or sha256(jar) != facts["outputJarSHA256"]):
         raise ValueError(f"Fabric preparation did not yield a verified AOT input: {report}")
     return jar, report
 
@@ -582,7 +588,10 @@ def verify(output: Path, device: str | None) -> dict:
         raise ValueError("No completed iPhoneOS app manifest")
     if sha256(output / "inputs.json") != report["inputsSHA256"]:
         raise ValueError("Build input manifest changed")
-    for key in ("aotCommand", "linkReport"):
+    evidence_keys = ["aotCommand", "linkReport"]
+    if report.get("compatibilityReport"):
+        evidence_keys.append("compatibilityReport")
+    for key in evidence_keys:
         path = Path(report[key]).resolve(strict=True)
         if not path.is_relative_to(output) or (report.get(key + "SHA256") and sha256(path) != report[key + "SHA256"]):
             raise ValueError(f"Build evidence changed: {key}")
@@ -705,6 +714,18 @@ def build(args, config):
         manifest.update({"unsigned": getattr(args, "unsigned", False), "bundleID": getattr(args, "bundle_id", BUNDLE_IDENTIFIER),
                          "heapGiB": getattr(args, "heap_gib", 9), "parallelism": getattr(args, "parallelism", 4)})
         manifest["loader"] = args.loader
+        trace_paths = [path.resolve(strict=True) for path in getattr(args, "tracing_config", ())]
+        for path in trace_paths:
+            if not path.is_dir() or not any((path / name).is_file() for name in AGENT_FILES):
+                raise ValueError(f"Tracing metadata directory contains no supported files: {path}")
+        if trace_paths:
+            manifest["tracingSHA256"] = {str(path / name): sha256(path / name)
+                                         for path in trace_paths for name in sorted(AGENT_FILES)
+                                         if (path / name).is_file()}
+        for name in ("probe_client_graph.py", "config_reflection.py", "mdaf.py", "aot_compatibility.py",
+                     "capture.py", "run_b0_reference.py"):
+            source = ROOT / "tools" / name
+            manifest["filesSHA256"][str(source)] = sha256(source)
         icon = getattr(args, "icon", None)
         icon_name = None
         if icon:
@@ -727,8 +748,7 @@ def build(args, config):
             manifest["traceAgent"] = args.trace_agent
             manifest["filesSHA256"].update({str(p): sha256(p) for p in (
                 ROOT / "tools/prepare_fabric_aot.py", ROOT / "tools/prepare_b0.py",
-                ROOT / "tools/probe_client_graph.py", ROOT / "tools/config_reflection.py",
-                ROOT / "tools/mdaf.py", ROOT / "tools/verify_aot_classpath.py",
+                ROOT / "tools/verify_aot_classpath.py",
                 *(p for p in content_paths(FABRIC_TOOL) if p.suffix == ".java"),
             )})
         manifest["requestedDevice"] = args.device
@@ -764,6 +784,7 @@ def build(args, config):
         aot_args = ["--prepared", config["prepared"], "--runtime", config["bootstrapRuntime"],
             "--caps", config["caps"], "--b1-evidence", config["b1Evidence"],
             "--client-jar", injected / ("client.jar" if gl41 else "client-26.1.2-metal.jar"), "--graphics-bridge", config["lwjgl"],
+            "--renderer", renderer, "--compatibility-report", output / "compatibility.json",
             *([] if gl41 else ["--metal-bootstrap", config["metal"]]), "--full-build", "--relocatable",
             # pack-60 restored Sodium's real config registration path (9 previously stubbed
             # methods became reachable) and the 7 GiB image builder heap OOMed with 5117M live
@@ -775,9 +796,20 @@ def build(args, config):
             # 18 GiB host; probe_client_graph.py rejects anything larger before analysis starts.
             "--include-game-resources", "--heap-gib", str(manifest["heapGiB"]), "--parallelism", str(manifest["parallelism"]), "--simulator-thread-dumps",
             "--output", "{product}"]
-        if tracing_path:
-            aot_args.extend(["--tracing-config", tracing_path])
-        aot = pipeline.step("aot", script("probe_client_graph", *aot_args), timeout=3800)
+        if loader_report:
+            aot_args.extend(["--fabric-report", loader_report])
+        for path in [*trace_paths, *([tracing_path] if tracing_path else [])]:
+            aot_args.extend(["--tracing-config", path])
+        try:
+            aot = pipeline.step("aot", script("probe_client_graph", *aot_args), timeout=3800)
+        except (ValueError, RuntimeError):
+            summary_path = output / "compatibility.json"
+            if summary_path.is_file():
+                summary = read_json(summary_path)
+                if summary["stages"]["aot"] == "UNVERIFIED":
+                    summary["stages"]["aot"] = "FAIL"
+                    publish(summary_path, summary)
+            raise
         image = read_json(aot / "result.json")
         if image.get("analysisFailure"):
             failure = image["analysisFailure"]
@@ -803,6 +835,15 @@ def build(args, config):
         validate_dylib(linked / "client-graph.dylib")
         if gl41:
             verify_game_image(linked / "client-graph.dylib")
+        compatibility = read_json(aot / "compatibility.json")
+        unsupported_jni = read_json(linked / "result.json").get("unsupportedEntrypoints", [])
+        if unsupported_jni:
+            compatibility = add_bytecode_results(
+                compatibility, [issue("NATIVE_LINK_UNSUPPORTED", "warning", name)
+                                for name in unsupported_jni],
+                compatibility["graph"], compatibility["metadataFiles"])
+        compatibility["stages"]["aot"] = "PASS"
+        publish(output / "compatibility.json", compatibility)
         staged = pipeline.step("stage", script(
             "stage_device_xcode", "--client", linked,
             *(argument for name in config_names(renderer)
@@ -846,6 +887,8 @@ def build(args, config):
             "signature": "UNSIGNED" if manifest["unsigned"] else "DEVELOPMENT_SIGNED",
             "appIcon": ({"assetName": icon_name, **manifest["appIcon"]} if icon_name else None),
             "loader": args.loader, "loaderReport": str(loader_report) if loader_report else None,
+            "compatibilityReport": str(output / "compatibility.json"),
+            "compatibilityReportSHA256": sha256(output / "compatibility.json"),
             "inputsSHA256": sha256(saved), "aotCommand": str(aot / "analysis/command.json"),
             "linkReport": str(linked / "result.json"), "app": str(app.relative_to(output)),
             "aotCommandSHA256": sha256(aot / "analysis/command.json"),
@@ -886,6 +929,8 @@ def main(argv=None):
                                  help="Confirm these mod JARs have been audited for host build execution")
     compile_command.add_argument("--trace-agent", action="store_true",
                                  help="Collect GraalVM tracing metadata during the sandboxed audited Fabric rehearsal")
+    compile_command.add_argument("--tracing-config", type=Path, action="append", default=[],
+                                 help="Merge metadata from a local, audited tracing-agent rehearsal")
     exporter = commands.add_parser("export", help="Archive, export and verify a development IPA")
     exporter.add_argument("--build", type=Path, required=True)
     exporter.add_argument("--export-options", type=Path, required=True)

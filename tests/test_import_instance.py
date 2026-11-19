@@ -103,8 +103,9 @@ class ImportTests(unittest.TestCase):
 
     def test_full_fabric_build_rejects_implicitly_reduced_pack(self):
         output=self.root/'prepared';output.mkdir()
-        args=SimpleNamespace(loader='fabric',mods=self.root,audited_mods=True,trace_agent=False,prepare_only=False)
-        pipeline=SimpleNamespace(step=lambda *a,**k:output)
+        args=SimpleNamespace(loader='fabric',mods=self.root,audited_mods=True,trace_agent=False,
+                             prepare_only=False,renderer='gl41')
+        pipeline=SimpleNamespace(root=self.root,step=lambda *a,**k:output)
         for field,value in [('excludedMods',{'sample':['dynamic class generation']}),('retiredJars',['sample.jar'])]:
             (output/'result.json').write_text(json.dumps({'modSHA256':{},field:value}))
             with self.assertRaisesRegex(ValueError,'excluded Mods'):
