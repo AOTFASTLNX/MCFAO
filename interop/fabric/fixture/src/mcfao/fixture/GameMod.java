@@ -18,10 +18,15 @@ public final class GameMod implements ClientModInitializer {
                 || FabricLoader.getInstance().isModLoaded("mcfao_fixture_missing")) {
             throw new IllegalStateException("Static Fabric Loader query mismatch");
         }
-        try (var stream = GameMod.class.getResourceAsStream("/assets/mcfao_fixture/proof.txt")) {
+        try (var stream = GameMod.class.getResourceAsStream("/assets/mcfao_fixture/proof.txt");
+                var defaults = GameMod.class.getResourceAsStream("compatibility-defaults.json")) {
             if (stream == null || !new String(stream.readAllBytes(), StandardCharsets.UTF_8)
                     .equals("mcfao-world-resource-v1\n")) {
                 throw new IllegalStateException("Mod resource missing or changed");
+            }
+            if (defaults == null || !new String(defaults.readAllBytes(), StandardCharsets.UTF_8)
+                    .equals("{\"fixture\":true}\n")) {
+                throw new IllegalStateException("Packaged config resource missing or changed");
             }
         } catch (IOException error) {
             throw new IllegalStateException("Reading mod resource", error);

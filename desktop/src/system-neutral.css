@@ -3063,6 +3063,25 @@ code {
   margin-top: 4px;
 }
 
+.compatibility-summary {
+  margin-bottom: var(--space-3);
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.compatibility-summary strong {
+  color: var(--text);
+}
+
+.compatibility-summary details {
+  margin-top: var(--space-2);
+}
+
+.compatibility-summary ul {
+  max-height: 12rem;
+  overflow: auto;
+}
+
 .job-error {
   display: flex;
   align-items: flex-start;

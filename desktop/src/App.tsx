@@ -71,6 +71,7 @@ import {
   restoreForm,
   stageName,
   stages,
+  type AotCompatibility,
   type Bootstrap,
   type BuildForm,
   type BuildJob,
@@ -208,6 +209,97 @@ function Note({
       <CircleAlert size={17} aria-hidden="true" />
       <div>{children}</div>
     </div>
+  );
+}
+
+const compatibilityStages = [
+  ["static", "静态检查"],
+  ["transform", "Fabric 转换"],
+  ["aot", "AOT 产物"],
+  ["startup", "启动"],
+  ["device", "真机"],
+] as const;
+const compatibilityStatus = {
+  PASS: "通过",
+  FAIL: "失败",
+  SKIPPED: "未执行",
+  UNVERIFIED: "待验证",
+} as const;
+const compatibilitySeverity = {
+  blocker: "阻塞",
+  warning: "警告",
+  fix: "自动修复",
+};
+const compatibilityReasons: Record<string, string> = {
+  FABRIC_DEPENDENCIES: "Fabric 依赖未满足",
+  FABRIC_TRANSFORMATION: "Fabric 转换失败",
+  MIXIN_TARGET_UNAVAILABLE: "Mixin 目标不可用",
+  MIXIN_ACCESSOR_UNVERIFIED: "Mixin 访问器未验证",
+  MIXIN_HELPER_UNAVAILABLE: "Mixin 辅助类型不可用",
+  GENERATED_CLASS_UNAVAILABLE: "生成类不可用",
+  FABRIC_RUNTIME_RESIDUE: "Fabric 运行时行为待验证",
+  BYTECODE_ADAPTATION: "静态字节码转换",
+  CONFIG_NO_PUBLIC_NOARG: "配置类型缺少公开无参构造器",
+  TYPED_GSON_CONFIG: "已注册配置构造器和字段",
+  METAL_REFERENCE_ON_GL41: "GL41 引用了原生 Metal 类型",
+  METAL_CLASS_ON_GL41: "GL41 类路径包含原生 Metal 类型",
+  MISSING_REQUIRED_TYPE: "缺少必需类型",
+  MISSING_TYPE: "符号引用的类型缺失",
+  LWJGL_MEMBER_MISSING: "LWJGL 方法或字段缺失",
+  OPENGL_AFTER_41: "调用超出 GL 4.1 的 API",
+  RESOURCE_METADATA: "已注册静态资源",
+  RESOURCE_RETAINED: "已保留静态资源",
+  RESOURCE_AMBIGUOUS: "资源路径冲突",
+  RESOURCE_NOT_ON_CLASSPATH: "资源缺失",
+  DYNAMIC_RESOURCE: "动态资源路径待验证",
+  MOD_NATIVE_METHOD: "Mod 包含原生方法",
+  NATIVE_LINK_UNSUPPORTED: "原生运行库入口尚未实现",
+  NATIVE_LIBRARY_LOAD: "动态原生库加载待验证",
+  RUNTIME_CLASS_DEFINITION: "运行时定义类待验证",
+  REFLECTION_CALL: "反射调用待验证",
+  REFLECTION_METADATA_UNRESOLVED: "反射元数据目标未解析",
+  PROXY_CALL: "动态代理待验证",
+  SERIALIZATION_CALL: "Java 序列化待验证",
+};
+
+function CompatibilitySummary({ report }: { report: AotCompatibility }) {
+  return (
+    <section className="compatibility-summary" aria-label="AOT 兼容性">
+      <div role="status">
+        <strong>AOT 兼容性</strong>
+        <p>
+          {report.modCount} 个 Mod · {report.fixes} 项自动修复 ·{" "}
+          {report.warnings} 条警告 · {report.blockers} 个阻塞
+        </p>
+        <p>
+          {compatibilityStages
+            .map(
+              ([key, label]) =>
+                `${label} ${compatibilityStatus[report.stages[key]]}`,
+            )
+            .join(" · ")}
+        </p>
+      </div>
+      {!!report.findings.length && (
+        <details open={report.blockers ? true : undefined}>
+          <summary>查看兼容性诊断</summary>
+          <ul>
+            {report.findings.map((finding, index) => (
+              <li key={finding.code + index}>
+                {compatibilitySeverity[finding.severity]} ·{" "}
+                {compatibilityReasons[finding.code] ?? finding.code} ·{" "}
+                {finding.target}
+                {finding.location && ` · ${finding.location}`}
+                {finding.count > 1 && ` · ${finding.count} 处`}
+              </li>
+            ))}
+          </ul>
+          {report.findingGroups > report.findings.length && (
+            <p>更多条目见构建报告与日志。</p>
+          )}
+        </details>
+      )}
+    </section>
   );
 }
 
@@ -2553,6 +2645,9 @@ export default function App() {
                             {jobStateName(job)}
                           </Pill>
                         </div>
+                        {job.compatibility && (
+                          <CompatibilitySummary report={job.compatibility} />
+                        )}
                         {job.request.forceCompile &&
                           !job.request.existingBuild && (
                             <Note>

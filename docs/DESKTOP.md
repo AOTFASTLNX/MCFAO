@@ -62,6 +62,8 @@ Tauri 打包前通过 tools/bundle_source.py 生成受控源码树，覆盖 tool
 
 ## 真实执行与持久任务
 
+构建记录读取当前构建的 Mod 数量、自动处理、静态诊断和分层状态。解析、转换、元数据与产物证据见 [Builder AOT 兼容性](AOT_COMPATIBILITY.md)。
+
 - Rust 仅允许固定 workbench 操作，使用参数数组启动第一方 tools/desktop_workbench.py，无 shell 文本执行。桌面宿主可以是 Intel，但 macOS 构建服务显式使用 ARM64 Python，避免 Rosetta 继承。
 - supervisor 将 job.json、参数、输出与取消标记保存在所选任务记录目录的 <id>/ 下（源码开发默认 artifacts/desktop-jobs）。构建目录位于用户选择的产物根下。关闭 UI 后进程继续运行，重开工作台读取持久记录。
 - 每个项目同时只允许一个任务。取消会终止任务的子进程树，包括原 CLI 新建会话的编译子进程；中断和失败保留日志。重试复用原始请求、暂存文件与构建路径，CLI 仍核对输入、参数和产物指纹才复用检查点。
