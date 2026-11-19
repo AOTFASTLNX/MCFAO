@@ -120,16 +120,19 @@ test("a configured workspace keeps the environment actions enabled", async ({
   const detect = page.getByRole("button", { name: "检测环境", exact: true });
   await expect(detect).toBeEnabled();
   await expect(page.getByText("自动准备完成后即可检测环境。")).toHaveCount(0);
-  const accent = await detect.evaluate((element) => {
+  // The builder toolbar no longer carries this action; it lives in the
+  // environment row as a secondary control. What matters is that a configured
+  // workspace does not dim it the way the unconfigured case does.
+  await expect(detect).not.toHaveAttribute("title");
+  const enabled = await detect.evaluate((element) => {
+    const style = getComputedStyle(element);
     const probe = document.createElement("div");
     probe.style.background = "var(--accent)";
     document.body.append(probe);
-    const token = getComputedStyle(probe).backgroundColor;
+    const accent = getComputedStyle(probe).backgroundColor;
     probe.remove();
-    return {
-      background: getComputedStyle(element).backgroundColor,
-      token,
-    };
+    return { background: style.backgroundColor, accent, cursor: style.cursor };
   });
-  expect(accent.background).toBe(accent.token);
+  expect(enabled.cursor).not.toBe("not-allowed");
+  expect(enabled.background).not.toBe(enabled.accent);
 });
