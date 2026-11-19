@@ -290,7 +290,7 @@ test("missing publisher configuration permits explicit temporary skip and rememb
   await expect(
     page.getByText("Minecraft Java Edition · 正版资格已验证", { exact: true }),
   ).toHaveCount(0);
-  await page.getByRole("button", { name: "开始使用" }).click();
+  await page.getByRole("button", { name: "稍后下载" }).click();
   await expect(page.getByRole("navigation", { name: "主导航" })).toBeVisible();
   await page.reload();
   await expect(page.getByRole("navigation", { name: "主导航" })).toBeVisible();
@@ -340,7 +340,7 @@ test("a configured account that fails verification can still defer explicitly", 
   await expect(
     page.getByText("Minecraft Java Edition · 正版资格已验证", { exact: true }),
   ).toHaveCount(0);
-  await page.getByRole("button", { name: "开始使用" }).click();
+  await page.getByRole("button", { name: "稍后下载" }).click();
   await expect(page.getByRole("navigation", { name: "主导航" })).toBeVisible();
 });
 
@@ -523,6 +523,10 @@ test("the local test package skips account verification and prepares a configura
   await patch(page, { setupState: "ready" });
   await expect(page.getByRole("button", { name: "检测环境", exact: true })).toBeEnabled();
   const calls: string[] = await page.evaluate(() => (window as any).__onboardingTest.calls);
-  expect(calls.filter((action) => action.startsWith("account:"))).toEqual(["account:status"]);
+  // StrictMode mounts the provider twice, so status may be requested twice;
+  // what matters is that no sign-in or refresh is attempted at all.
+  const accountCalls = calls.filter((action) => action.startsWith("account:"));
+  expect(accountCalls.length).toBeGreaterThan(0);
+  expect([...new Set(accountCalls)]).toEqual(["account:status"]);
   expect(calls).toContain("setup-start");
 });

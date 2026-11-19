@@ -64,6 +64,8 @@ test("storage settings are distinct and unverified game download stays disabled 
     page.getByRole("button", { name: "一键下载并准备", exact: true }),
   ).toHaveCount(0);
   for (const theme of ["浅色", "深色"]) {
+    // The theme switch lives on the settings page, not the environment page.
+    await page.getByRole("button", { name: "设置", exact: true }).click();
     await page.getByRole("button", { name: theme, exact: true }).click();
     for (const width of [375, 800, 1440]) {
       await page.setViewportSize({ width, height: 900 });
@@ -73,6 +75,10 @@ test("storage settings are distinct and unverified game download stays disabled 
         ),
       ).toBe(true);
     }
+    await page.getByRole("button", { name: "环境与资源", exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: "一键下载并准备", exact: true }),
+    ).toHaveCount(0);
   }
 });
 
