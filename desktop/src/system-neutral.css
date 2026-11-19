@@ -3237,8 +3237,9 @@ code {
    not a second progress bar: completed and live stages are the only states. */
 .job-stage-strip {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0;
+  gap: var(--space-2);
   margin: var(--space-4) 0 0;
   padding: 9px 11px;
   border-radius: var(--radius-sm);
@@ -3247,20 +3248,21 @@ code {
 
 .job-stage-strip > span {
   display: flex;
-  flex: 1;
   align-items: center;
   gap: 5px;
-  min-width: 0;
   color: var(--dim);
   font-size: 9px;
   white-space: nowrap;
   transition: color var(--motion-normal) var(--motion-ease-out);
 }
 
+.job-stage-strip > span + span {
+  flex: 1 0 auto;
+}
+
 .job-stage-strip > span + span::before {
-  width: 100%;
+  flex: 1 0 var(--space-2);
   height: 1px;
-  margin: 0 6px 0 0;
   background: var(--input-border);
   content: "";
   transition: background-color var(--motion-normal) var(--motion-ease-out);
@@ -3331,9 +3333,12 @@ code {
   color: var(--dim);
   font-size: 9.5px;
   line-height: 1.4;
+  transition:
+    color var(--motion-normal) var(--motion-ease-out),
+    opacity var(--motion-normal) var(--motion-ease-out);
 }
 
-.pipeline > div > span {
+.pipeline-mark {
   display: grid;
   flex-shrink: 0;
   place-items: center;
@@ -3342,15 +3347,6 @@ code {
   border: 0;
   background: var(--layer-2);
   border-radius: 50%;
-}
-
-.pipeline > div {
-  transition:
-    color var(--motion-normal) var(--motion-ease-out),
-    opacity var(--motion-normal) var(--motion-ease-out);
-}
-
-.pipeline > div > .pipeline-mark {
   transition:
     background-color var(--motion-normal) var(--motion-ease-out),
     color var(--motion-normal) var(--motion-ease-out),
@@ -3386,23 +3382,16 @@ code {
   color: var(--success-text);
 }
 
-.pipeline > .done > span {
+.pipeline > .done > .pipeline-mark {
   background: var(--success-bg);
-  color: var(--success-text);
 }
 
 .pipeline > .running {
   color: var(--accent);
 }
 
-.pipeline > .running > span {
-  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
-  color: var(--accent);
-}
-
-/* Only the live stage breathes, and only while the task is actually running.
-   Finished, failed and cancelled stages keep a still mark. */
 .pipeline > .running > .pipeline-mark {
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
   animation: stage-breathe 2.4s var(--motion-ease-standard) infinite;
 }
 

@@ -340,14 +340,13 @@ test("builder content scrolls behind fixed bars and clears them at the ends", as
   });
 });
 
-test("history and environment actions stay above their scrolling pages", async ({
+test("history actions stay above the scrolling list", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1100, height: 760 });
   await page.goto("/");
   for (const [route, action] of [
     ["构建记录", "新建构建"],
-    ["环境与资源", "检测环境"],
   ] as const) {
     await page.getByRole("button", { name: route, exact: true }).click();
     const toolbar = page.locator(".page-toolbar");
@@ -373,7 +372,7 @@ test("history and environment actions stay above their scrolling pages", async (
   }
 });
 
-test("environment and history drop the outer card for dividers", async ({
+test("history separates its flat panels with a divider", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1100, height: 760 });
@@ -390,15 +389,15 @@ test("environment and history drop the outer card for dividers", async ({
         dividerColor: style.borderTopColor,
       };
     }, region);
-  for (const page_ of ["环境与资源", "构建记录"]) {
+  for (const page_ of ["构建记录"]) {
     await page.getByRole("button", { name: page_, exact: true }).click();
-    const region = page_ === "环境与资源" ? ".panel.flat" : ".flat";
+    const region = ".flat";
     // Pages cross-fade before mounting, so wait for the destination regions.
     await expect(page.locator(region).nth(1)).toBeVisible();
     const look_ = await look(region);
     expect(look_.first).toBe("rgba(0, 0, 0, 0)");
     expect(look_.second).toBe("rgba(0, 0, 0, 0)");
-    // Environment stacks its regions, history separates them by column.
+    // History separates its regions by column.
     const edge = await page.evaluate((selector) => {
       const style = getComputedStyle(
         document.querySelectorAll<HTMLElement>(selector)[1],
@@ -468,4 +467,17 @@ test("controls inside a capsule are pills concentric with it", async ({
       }
     }
   }
+});
+
+test("environment shows preparation and checks before maintenance controls", async ({ page }) => {
+  await page.setViewportSize({ width: 800, height: 760 });
+  await page.goto("/");
+  await page.getByRole("button", { name: "环境与资源", exact: true }).click();
+  const layout = page.locator(".environment-layout");
+  await expect(layout.getByRole("region", { name: "自动准备构建环境" })).toBeVisible();
+  await expect(layout.getByRole("region", { name: "环境检查" })).toBeVisible();
+  await expect(layout.locator("details")).toHaveCount(2);
+  await expect(layout.locator("details[open]")).toHaveCount(0);
+  await expect(page.locator(".page-toolbar")).toHaveCount(0);
+  expect(await layout.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
 });

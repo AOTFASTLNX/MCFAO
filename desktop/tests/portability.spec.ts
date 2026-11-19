@@ -6,6 +6,7 @@ test("unsigned export hides signing requirements, persists choice and shows inst
   await page.goto("/");
   await page.getByRole("button", { name: "原版 26.1.2", exact: true }).click();
   await page.getByRole("button", { name: "下一步", exact: true }).click();
+  await page.getByText("高级配置 · 工具链和资源路径", { exact: true }).click();
   await page
     .getByLabel("NCL 项目目录", { exact: true })
     .fill("/fixture/source");
@@ -57,10 +58,11 @@ test("storage settings are distinct and unverified game download stays disabled 
   ).toBeDisabled();
   await page.getByRole("button", { name: "设置", exact: true }).click();
   await expect(page.getByRole("heading", { name: "账号管理" })).toBeVisible();
-  await expect(page.getByText("请先在账号管理中登录并验证")).toBeVisible();
+  await page.getByRole("button", { name: "环境与资源", exact: true }).click();
+  await expect(page.getByText("请在桌面应用中登录并准备构建环境。")).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "从官方源下载游戏与资源", exact: true }),
-  ).toBeDisabled();
+    page.getByRole("button", { name: "一键下载并准备", exact: true }),
+  ).toHaveCount(0);
   for (const theme of ["浅色", "深色"]) {
     await page.getByRole("button", { name: theme, exact: true }).click();
     for (const width of [375, 800, 1440]) {
@@ -131,9 +133,8 @@ test("desktop setup and directory changes use bounded actions after account veri
   await expect(page.getByText(/现有数据未迁移/)).toBeVisible();
   await page.getByRole("button", { name: "设置", exact: true }).click();
   await expect(page.locator(".settings-account").getByText("FixturePlayer", { exact: true })).toBeVisible();
-  await page
-    .getByRole("button", { name: "从官方源下载游戏与资源", exact: true })
-    .click();
+  await page.getByRole("button", { name: "环境与资源", exact: true }).click();
+  await page.getByRole("button", { name: "一键下载并准备", exact: true }).click();
   await expect(page.getByRole("checkbox", { name: /我合法拥有/ })).toHaveCount(0);
   const calls = await page.evaluate(
     () =>

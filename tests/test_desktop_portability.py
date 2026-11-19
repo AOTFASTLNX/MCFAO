@@ -219,6 +219,28 @@ class DownloadAndBootstrapTests(TemporaryInputs):
         self.assertTrue((paths['cache'] / 'upstream/jdk.json').is_file())
         self.assertFalse((paths['cache'] / 'owned-client').exists())
 
+    def test_owned_setup_publishes_only_the_prepared_config(self):
+        import prepare_environment
+        paths, state, specs = self.bootstrap_fixture()
+        config = paths['jobs'] / 'setup/config.json'
+        game = {'versionMetadata': 'fixture-metadata', 'assets': 'fixture-assets'}
+        with patch.object(first_run, 'ROOT', self.root / 'source'), \
+             patch.object(first_run, 'storage_paths', return_value=paths), \
+             patch.object(first_run, 'download_specs', return_value=specs), \
+             patch.object(first_run, 'require_mount'), patch.object(first_run, 'require_space'), \
+             patch.object(prepare_environment, 'check_host', return_value=b'Xcode fixture'), \
+             patch.object(acquire_client, 'acquire', return_value=game) as acquire, \
+             patch.object(prepare_environment, 'prepare', side_effect=ValueError('bad library')) as prepare:
+            self.assertEqual(first_run.run(state, True), 2)
+            self.assertNotIn('config', json.loads(state.read_text()))
+            prepare.side_effect = None
+            prepare.return_value = config
+            self.assertEqual(first_run.run(state, True), 0)
+        self.assertTrue(acquire.call_args.args[1])
+        result = json.loads(state.read_text())
+        self.assertEqual(result['state'], 'ready')
+        self.assertEqual(result['config'], str(config))
+
     def test_first_run_worker_rejects_modified_archives_and_preserves_them(self):
         paths, state, specs = self.bootstrap_fixture()
         target = paths['cache'] / specs[0][0]; target.write_bytes(b'modified archive')
@@ -330,6 +352,10 @@ class SourceAndHostPortabilityTests(TemporaryInputs):
         source = self.root / 'tools/fixture.py'; source.parent.mkdir(); source.write_text('first party')
         manifest = dict(sourceCommit='commit', sourceDiffSHA256='diff', filesSHA256={'tools/fixture.py':hashlib.sha256(source.read_bytes()).hexdigest()})
         (self.root / 'bundle-manifest.json').write_text(json.dumps(manifest))
+        (self.root / 'tools/._fixture.py').write_bytes(bytes.fromhex('00051607'))
+        (self.root / '._bundle-manifest.json').write_bytes(bytes.fromhex('00051607'))
+        (self.root / 'tools/__MACOSX').mkdir()
+        (self.root / 'tools/__MACOSX/hidden.py').write_text('metadata')
         with patch.object(bundle_source.subprocess, 'check_output') as process:
             self.assertEqual(bundle_source.source_identity(self.root)['sourceCommit'], 'commit')
         process.assert_not_called()

@@ -1,3 +1,4 @@
+import { BuildSetup, setupIsRunning, useSetupProgress } from "./BuildSetup";
 import {
   useCallback,
   useEffect,
@@ -600,6 +601,7 @@ function ExclusionDialog({
 
 export default function App() {
   const { account } = useAccount();
+  const localTesting = account.loginRequired === false;
   const verifiedAccount = accountIsVerified(account);
   const [saved] = useState(initial);
   const [theme, setTheme] = useState<ThemePreference>(readThemePreference);
@@ -627,6 +629,7 @@ export default function App() {
   const [setup, setSetup] = useState<import("./workflow").SetupState | null>(
     null,
   );
+  const pendingBuild = useRef<BuildForm | null>(null);
   const [storageIssue, setStorageIssue] = useState(saved.error);
   const [page, setPage] = useState<Page>("builder");
   const [step, setStep] = useState(0);
@@ -669,16 +672,17 @@ export default function App() {
   const end = useRef<HTMLDivElement>(null);
   const dialog = useRef<HTMLDialogElement>(null);
   const active = jobs.find((j) => isActive(j));
+  const setupRunning = setupIsRunning(setup);
+  const canPrepare = native && (localTesting || verifiedAccount);
   const job = jobs.find((j) => j.id === selected) ?? active ?? jobs[0];
-  // Every unavailable control states the reason once, so the disabled styling
-  // never leaves the user guessing which prerequisite is missing. The standing
-  // banner only covers conditions the page can act on; a browser preview and a
-  // running task already have their own visible status.
-  const blockedReason = active
+  const activeBuildReason = active
     ? "有构建任务正在进行，完成或取消后才能继续。"
+    : "";
+  const blockedReason = activeBuildReason || (setupRunning
+    ? "正在准备构建环境。"
     : !form.config
-      ? "尚未选择构建配置。请先选择配置文件，或在「构建环境」的高级配置中创建一份。"
-      : "";
+      ? "构建环境尚未准备。完成上方的自动准备后即可检测。"
+      : "");
   const controlReason = !native
     ? "浏览器预览不能执行本地构建，请打开 NCL Builder 桌面应用。"
     : busy
@@ -752,7 +756,7 @@ export default function App() {
               form.resourceSelection?.included.includes(r.id),
           )
         : index === environmentStep
-          ? !!form.workspace && !!form.config && !!form.output
+          ? !!form.workspace && !!form.output && (!!form.config || canPrepare)
           : true;
   useEffect(() => {
     setCheckedSteps((old) => old.filter((index) => stepGate(index)));
@@ -760,6 +764,7 @@ export default function App() {
     // sync when a source, resource choice or path is edited.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
+    canPrepare,
     form.loader,
     form.source,
     form.resourceSelection,
@@ -772,7 +777,7 @@ export default function App() {
     !!currentReport?.resources &&
     form.resourceSelection?.source === form.source &&
     form.resourceSelection?.fingerprint === currentReport.resources_fingerprint;
-  const problems = buildProblems(form, report, native);
+  const problems = buildProblems(form, report, native, canPrepare);
   const dependencyJob = jobs.find(
     (j) => j.kind === "dependencies" && j.request.config === form.config,
   );
@@ -887,19 +892,7 @@ export default function App() {
       setChecks(null);
     setError("");
   }
-  useEffect(() => {
-    if (!native || !setup || !["queued", "running"].includes(setup.state))
-      return;
-    const timer = window.setInterval(() => {
-      workbench<import("./workflow").SetupState>(
-        formRef.current,
-        "setup-status",
-      )
-        .then(setSetup)
-        .catch((e) => setError(String(e)));
-    }, 1500);
-    return () => window.clearInterval(timer);
-  }, [setup?.state]);
+  useSetupProgress(formRef, setup, setSetup);
   async function loadStorage() {
     await attempt("正在统计磁盘占用", async () => {
       const plan = await workbench<StoragePlan>(
@@ -1289,23 +1282,66 @@ export default function App() {
       setChecks(await workbench<Checks>(form, "check"));
     });
   }
-  async function begin() {
-    if (problems.length || active) return;
+  async function startSetup() {
+    setSetup(await workbench<import("./workflow").SetupState>(
+      formRef.current, "setup-start", undefined, { owned: true },
+    ));
+  }
+  async function buildConfigured(request: BuildForm) {
     await attempt("正在创建构建任务", async () => {
-      const result = await workbench<DependencyInventory>(form, "dependencies");
+      const result = await workbench<DependencyInventory>(request, "dependencies");
       setDependencies(result);
       if (!result.ready) {
         setNotice("原生依赖已过期、缺失或校验失败，请先一键重建所需依赖。");
         setPage("environment");
         return;
       }
-      const j = await workbench<BuildJob>(form, "start");
+      const j = await workbench<BuildJob>(request, "start");
       setJobs((old) => mergeJob(old, j));
       setSelected(j.id);
       setPage("history");
       setRefresh((v) => v + 1);
     });
   }
+  async function begin() {
+    if (problems.length || active || setupRunning) return;
+    if (form.config) {
+      await buildConfigured(form);
+      return;
+    }
+    await attempt("正在启动环境准备", async () => {
+      pendingBuild.current = form;
+      try {
+        await startSetup();
+      } catch (error) {
+        pendingBuild.current = null;
+        throw error;
+      }
+    });
+  }
+  useEffect(() => {
+    if (!setup) return;
+    if (setup.state === "failed") {
+      if (pendingBuild.current) setError(setup.error || "环境准备失败，请重试。");
+      pendingBuild.current = null;
+    }
+    if (setup.state !== "ready" || !setup.config) return;
+    const config = setup.config;
+    const queued = pendingBuild.current;
+    pendingBuild.current = null;
+    setForm((old) => ({ ...old, config }));
+    setChecks(null);
+    setDependencyRevision((v) => v + 1);
+    if (queued) void buildConfigured({ ...queued, config });
+  }, [setup]);
+  const environmentPreparation = (
+    <BuildSetup
+      setup={setup}
+      configured={!!form.config}
+      disabled={!native || !form.workspace || !!busy || !!active}
+      onStart={() => void attempt("正在启动环境准备", startSetup)}
+    />
+  );
   async function resolveStaticExclusions(accepted: boolean) {
     const target = pendingExclusionJob;
     if (!target?.exclusionChallenge) return;
@@ -1388,9 +1424,44 @@ export default function App() {
       />
     </>
   );
+  const advancedConfiguration = (
+    <>
+      {paths}
+      <p>识别现有配置，或为本机创建独立的构建配置。</p>
+      {configurationFields.map(([key, label, type]) => (
+        <PathField
+          key={key}
+          label={label}
+          value={fields[key] ?? ""}
+          directory={type === "folder"}
+          onChange={(v) =>
+            setFields((old) => ({ ...old, [key]: v }))
+          }
+        />
+      ))}
+      <button
+        className="secondary"
+        disabled={!native || !!busy || !form.workspace}
+        onClick={() =>
+          void attempt("正在保存构建配置", async () => {
+            const r = await workbench<{ path: string }>(
+              form,
+              "save-config",
+              undefined,
+              fields,
+            );
+            update({ config: r.path });
+            setNotice("已创建独立构建配置。");
+          })
+        }
+      >
+        <Check size={16} />
+        保存为新配置
+      </button>
+    </>
+  );
   const builderPage = visiblePage === "builder";
-  const hasPageToolbar =
-    visiblePage === "history" || visiblePage === "environment";
+  const hasPageToolbar = visiblePage === "history";
   const dockedPage = builderPage || hasPageToolbar;
   const pageBanners = (
     <>
@@ -1523,72 +1594,56 @@ export default function App() {
               <span className="dot live" />
               所有构建在本机完成
             </span>
-            <span className="version">v{PRODUCT_VERSION} · 实验版</span>
+            <span className="version">
+              v{PRODUCT_VERSION} · {localTesting ? "本地测试版" : "实验版"}
+            </span>
           </div>
         </header>
         <div className="main-content" data-docked={dockedPage || undefined}>
           {hasPageToolbar && (
             <div className="page-toolbar-row" data-phase={pageView.phase}>
-              {visiblePage === "history" ? (
-                <div className="page-toolbar">
-                  <div className="page-toolbar-actions">
-                    <button
-                      className="primary"
-                      onClick={() => {
-                        nav("builder", true);
-                        setStep(0);
-                      }}
-                    >
-                      <Plus size={17} />
-                      新建构建
-                    </button>
-                    <button
-                      className="secondary"
-                      disabled={
-                        !native ||
-                        !!busy ||
-                        !!active ||
-                        (!form.unsigned && !form.exportOptions)
-                      }
-                      onClick={() =>
-                        void attempt("正在导出现有构建", async () => {
-                          const path = await choosePath(
-                            "选择已完成的构建目录（含 result.json）",
-                            true,
-                          );
-                          if (!path) return;
-                          const next = await workbench<BuildJob>(
-                            { ...form, existingBuild: path },
-                            "start",
-                          );
-                          setJobs((old) => mergeJob(old, next));
-                          setSelected(next.id);
-                          setRefresh((v) => v + 1);
-                        })
-                      }
-                    >
-                      <Download size={16} />
-                      从已有构建导出 IPA
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="page-toolbar">
+              <div className="page-toolbar">
+                <div className="page-toolbar-actions">
                   <button
                     className="primary"
-                    disabled={!native || !!busy || !form.config}
-                    title={
-                      !native || busy || !form.config
-                        ? controlReason
-                        : undefined
-                    }
-                    onClick={() => void detect()}
+                    onClick={() => {
+                      nav("builder", true);
+                      setStep(0);
+                    }}
                   >
-                    <RefreshCw size={17} />
-                    检测环境
+                    <Plus size={17} />
+                    新建构建
+                  </button>
+                  <button
+                    className="secondary"
+                    disabled={
+                      !native ||
+                      !!busy ||
+                      !!active ||
+                      (!form.unsigned && !form.exportOptions)
+                    }
+                    onClick={() =>
+                      void attempt("正在导出现有构建", async () => {
+                        const path = await choosePath(
+                          "选择已完成的构建目录（含 result.json）",
+                          true,
+                        );
+                        if (!path) return;
+                        const next = await workbench<BuildJob>(
+                          { ...form, existingBuild: path },
+                          "start",
+                        );
+                        setJobs((old) => mergeJob(old, next));
+                        setSelected(next.id);
+                        setRefresh((v) => v + 1);
+                      })
+                    }
+                  >
+                    <Download size={16} />
+                    从已有构建导出 IPA
                   </button>
                 </div>
-              )}
+              </div>
             </div>
           )}
           <div
@@ -2075,43 +2130,13 @@ export default function App() {
                       )}
                       {visibleStep === environmentStep && (
                         <>
-                          {paths}
+                          {environmentPreparation}
                           <details className="advanced">
                             <summary>
                               <Settings2 size={16} />
                               高级配置 · 工具链和资源路径
                             </summary>
-                            <p>识别现有配置，或为本机创建独立的构建配置。</p>
-                            {configurationFields.map(([key, label, type]) => (
-                              <PathField
-                                key={key}
-                                label={label}
-                                value={fields[key] ?? ""}
-                                directory={type === "folder"}
-                                onChange={(v) =>
-                                  setFields((old) => ({ ...old, [key]: v }))
-                                }
-                              />
-                            ))}
-                            <button
-                              className="secondary"
-                              disabled={!native || !!busy || !form.workspace}
-                              onClick={() =>
-                                void attempt("正在保存构建配置", async () => {
-                                  const r = await workbench<{ path: string }>(
-                                    form,
-                                    "save-config",
-                                    undefined,
-                                    fields,
-                                  );
-                                  update({ config: r.path });
-                                  setNotice("已创建独立构建配置。");
-                                })
-                              }
-                            >
-                              <Check size={16} />
-                              保存为新配置
-                            </button>
+                            {advancedConfiguration}
                           </details>
                           <div className="check-toolbar">
                             <span>环境状态</span>
@@ -2382,6 +2407,7 @@ export default function App() {
                         problems.length > 0 ||
                         !!busy ||
                         !!active ||
+                        setupRunning ||
                         checks?.ready === false
                       }
                       title={
@@ -2396,7 +2422,7 @@ export default function App() {
                       onClick={() => void begin()}
                     >
                       <Hammer size={17} />
-                      构建 IPA
+                      {setupRunning ? "正在准备环境" : !form.config && canPrepare ? "准备并构建 IPA" : "构建 IPA"}
                     </button>
                   )}
                 </footer>
@@ -2886,26 +2912,38 @@ export default function App() {
               </>
             )}
             {visiblePage === "environment" && (
-              <>
-                {blockedReason && (
+              <div className="environment-layout">
+                {environmentPreparation}
+                {activeBuildReason && (
                   <div className="blocked-banner" role="status">
                     <CircleAlert size={18} aria-hidden="true" />
-                    <span>{blockedReason}</span>
-                    {!form.config && native && !busy && (
-                      <button
-                        className="secondary"
-                        onClick={() =>
-                          void attempt("正在选择构建配置", async () => {
-                            const p = await choosePath("选择构建配置");
-                            if (p) update({ config: p });
-                          })
-                        }
-                      >
-                        选择配置文件
-                      </button>
-                    )}
+                    <span>{activeBuildReason}</span>
                   </div>
                 )}
+                <section className="environment-check" aria-labelledby="environment-check-title">
+                  <div className="environment-row">
+                    <div>
+                      <h2 id="environment-check-title">环境检查</h2>
+                      <p>
+                        {busy === "正在检查构建环境"
+                          ? "正在检查主机、SDK、AOT 输入和签名…"
+                          : form.config
+                            ? "核对主机、SDK、AOT 输入和签名。"
+                            : "自动准备完成后即可检测环境。"}
+                      </p>
+                    </div>
+                    <button
+                      className="secondary"
+                      disabled={!native || !!busy || !!active || setupRunning || !form.config}
+                      title={controlReason || undefined}
+                      onClick={() => void detect()}
+                    >
+                      <RefreshCw size={16} />
+                      检测环境
+                    </button>
+                  </div>
+                  {checks && <CheckList checks={checks} />}
+                </section>
                 {dependencyJob && (
                   <DependencyTask
                     job={dependencyJob}
@@ -2913,53 +2951,32 @@ export default function App() {
                     onCancel={() => void cancelDependencies(dependencyJob)}
                   />
                 )}
-                <NativeDependencies
-                  report={dependencies}
-                  error={dependencyError}
-                  checking={checkingDependencies}
-                  disabled={!native || !!busy || !!active || !form.config}
-                  disabledReason={controlReason}
-                  onRefresh={() => setDependencyRevision((v) => v + 1)}
-                  onRebuild={(keys) => void rebuildDependencies(keys)}
-                />
-                <div className="settings-layout">
-                  <section className="panel flat">
-                    <h2>构建资源</h2>
-                    <p className="section-description">
-                      自动识别已经准备好的本地配置。
-                    </p>
-                    {paths}
-                    <button
-                      className="secondary"
-                      onClick={() => {
-                        nav("builder");
-                        setStep(environmentStep);
-                      }}
-                    >
-                      <Settings2 size={16} />
-                      编辑高级资源配置
-                    </button>
-                  </section>
-                  <section className="panel flat">
-                    <h2>环境检查</h2>
-                    <p className="section-description">
-                      检查主机、SDK、AOT 输入和签名准备情况。
-                    </p>
-                    {checks ? (
-                      <CheckList checks={checks} />
-                    ) : (
-                      <div className="small-empty">
-                        <Cpu size={31} />
-                        <h3>等待环境检查</h3>
-                        <p>选择构建配置后点击「检测环境」。</p>
-                      </div>
-                    )}
-                    <Note>
-                      版本检查通过后，构建还会逐个核验客户端、运行库、资源、着色器和阶段产物指纹。
-                    </Note>
-                  </section>
-                </div>
-              </>
+                <details className="advanced environment-disclosure">
+                  <summary>
+                    <span>原生依赖库</span>
+                    <small>{checkingDependencies
+                      ? "检查中"
+                      : dependencyError
+                        ? "检查失败"
+                        : dependencies
+                          ? dependencies.ready ? "所需依赖就绪" : "所需依赖待处理"
+                          : form.config ? "等待检查" : "等待环境准备"}</small>
+                  </summary>
+                  <NativeDependencies
+                    report={dependencies}
+                    error={dependencyError}
+                    checking={checkingDependencies}
+                    disabled={!native || !!busy || !!active || setupRunning || !form.config}
+                    disabledReason={controlReason}
+                    onRefresh={() => setDependencyRevision((v) => v + 1)}
+                    onRebuild={(keys) => void rebuildDependencies(keys)}
+                  />
+                </details>
+                <details className="advanced environment-disclosure">
+                  <summary><span>高级配置</span><small>本地路径与手动配置</small></summary>
+                  <div className="environment-advanced-fields">{advancedConfiguration}</div>
+                </details>
+              </div>
             )}
             {visiblePage === "storage" && (
               <StorageManager
@@ -3038,8 +3055,12 @@ export default function App() {
             {visiblePage === "settings" && (
               <section className="settings-page">
                 <div className="settings-group settings-account">
-                  <h2>账号管理</h2>
-                  <AccountPanel disabled={!!active || !!busy} />
+                  <h2>{localTesting ? "本地测试版" : "账号管理"}</h2>
+                  {localTesting ? (
+                    <p>准备环境和构建 IPA 无需 Microsoft 登录。</p>
+                  ) : (
+                    <AccountPanel disabled={!!active || !!busy} />
+                  )}
                 </div>
                 <div className="settings-group">
                   <h2>外观</h2>
@@ -3099,75 +3120,9 @@ export default function App() {
 
                 <div className="settings-group">
                   <h2>本地执行</h2>
-                  <p className="section-description">
-                    应用附带构建源码。首次启动自动下载固定版本工具链，逐个校验大小与
-                    SHA-256。下载量按当前清单显示；不执行下载到的第三方构建脚本。
-                  </p>
-                  {setup && (
-                    <p role="status">
-                      {setup.message || setup.state}
-                      {setup.totalBytes
-                        ? ` · ${size(setup.completedBytes || 0)} / ${size(setup.totalBytes)}`
-                        : ""}
-                      {setup.error ? ` · ${setup.error}` : ""}
-                    </p>
-                  )}
-                  <button
-                    className="button secondary"
-                    disabled={
-                      !native ||
-                      !!busy ||
-                      ["queued", "running"].includes(setup?.state || "")
-                    }
-                    onClick={() =>
-                      void attempt("正在准备工具链", async () =>
-                        setSetup(
-                          await workbench(formRef.current, "setup-start"),
-                        ),
-                      )
-                    }
-                  >
-                    下载 / 校验工具链
+                  <button className="secondary" onClick={() => nav("environment")}>
+                    打开环境与资源
                   </button>
-                  <div className="setting-row">
-                    <span className="setting-label">
-                      <strong>Minecraft Java Edition 正版资格</strong>
-                      <small>
-                        验证账号后可从官方源下载 26.1.2
-                        客户端和资源；文件仅保存在本机，不包含在应用安装包中。
-                      </small>
-                    </span>
-                    <span className="setting-control">
-                      {verifiedAccount
-                        ? "已验证"
-                        : "请先在账号管理中登录并验证"}
-                    </span>
-                  </div>
-                  <button
-                    className="button secondary"
-                    disabled={
-                      !native ||
-                      !verifiedAccount ||
-                      !!busy ||
-                      ["queued", "running"].includes(setup?.state || "")
-                    }
-                    onClick={() =>
-                      void attempt("正在准备游戏输入", async () => {
-                        setSetup(
-                          await workbench(
-                            formRef.current,
-                            "setup-start",
-                            undefined,
-                            { owned: true },
-                          ),
-                        );
-                      })
-                    }
-                  >
-                    从官方源下载游戏与资源
-                  </button>
-                  {setup?.client && <p>客户端输入目录：{setup.client}</p>}
-
                   <div className="field">
                     <label>
                       <span>Python 解释器</span>
@@ -3258,7 +3213,9 @@ export default function App() {
                       </small>
                     </div>
                     <div className="setting-control">
-                      <span className="pill">v{PRODUCT_VERSION} · 实验版</span>
+                      <span className="pill">
+                        v{PRODUCT_VERSION} · {localTesting ? "本地测试版" : "实验版"}
+                      </span>
                     </div>
                   </div>
                   <div className="setting-row">
