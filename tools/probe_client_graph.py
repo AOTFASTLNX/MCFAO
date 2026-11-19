@@ -19,6 +19,9 @@ from client_graph_diagnostics import audit_metadata, parse_time_rss, read_analys
 from graphics_common import bridge_overlays
 from lwjgl_codegen import CALLBACKS
 from config_reflection import reflection_from_jar
+from aot_compatibility import (RENDER_PIPELINES, add_bytecode_results, bytecode_report, issue,
+                               publish, transform_report)
+from mod_file_policy import content_paths
 from mdaf import (build_native_image_config, merge_agent_metadata,
                   validate_reflection_entries)
 from verify_aot_classpath import verify_entries
@@ -76,9 +79,11 @@ def verify_split_runtime_input(candidate: Path)->dict|None:
     return {'manifestSHA256':sha256(manifest),'finalFieldsUnfinalised':sum(row['finalFieldsUnfinalised'] for row in changed)}
 
 
-def collect_mdaf_configuration(maintained, inferred, tracing_directories, classpath, output):
+def collect_mdaf_configuration(maintained, inferred, tracing_directories, classpath, output,
+                               static_metadata=None):
     agent_metadata, agent_file_conflicts = merge_agent_metadata(tracing_directories)
-    documents, merge_conflicts = build_native_image_config(maintained, inferred, agent_metadata)
+    documents, merge_conflicts = build_native_image_config(maintained, inferred, agent_metadata,
+                                                          static_metadata)
     config_dir = output / "mdaf-native-image-config"
     config_dir.mkdir(parents=True, exist_ok=True)
     for name, document in documents.items():
@@ -91,9 +96,19 @@ def collect_mdaf_configuration(maintained, inferred, tracing_directories, classp
     unified_validation = [
         ({**entry, "name": entry["type"]} if isinstance(entry, dict)
          and isinstance(entry.get("type"), str) else entry)
-        for entry in unified_reflection
+        for entry in unified_reflection if not (isinstance(entry, dict) and isinstance(entry.get("type"), dict))
     ]
     resolution = validate_reflection_entries([*reflection, *unified_validation], classpath)
+    maintained_names = {entry["name"] for entry in maintained}
+    observed_names = {entry.get("name") for entry in [*inferred, *unified_validation,
+                                                      *agent_metadata.get("reflect-config.json", [])]
+                      if isinstance(entry, dict)}
+    for row in resolution["findings"]:
+        if row["status"] == "UNRESOLVED_TYPE" and row["type"] in maintained_names - observed_names:
+            row["status"] = "SKIPPED_ABSENT_MAINTAINED_TYPE"
+            resolution["unresolvedTypesOrMembers"] -= 1
+    if not resolution["unresolvedTypesOrMembers"]:
+        resolution["status"] = "RESOLVED_IN_SHIPPED_ARCHIVES"
     report = {
         "schemaVersion": 1,
         "policy": "REPORT_ONLY",
@@ -166,6 +181,10 @@ def main(argv=None):
                         help="Free-form provenance note recorded next to the client jar override")
     parser.add_argument("--tracing-config",type=Path,action="append",default=[],
                         help="GraalVM tracing-agent output directory; repeat to merge several rehearsals")
+    parser.add_argument("--renderer", choices=("gl41", "metal"),
+                        help="Validate the final client classpath against this renderer")
+    parser.add_argument("--fabric-report", type=Path, help="Verified Fabric transform report")
+    parser.add_argument("--compatibility-report", type=Path, help="Publish a live compatibility summary")
     parser.add_argument("--include-game-resources",action="store_true",help="Embed owned vanilla assets/data and pack/version metadata for the actual Main entry")
     parser.add_argument("--initialize-at-build-time",default="",
                         help="Comma separated classes initialized on the build host instead of at run time")
@@ -265,7 +284,7 @@ def main(argv=None):
     output = output.resolve(strict=True)
     sources=output/"source"
     for name in ["probe_client_graph.py","client_graph_diagnostics.py","run_b0_reference.py",
-                 "config_reflection.py", "mdaf.py", "verify_aot_classpath.py"]:
+                 "config_reflection.py", "aot_compatibility.py", "mdaf.py", "mod_file_policy.py", "verify_aot_classpath.py"]:
         sources.mkdir(exist_ok=True)
         shutil.copy2(ROOT/"tools"/name,sources/name)
     work = output / "work"
@@ -412,7 +431,32 @@ def main(argv=None):
         # The sandbox only opens the work directory for reads, so the reflection config is copied in
         # rather than referenced from compiler/ where it is maintained.
         reflection_entries = json.loads((ROOT / "compiler/reflection-config.json").read_text())
-        inferred = reflection_from_jar(args.client_jar) if args.client_jar else []
+        findings, graph, static_metadata = [], {}, {}
+        compatibility = None
+        if args.renderer and args.client_jar:
+            prepared_fabric = json.loads(args.fabric_report.read_text()) if args.fabric_report else {
+                "renderer": args.renderer,
+            }
+            compatibility = transform_report(prepared_fabric)
+            required = {entry_class.replace(".", "/"), RENDER_PIPELINES}
+            if args.fabric_report:
+                required.add("mcfao/aot/Entrypoints")
+                required.update(row["definition"].split("::", 1)[0].replace(".", "/")
+                                for row in prepared_fabric["transform"]["entrypoints"])
+            inferred, resources_config, findings, graph = bytecode_report(
+                candidate, libraries, args.renderer, java_home=home, required=sorted(required))
+            if resources_config["resources"]["includes"]:
+                static_metadata["resource-config.json"] = resources_config
+            if any(row["severity"] == "blocker" for row in findings):
+                compatibility = add_bytecode_results(compatibility, findings, graph, static_metadata)
+                publish(output / "bytecode-findings.json", {"findings": findings, "graph": graph})
+                publish(output / "compatibility.json", compatibility)
+                publish(args.compatibility_report, compatibility)
+                blocker = next(row for row in findings if row["severity"] == "blocker")
+                raise ValueError(f"Final classpath rejected: {blocker['code']} {blocker['target']} "
+                                 f"({blocker['location']})")
+        else:
+            inferred = reflection_from_jar(args.client_jar) if args.client_jar else []
         tracing_directories = [path.resolve(strict=True) for path in args.tracing_config]
         if not tracing_directories and args.client_jar:
             discovered = args.client_jar.resolve().parent / "tracing-agent"
@@ -422,7 +466,18 @@ def main(argv=None):
             if not directory.is_dir():
                 parser.error("--tracing-config must point to a directory: " + str(directory))
         native_config_dir, mdaf_report = collect_mdaf_configuration(
-            reflection_entries, inferred, tracing_directories, libraries, work)
+            reflection_entries, inferred, tracing_directories, libraries, work, static_metadata)
+        if compatibility is not None:
+            # Static checks have run. The image is still being generated and verified.
+            findings.extend(issue("REFLECTION_METADATA_UNRESOLVED", "warning", row["type"] or "<entry>")
+                            for row in mdaf_report["reflectionResolution"]["findings"]
+                            if row["status"].startswith(("UNRESOLVED", "INVALID")))
+            compatibility = add_bytecode_results(compatibility, findings, graph,
+                                                 mdaf_report["reflectionCollection"]["agentCategoriesIncluded"])
+            compatibility["stages"]["aot"] = "UNVERIFIED"
+            publish(output / "bytecode-findings.json", {"findings": findings, "graph": graph})
+            publish(output / "compatibility.json", compatibility)
+            publish(args.compatibility_report, compatibility)
         try:
             member_resolution = verify_entries(libraries, home / "bin", verify_members=True)
         except (OSError, RuntimeError, subprocess.SubprocessError, zipfile.BadZipFile,
@@ -580,8 +635,10 @@ def main(argv=None):
                                            "platformLoadCommand":platform or ["none"],
                                            "note":"linked separately for arm64-apple-ios; see tools/link_c0_ios.py"}
         result["status"]="ANALYZED" if result["analysisCompleted"] else "BLOCKED"
-    except Exception as error:result["error"]=str(error)
-    result["filesSHA256"]={str(p.relative_to(output)):sha256(p) for p in output.rglob("*") if p.is_file() and not p.is_symlink() and p.name!="result.json"}
+    except Exception as error:
+        result["error"] = str(error)
+        print(str(error), file=sys.stderr)
+    result["filesSHA256"]={str(p.relative_to(output)):sha256(p) for p in content_paths(output) if p.is_file() and not p.is_symlink() and p.name!="result.json"}
     (output/"result.json").write_text(json.dumps(result,indent=2)+"\n")
     print(json.dumps({k:v for k,v in result.items() if k not in ['filesSHA256','classpathSHA256']},indent=2))
     return 0 if result["status"]=="ANALYZED" else 2

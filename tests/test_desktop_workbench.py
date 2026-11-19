@@ -502,6 +502,16 @@ class WorkbenchTests(unittest.TestCase):
         self.assertEqual(result['state'],'interrupted')
         self.assertIn('real compiler progress',result['log'])
 
+    def test_job_status_reads_compatibility_of_the_current_build_attempt(self):
+        path = self.root / 'job.json'
+        source, attempt = self.root / 'old-build', self.root / 'new-build'
+        for folder, count in ((source, 3), (attempt, 5)):
+            folder.mkdir()
+            w.write_json(folder / 'compatibility.json', dict(schemaVersion=1, modCount=count))
+        w.write_json(path, dict(id='c'*32, state='failed', stage='aot', build=str(attempt),
+                                previousBuilds=[dict(path=str(source))]))
+        self.assertEqual(w.snapshot(path)['compatibility']['modCount'], 5)
+
     def test_log_snapshot_filters_metadata_before_selecting_latest_files(self):
         folder = self.root / 'job'
         folder.mkdir()

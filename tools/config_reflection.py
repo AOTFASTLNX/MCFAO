@@ -1,6 +1,7 @@
 """Read class structure to register AutoConfig data without loading or initializing Mods."""
 from __future__ import annotations
 
+from collections import deque
 import json
 import re
 import struct
@@ -58,7 +59,8 @@ def _instruction_length(code, position):
     opcode = code[position]
     if opcode in (0xaa, 0xab):  # tableswitch / lookupswitch
         cursor = position + 1 + (3 - position % 4)
-        if cursor + 12 > len(code):
+        header_size = 12 if opcode == 0xaa else 8
+        if cursor + header_size > len(code):
             raise ValueError("Truncated switch instruction")
         if opcode == 0xaa:
             # default(4) + low(4) + high(4) precede the match table, so the header is 12 bytes.
@@ -67,7 +69,9 @@ def _instruction_length(code, position):
         else:
             pairs = struct.unpack(">i", code[cursor + 4:cursor + 8])[0]
             span = pairs * 8
-        return 1 + (3 - position % 4) + 12 + span if opcode == 0xaa else 1 + (3 - position % 4) + 8 + span
+        if span < 0:
+            raise ValueError("Invalid switch instruction table")
+        return cursor - position + header_size + span
     if opcode == 0xc4:  # wide
         if position + 1 >= len(code):
             raise ValueError("Truncated wide instruction")
@@ -87,6 +91,87 @@ def _member_ref(reference, pool):
     owner = pool[pool[reference[1]][1]]
     name_and_type = pool[reference[2]]
     return owner, pool[name_and_type[1]], pool[name_and_type[2]]
+
+
+def instructions(code, pool):
+    """Decode instruction boundaries and the constants used by the static scanners."""
+    offset = 0
+    while offset < len(code):
+        opcode = code[offset]
+        size = _instruction_length(code, offset)
+        if offset + size > len(code):
+            raise ValueError("Truncated bytecode instruction")
+        operand = None
+        if opcode == 0x12:
+            operand = pool[code[offset + 1]]
+        elif opcode in (0x13, 0x14, *range(0xb2, 0xbc), 0xbd, 0xc0, 0xc1, 0xc5):
+            operand = pool[int.from_bytes(code[offset + 1:offset + 3], "big")]
+        value = operand
+        if isinstance(operand, tuple):
+            if operand[0] in (7, 8):
+                value = (operand[0], pool[operand[1]])
+            elif operand[0] in (9, 10, 11):
+                value = (operand[0], *_member_ref(operand, pool))
+        yield opcode, value
+        offset += size
+
+
+def json_loader_sites(code, pool):
+    """Match a class literal passed directly to a newly constructed typed loader.
+
+    Track the straight-line NEW, DUP, Class literal, constant arguments and constructor
+    sequence. Consumers are checked separately, so unrelated Class-taking constructors
+    do not widen reflection metadata.
+    """
+    sequence = []
+    for opcode, value in instructions(code, pool):
+        if opcode == 0xbb:
+            sequence = [(opcode, value[1])]
+        elif sequence and opcode == 0x59 and len(sequence) == 1:
+            sequence.append((opcode, None))
+        elif len(sequence) >= 2 and opcode in (0x12, 0x13):
+            sequence.append((opcode, value))
+        elif sequence and opcode == 0xb7:
+            _, owner, member, descriptor = value
+            arguments = [item[1] for item in sequence[2:]]
+            parameters = re.findall(r"L[^;]+;", descriptor.partition(")")[0][1:])
+            if (owner == sequence[0][1] and member == "<init>"
+                    and parameters and parameters[0] == "Ljava/lang/Class;"
+                    and descriptor == "(" + "".join(parameters) + ")V"
+                    and len(arguments) == len(parameters)
+                    and all(isinstance(item, tuple) and item[0] == tag
+                            for item, tag in zip(arguments, [7] + [8] * (len(parameters) - 1)))
+                    and all(param == "Ljava/lang/String;" for param in parameters[1:])):
+                yield owner, arguments[0][1]
+            sequence.clear()
+        else:
+            sequence.clear()
+
+
+def has_typed_gson_loader(owner, methods, code_bodies, pool):
+    """Prove the same Class field is set from the first constructor argument and consumed."""
+    assigned, constructed, decoded = set(), set(), set()
+    for method, code in zip(methods, code_bodies, strict=True):
+        previous = deque(maxlen=3)
+        for opcode, value in instructions(code, pool):
+            if opcode == 0xb5 and method.startswith("<init>(Ljava/lang/Class;"):
+                if list(previous)[-2:] == [(0x2a, None), (0x2b, None)]:
+                    assigned.add(value)
+            elif opcode == 0xb6 and len(previous) == 3:
+                _, called_owner, name, descriptor = value
+                if (called_owner == "java/lang/Class" and name == "getConstructor"
+                        and descriptor == "([Ljava/lang/Class;)Ljava/lang/reflect/Constructor;"
+                        and previous[-2] == (0x03, None)
+                        and previous[-1] == (0xbd, (7, "java/lang/Class"))
+                        and previous[-3][0] == 0xb4):
+                    constructed.add(previous[-3][1])
+                if (called_owner == "com/google/gson/Gson" and name == "fromJson"
+                        and descriptor.endswith("Ljava/lang/Class;)Ljava/lang/Object;")
+                        and previous[-1][0] == 0xb4):
+                    decoded.add(previous[-1][1])
+            previous.append((opcode, value))
+    return any(field_owner == owner and descriptor == "Ljava/lang/Class;"
+               for _, field_owner, _, descriptor in assigned & constructed & decoded)
 
 
 def member_sites(code, pool):
@@ -301,7 +386,7 @@ def yacl_config_roots(shapes):
             and any(YACL_HANDLER in descriptor for descriptor in shape["declaredFields"])}
 
 
-def class_shape(data):
+def class_shape(data, *, graph=False):
     position = 0
 
     def take(count):
@@ -358,10 +443,12 @@ def class_shape(data):
     field_types = set()
     declared_fields = set()
     declared_field_names = set()
+    fields = []
     for _ in range(u2()):
         flags, field_name, descriptor = u2(), u2(), pool[u2()]
         attrs = attributes()
         declared_field_names.add(pool[field_name])
+        fields.append((pool[field_name], descriptor))
         declared_fields.add(descriptor)
         signature = None
         for key, body in attrs:
@@ -378,16 +465,22 @@ def class_shape(data):
     methods = []
     method_signatures = []
     constructors = set()
+    public_no_arg = False
     sites = []
     forname = []
     code_bodies = []
+    code_methods = []
+    native_methods = []
     scan = not this.startswith(PLATFORM_PREFIXES) and any(hint in data for hint in MEMBER_HINTS)
     for _ in range(u2()):
-        _flags, method_name, descriptor = u2(), u2(), u2()
+        flags, method_name, descriptor = u2(), u2(), u2()
         methods.append(pool[method_name])
         method_signatures.append(pool[method_name] + pool[descriptor])
         if pool[method_name] == "<init>":
             constructors.add(pool[descriptor])
+            public_no_arg |= pool[descriptor] == "()V" and bool(flags & 0x0001)
+        if flags & 0x0100:
+            native_methods.append(pool[method_name] + pool[descriptor])
         for key, body in attributes():
             if key != "Code":
                 continue
@@ -396,6 +489,7 @@ def class_shape(data):
             if length + 8 > len(body):
                 raise ValueError("Invalid code attribute")
             code_bodies.append(body[8:8 + length])
+            code_methods.append(method_signatures[-1])
     # BootstrapMethods is a class-level attribute, so the recipes only exist after the method
     # walk; the code bodies are scanned once both halves are available.
     class_attributes = attributes()
@@ -411,14 +505,31 @@ def class_shape(data):
     if factories:
         for code in code_bodies:
             literals.update(class_literals(code, pool))
-    return {"name": this, "parent": parent, "interfaces": interfaces,
+    typed_sites = []
+    if not this.startswith(PLATFORM_PREFIXES) and b"(Ljava/lang/Class;" in data and b"<init>" in data:
+        for code in code_bodies:
+            typed_sites.extend(json_loader_sites(code, pool))
+    gson_loader = False
+    if (b"com/google/gson/Gson" in data and b"getConstructor" in data
+            and "Ljava/lang/Class;" in declared_fields):
+        gson_loader = has_typed_gson_loader(this, code_methods, code_bodies, pool)
+    shape = {"name": this, "parent": parent, "interfaces": interfaces,
             "fieldTypes": sorted(field_types), "access": access,
             "declaredFields": sorted(declared_fields),
-            "declaredFieldNames": sorted(declared_field_names),
+            "declaredFieldNames": sorted(declared_field_names), "fields": fields,
             "methods": methods, "methodSignatures": method_signatures,
-            "constructors": sorted(constructors), "reflection": sites,
+            "constructors": sorted(constructors), "publicNoArgConstructor": public_no_arg,
+            "jsonLoaderSites": typed_sites, "gsonConstructorLoader": gson_loader, "reflection": sites,
             "forName": forname, "factories": sorted(factories),
             "classLiterals": sorted(literals)}
+    if graph:
+        shape.update(nativeMethods=native_methods,
+                     bytecode=zip(code_methods, (instructions(code, pool) for code in code_bodies)),
+                     classReferences={pool[ref[1]] for ref in pool
+                                      if isinstance(ref, tuple) and ref[0] == 7},
+                     memberReferences={_member_ref(ref, pool) for ref in pool
+                                       if isinstance(ref, tuple) and ref[0] in (9, 10, 11)})
+    return shape
 
 
 def config_entries(shapes, serialization_roots=(), open_roots=()):
@@ -590,7 +701,7 @@ def _merge(entries, additions):
     return entries
 
 
-def reflection_from_jar(path):
+def reflection_from_jar(path, *, class_visitor=None, diagnostics=None):
     shapes = {}
     sites = []
     forname = []
@@ -603,11 +714,19 @@ def reflection_from_jar(path):
                 or sum(item.file_size for item in entries) > 2 * 1024**3):
             raise ValueError("Configuration scan archive exceeds budget")
         for item in entries:
-            if not item.filename.endswith(".class") or item.filename.startswith(("META-INF/", "mcfao/mod-files/")):
+            name = item.filename
+            if not name.endswith(".class") or name.startswith(("META-INF/", "mcfao/mod-files/")):
                 continue
-            shape = class_shape(jar.read(item))
-            if shape["name"] + ".class" != item.filename:
-                raise ValueError(f"Configuration scan class path mismatch: {item.filename}")
+            try:
+                shape = class_shape(jar.read(item), graph=class_visitor is not None)
+            except (ValueError, IndexError, struct.error) as error:
+                raise ValueError(f"{error}: {path}!{name}") from error
+            if shape["name"] + ".class" != name:
+                raise ValueError(f"Configuration scan class path mismatch: {name}")
+            if class_visitor:
+                class_visitor(shape)
+                for key in ("bytecode", "classReferences", "memberReferences"):
+                    del shape[key]
             shapes[shape["name"]] = shape
             sites.extend(shape["reflection"])
             forname.extend(shape["forName"])
@@ -619,8 +738,21 @@ def reflection_from_jar(path):
         config_roots = json.loads(jar.read(config_path)) if config_path in jar.namelist() else []
         if not isinstance(config_roots, list) or any(not isinstance(name, str) for name in config_roots):
             raise ValueError("Invalid framework config roots metadata")
+    typed_roots = set()
+    for shape in shapes.values():
+        for loader, target in shape["jsonLoaderSites"]:
+            if not shapes.get(loader, {}).get("gsonConstructorLoader") or target not in shapes:
+                continue
+            if shapes[target]["publicNoArgConstructor"]:
+                typed_roots.add(target)
+            elif diagnostics is not None:
+                diagnostics.append({"code": "CONFIG_NO_PUBLIC_NOARG", "severity": "warning",
+                                    "location": shape["name"], "target": target})
+    if diagnostics is not None:
+        diagnostics.extend({"code": "TYPED_GSON_CONFIG", "severity": "fix", "target": target}
+                           for target in sorted(typed_roots))
     return _merge(config_entries(shapes, sorted(yacl_config_roots(shapes)),
-                                 open_roots=[*roots, *sorted(json_config_roots(shapes))]),
+                                 open_roots=[*roots, *sorted(json_config_roots(shapes) | typed_roots)]),
                   [*member_entries(shapes, sites), *forname_entries(shapes, forname),
                    *override_entries(shapes),
                    *framework_config_entries(shapes, config_roots)])

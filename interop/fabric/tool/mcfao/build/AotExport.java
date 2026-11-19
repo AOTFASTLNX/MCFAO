@@ -37,6 +37,7 @@ import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Label;
+import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.FieldInsnNode;
 import org.objectweb.asm.tree.FrameNode;
@@ -131,6 +132,10 @@ public final class AotExport implements Opcodes {
         Set<String> requested = new TreeSet<>(Files.readAllLines(Path.of(args[3])));
         // Optional: pre-compiled first-party classes that replace run-time generated code.
         Path runtimeClasses = args.length > 5 && !args[5].isBlank() ? Path.of(args[5]) : null;
+        String renderer = args[6];
+        if (!Set.of("gl41", "metal").contains(renderer)) {
+            throw new IllegalArgumentException("Unsupported renderer: " + renderer);
+        }
         var runtimeExported = new TreeSet<String>();
         var knot = new Knot(EnvType.CLIENT);
         ClassLoader target = knot.init(new String[]{"--version", "26.1.2", "--gameDir", args[4]});
@@ -291,6 +296,10 @@ public final class AotExport implements Opcodes {
         // contributions to vanilla tag and atlas files are merged while every other path keeps
         // the later-pack-wins rule the reference client applies.
         var pendingResources = new TreeMap<String, byte[]>();
+        var literalResources = new TreeMap<String, Path>();
+        var literalResourceOwners = new TreeMap<String, Integer>();
+        var ambiguousLiteralResources = new TreeSet<String>();
+        var retainedLiteralResources = new TreeSet<String>();
         var mergedResources = new TreeSet<String>();
         // Every assets/ and data/ path that actually ships in the merged jar. The namespace
         // table is derived from these paths rather than from Mod metadata, so a Mod that ships
@@ -326,7 +335,8 @@ public final class AotExport implements Opcodes {
                 boolean packBuilder = path.equals(RuntimeLowering.VANILLA_PACK_BUILDER + ".class");
                 // The pipeline registry is untouched by Mixins, but the Metal bundle guard must be
                 // installed whether or not the class came back byte-identical.
-                boolean pipelines = path.equals(RuntimeLowering.RENDER_PIPELINES + ".class");
+                boolean pipelines = renderer.equals("metal")
+                        && path.equals(RuntimeLowering.RENDER_PIPELINES + ".class");
                 // The config helper is likewise untouched by Mixins: its Loader-facing scan is
                 // replaced by the build-time table whenever the pack declared any config.
                 boolean configHelper = path.equals(CONFIG_HELPER + ".class") && !frameworkConfigs.isEmpty();
@@ -446,6 +456,9 @@ public final class AotExport implements Opcodes {
                         effective.put(name, highest.getValue());
                         multiReleasePromoted.add(id + "!" + name + "=version " + highest.getKey());
                     }
+                    for (String name : effective.keySet()) {
+                        if (eligibleLiteralResource(name)) literalResourceOwners.merge(name, 1, Integer::sum);
+                    }
                     for (var entry : effective.entrySet()) {
                         Path path = entry.getValue();
                         String name = entry.getKey();
@@ -542,6 +555,7 @@ public final class AotExport implements Opcodes {
                             try {
                                 byte[] data = transform(transform, delegate, name);
                                 ClassNode node = parse(data);
+                                collectLiteralResources(node, effective, literalResources);
                                 if (!name.equals(node.name + ".class")) {
                                     throw new IllegalArgumentException("Invalid class path in " + id + ": " + name);
                                 }
@@ -728,6 +742,16 @@ public final class AotExport implements Opcodes {
                 Files.writeString(output.resolve("incompatible.json"), JSON.toJson(report));
                 throw new IllegalArgumentException(failures.size() + " class(es) cannot be lowered in "
                         + blocked.size() + " Mod(s):\n  " + String.join("\n  ", failures));
+            }
+            for (var resource : literalResources.entrySet()) {
+                String name = resource.getKey();
+                if (literalResourceOwners.get(name) != 1 || base.getEntry(name) != null
+                        || pendingResources.containsKey(name)) {
+                    ambiguousLiteralResources.add(name);
+                    continue;
+                }
+                pendingResources.put(name, Files.readAllBytes(resource.getValue()));
+                retainedLiteralResources.add(name);
             }
             for (var resource : pendingResources.entrySet()) {
                 byte[] data = resource.getValue();
@@ -932,6 +956,7 @@ public final class AotExport implements Opcodes {
         }
         var report = new TreeMap<String, Object>();
         report.put("loader", FabricLoaderImpl.VERSION);
+        report.put("renderer", renderer);
         report.put("namespace", "official");
         report.put("resolvedMods", selected);
         report.put("entrypoints", entries);
@@ -970,6 +995,8 @@ public final class AotExport implements Opcodes {
         report.put("mixinTargetsAbsent", mixinTargetsAbsent);
         report.put("mergedResources", mergedResources);
         report.put("overriddenResources", overriddenResources);
+        report.put("retainedLiteralResources", retainedLiteralResources);
+        report.put("ambiguousLiteralResources", ambiguousLiteralResources);
         Files.writeString(output.resolve("transform.json"), JSON.toJson(report));
         System.out.println("MCFAO_FABRIC_EXPORT_PASS");
     }
@@ -1433,6 +1460,39 @@ public final class AotExport implements Opcodes {
         var node = new ClassNode();
         new ClassReader(data).accept(node, 0);
         return node;
+    }
+
+    private static boolean eligibleLiteralResource(String path) {
+        // Retain bounded declarative files below a package. Host configuration, code and
+        // native binaries stay outside this rule. The allowed alphabet is literal in a glob.
+        return !path.startsWith("META-INF/") && !path.startsWith("mcfao/mod-files/")
+                && !path.startsWith("assets/") && !path.startsWith("data/")
+                && Arrays.stream(path.split("/")).noneMatch(part -> part.equals("__MACOSX"))
+                && path.matches("(?:[A-Za-z0-9_$-][A-Za-z0-9_.$-]*/)+"
+                        + "[A-Za-z0-9_$-][A-Za-z0-9_.$-]*\\.(?:json|toml|properties|txt|xml|csv)");
+    }
+
+    private static void collectLiteralResources(ClassNode node, Map<String, Path> effective,
+            Map<String, Path> resources) throws IOException {
+        for (MethodNode method : node.methods) {
+            for (var insn = method.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+                if (!(insn instanceof MethodInsnNode call) || call.getOpcode() != INVOKEVIRTUAL
+                        || !call.owner.equals("java/lang/Class")
+                        || !Set.of("getResource", "getResourceAsStream").contains(call.name)
+                        || !(call.getPrevious() instanceof LdcInsnNode pathConstant)
+                        || !(pathConstant.cst instanceof String literal)
+                        || !(pathConstant.getPrevious() instanceof LdcInsnNode classConstant)
+                        || !(classConstant.cst instanceof Type type) || type.getSort() != Type.OBJECT
+                        || !effective.containsKey(type.getInternalName() + ".class")) continue;
+                String declaring = type.getInternalName();
+                String path = literal.startsWith("/") ? literal.substring(1)
+                        : declaring.substring(0, declaring.lastIndexOf('/') + 1) + literal;
+                Path source = effective.get(path);
+                if (source != null && eligibleLiteralResource(path) && Files.size(source) <= 1024 * 1024) {
+                    resources.putIfAbsent(path, source);
+                }
+            }
+        }
     }
 
     private static byte[] classBytes(ClassNode node) {

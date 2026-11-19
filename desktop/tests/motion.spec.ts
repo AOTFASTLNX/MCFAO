@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import type { AotCompatibility } from "../src/workflow";
 
 async function openBuilder(page: Page) {
   await page.goto("/");
@@ -316,10 +317,11 @@ test("drag target reports accepted and rejected payloads", async ({ page }) => {
   await expect(overlay).toContainText("Prism");
 });
 
-test("a long log keeps the reader in place until they return to the end", async ({
-  page,
-}) => {
-  await page.addInitScript(() => {
+async function openRunningBuild(
+  page: Page,
+  compatibility: AotCompatibility | null = null,
+) {
+  await page.addInitScript((report) => {
     const job = {
       id: "a".repeat(32),
       name: "NCL fixture",
@@ -330,6 +332,7 @@ test("a long log keeps the reader in place until they return to the end", async 
       build: "/fixture/build",
       request: { workspace: "/fixture" },
       error: "",
+      compatibility: report,
       log: Array.from({ length: 200 }, (_, i) => `INFO step ${i}`).join("\n"),
     };
     // This suite starts after the separate first-launch flow.
@@ -373,12 +376,66 @@ test("a long log keeps the reader in place until they return to the end", async 
         },
       },
     });
-  });
+  }, compatibility);
   await page.goto("/");
   await expect(page.getByRole("button", { name: /^构建记录/ })).toBeVisible({
     timeout: 15000,
   });
   await page.getByRole("button", { name: /^构建记录/ }).click();
+}
+
+test("build history shows AOT findings and leaves launch and device unverified", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 800, height: 760 });
+  await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
+  await openRunningBuild(page, {
+    modCount: 4,
+    fixes: 1,
+    warnings: 1,
+    blockers: 0,
+    findingGroups: 2,
+    stages: {
+      static: "PASS",
+      transform: "PASS",
+      aot: "PASS",
+      startup: "UNVERIFIED",
+      device: "UNVERIFIED",
+    },
+    findings: [
+      {
+        code: "TYPED_GSON_CONFIG",
+        severity: "fix",
+        target: "fixture.ConfigDTO",
+        count: 1,
+      },
+      {
+        code: "MIXIN_TARGET_UNAVAILABLE",
+        severity: "warning",
+        target: "fixture.OptionalMixin",
+        count: 1,
+      },
+    ],
+  });
+  const report = page.getByRole("region", { name: "AOT 兼容性" });
+  await expect(report.getByRole("status")).toContainText(
+    "4 个 Mod · 1 项自动修复 · 1 条警告",
+  );
+  await expect(report).toContainText(
+    "AOT 产物 通过 · 启动 待验证 · 真机 待验证",
+  );
+  const summary = report.locator("summary");
+  await summary.focus();
+  await summary.press("Enter");
+  await expect(
+    report.getByText(/Mixin 目标不可用.*fixture.OptionalMixin/),
+  ).toBeVisible();
+});
+
+test("a long log keeps the reader in place until they return to the end", async ({
+  page,
+}) => {
+  await openRunningBuild(page);
   const scroll = page.locator(".log-scroll");
   await expect(page.locator(".log-line")).toHaveCount(200);
   await scroll.evaluate((element) => element.scrollTo(0, 0));

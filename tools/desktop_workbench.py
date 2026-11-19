@@ -25,6 +25,7 @@ import zipfile
 from preflight import scan_pack, validate_zip_members, read_json_limited, MAX_MANIFEST, resource_unit, tls_context
 from mcfao import instance_files
 from bootstrap_toolchain import sha256
+from capture import redact_log
 from mod_file_policy import is_metadata, content_paths, mod_candidates, copy_ignore, clean_staged_metadata
 from external_storage import ExternalStorageUnavailable, require_mount
 import cleanup_storage
@@ -94,18 +95,28 @@ def snapshot(path, logs=True):
     elif job['state'] in ACTIVE and (path.parent / 'cancel').exists():
         job['state'] = 'cancelling'
     if logs:
+        compatibility = Path(job['build']) / 'compatibility.json'
+        if not job.get('kind') and compatibility.is_file() and not compatibility.is_symlink():
+            try:
+                report = read_json(compatibility)
+                if report.get('schemaVersion') == 1:
+                    job['compatibility'] = report
+            except (OSError, ValueError):
+                pass
         files = [p for pattern in ('*stdout.log', '*stderr.log', 'worker.log') for p in path.parent.rglob(pattern)]
         files += list(Path(job["build"]).glob("*/*/command/*.log"))
         files += list(Path(job["build"]).glob("aot/*/product/analysis/*.log"))
         files = sorted((p for p in files if not is_metadata(p) and p.is_file()),
                        key=lambda p: p.stat().st_mtime)[-6:]
-        job['log'] = '\n'.join('[' + str(p) + ']\n' + tail(p) for p in files)
+        job['log'] = redact_log('\n'.join('[' + str(p) + ']\n' + tail(p) for p in files))
         if job['stage'] not in ('archive', 'export-log', 'verify'):
             for line in tail(path.parent / 'build.stdout.log', 64000).splitlines():
                 if line.split(':', 1)[0] in STAGES: job['stage'] = line.split(':', 1)[0]
         for line in tail(path.parent / 'export.stdout.log').splitlines():
             stage = line.split(':', 1)[0]
             if stage in ('archive', 'export-log', 'unpack'): job['stage'] = 'verify' if stage == 'unpack' else stage
+    if job.get('error'):
+        job['error'] = redact_log(job['error'])
     return job
 
 def history(workspace):
@@ -719,7 +730,7 @@ def execute(argv, folder, name, update, stage, env):
     if CANCELLED or (folder / 'cancel').exists(): raise InterruptedError('构建已取消')
     if child.returncode:
         reason = attempt_output(stderr_path, started_at, 5000) or attempt_output(stdout_path, started_out, 5000)
-        raise ValueError(f'{name} 失败（退出码 {child.returncode}）\n' + reason)
+        raise ValueError(f'{name} 失败（退出码 {child.returncode}）\n' + redact_log(reason))
 
 def attempt_output(path, offset, limit):
     """Return only the text this attempt appended, capped to the last `limit` bytes."""
