@@ -18,6 +18,7 @@ import {
 import { native } from "./bridge";
 
 export interface AccountSnapshot {
+  loginRequired?: boolean;
   configured: boolean;
   verified: boolean;
   profile: { id: string; name: string } | null;
@@ -74,7 +75,7 @@ function useAccountState(revalidate: boolean) {
             ...value,
             verified: revalidate ? false : value.verified,
           });
-        return revalidate && value.configured
+        return revalidate && value.loginRequired !== false && value.configured
           ? action<AccountSnapshot>("refresh")
           : value;
       })

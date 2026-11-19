@@ -11,6 +11,8 @@ use std::{
 use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
 
+mod window_memory;
+
 const MAX_OUTPUT: usize = 8 * 1024 * 1024;
 #[derive(Debug)]
 struct Captured {
@@ -475,11 +477,24 @@ fn run_account_action(app: &tauri::AppHandle, action: &str) -> Result<Value, Str
 }
 #[tauri::command]
 async fn account_action(app: tauri::AppHandle, action: String) -> Result<Value, String> {
+    if LOCAL_TESTING {
+        return if action == "status" {
+            Ok(serde_json::json!({
+                "configured": false,
+                "verified": false,
+                "profile": null,
+                "loginRequired": false
+            }))
+        } else {
+            Err("本地测试版暂不使用 Microsoft 登录。".into())
+        };
+    }
     tauri::async_runtime::spawn_blocking(move || run_account_action(&app, &action))
         .await.map_err(|_| "账号服务异常，请重试")?
 }
 #[tauri::command]
 async fn open_account_login() -> Result<(), String> {
+    if LOCAL_TESTING { return Err("本地测试版暂不使用 Microsoft 登录。".into()); }
     if !cfg!(target_os = "macos") { return Err("登录需要 macOS 桌面应用".into()); }
     // Fixed official destination; the webview cannot open arbitrary URLs.
     let result = Command::new("/usr/bin/open").arg("https://www.microsoft.com/link")
@@ -488,8 +503,10 @@ async fn open_account_login() -> Result<(), String> {
     Ok(())
 }
 
+const LOCAL_TESTING: bool = cfg!(feature = "local-testing");
+
 fn requires_game_account(action: &str) -> bool {
-    ["start", "retry", "setup-start"].contains(&action)
+    !LOCAL_TESTING && ["start", "retry", "setup-start"].contains(&action)
 }
 
 fn reveal_target(path: &str) -> Result<PathBuf, String> {
@@ -605,8 +622,30 @@ async fn workbench_action(
 }
 
 pub fn run() {
+    // The window starts hidden so the remembered size is applied before the
+    // first frame; otherwise the default 1100 x 760 frame is visible for a
+    // moment on every launch.
+    let mut context = tauri::generate_context!();
+    for window in &mut context.config_mut().app.windows {
+        if window.label == "main" {
+            window.visible = false;
+        }
+    }
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            if let Some(window) = app.get_webview_window("main") {
+                let state_path = app
+                    .path()
+                    .app_config_dir()
+                    .ok()
+                    .map(|dir| dir.join("window.json"));
+                app.manage(window_memory::WindowMemory::install(&window, state_path));
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             account_action,
             open_account_login,
@@ -619,8 +658,15 @@ pub fn run() {
             check_environment,
             save_document
         ])
-        .run(tauri::generate_context!())
-        .expect("无法启动 NCL Builder 桌面工作台");
+        .build(context)
+        .expect("无法启动 NCL Builder 桌面工作台")
+        .run(|app, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                if let Some(memory) = app.try_state::<window_memory::WindowMemory>() {
+                    memory.shutdown();
+                }
+            }
+        });
 }
 
 #[cfg(test)]
@@ -635,7 +681,7 @@ mod tests {
             assert!(!account_action_allowed(action));
         }
         for action in ["start", "retry", "setup-start"] {
-            assert!(requires_game_account(action));
+            assert_eq!(requires_game_account(action), !cfg!(feature = "local-testing"));
         }
         for action in ["status", "cancel", "history", "storage-change-plan", "storage-change-apply"] {
             assert!(!requires_game_account(action));
