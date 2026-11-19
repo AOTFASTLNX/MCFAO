@@ -290,6 +290,28 @@ def command(root, paths, key, output):
     return list(map(str, argv))
 
 
+def build_one(root, paths, key, destination, execute, write_json):
+    prerequisites(root, paths, key)
+    before = sources(root, key)
+    before_deps = dependency_hashes(paths, key)
+    argv = command(root, paths, key, destination)
+    execute(argv, key)
+    report = read(destination / 'result.json')
+    if report.get('status') != BY_KEY[key][3]:
+        raise ValueError(report.get('error') or key + ' 构建未通过')
+    hashes = artifacts(destination, key, report)
+    if before != sources(root, key) or before_deps != dependency_hashes(paths, key):
+        raise ValueError('构建过程中源码或依赖库发生变化：' + key)
+    manifest = dict(schema=1, key=key, builtAt=datetime.now(timezone.utc).isoformat(),
+                    target='arm64-apple-ios17.0', sources=before, artifacts=hashes, dependencies=before_deps)
+    write_json(destination / MANIFEST, manifest)
+    row = inspect(root, {**paths, key: destination}, key)
+    if row['state'] != 'current':
+        raise ValueError('新产物验证失败：' + '；'.join(row['reasons'] + row['changedFiles']))
+    from graphics_common import register_tree
+    register_tree(destination / MANIFEST, argv, recursive=False)
+
+
 def rebuild(root, config, keys, output, execute, cancelled, update, write_json):
     """Build in dependency order; atomically switch paths only after all succeed."""
     keys = plan(keys)
@@ -312,30 +334,14 @@ def rebuild(root, config, keys, output, execute, cancelled, update, write_json):
     for index, key in enumerate(keys):
         if cancelled():
             raise InterruptedError('依赖库重建已取消')
-        prerequisites(root, paths, key)
         destination = output / key
-        before = sources(root, key)
-        before_deps = dependency_hashes(paths, key)
         update(stage='dependency-' + key, dependencyProgress=dict(completed=index, total=len(keys), key=key))
-        execute(command(root, paths, key, destination), key)
-        if cancelled():
-            raise InterruptedError('依赖库重建已取消')
-        report = read(destination / 'result.json')
-        if report.get('status') != BY_KEY[key][3]:
-            raise ValueError(report.get('error') or key + ' 构建未通过')
-        hashes = artifacts(destination, key, report)
-        if before != sources(root, key) or before_deps != dependency_hashes(paths, key):
-            raise ValueError('构建过程中源码或依赖库发生变化：' + key)
-        manifest = dict(schema=1, key=key, builtAt=datetime.now(timezone.utc).isoformat(),
-                        target='arm64-apple-ios17.0', sources=before, artifacts=hashes, dependencies=before_deps)
-        write_json(destination / MANIFEST, manifest)
-        candidate = {**paths, key: destination}
-        row = inspect(root, candidate, key)
-        if row['state'] != 'current':
-            raise ValueError('新产物验证失败：' + '；'.join(row['reasons'] + row['changedFiles']))
-        from graphics_common import register_tree
-        register_tree(destination / MANIFEST, command(root, paths, key, destination), recursive=False)
-        paths = candidate
+        def execute_step(argv, name):
+            execute(argv, name)
+            if cancelled():
+                raise InterruptedError('依赖库重建已取消')
+        build_one(root, paths, key, destination, execute_step, write_json)
+        paths[key] = destination
         outputs[key] = str(destination)
     # Verify all selected inputs again immediately before committing the config.
     for key in keys:

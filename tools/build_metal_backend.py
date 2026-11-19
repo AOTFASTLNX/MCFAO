@@ -12,6 +12,7 @@ from bootstrap_toolchain import sha256
 from capture import ROOT,capture
 from build_c0_harness import validate_dylib
 from graphics_common import bridge_overlays,register_tree
+from mod_file_policy import content_paths
 from run_b0_reference import sandbox_policy
 
 def main(argv=None):
@@ -36,7 +37,7 @@ def main(argv=None):
         if sha256(f)!=entry["sha256"]:p.error("Changed Java reference input: "+str(f))
         cp.append(f)
     classes=out/"classes";classes.mkdir()
-    sources=sorted((ROOT/"compiler/metal-backend/src").rglob("*.java"))
+    sources=sorted(p for p in content_paths(ROOT/"compiler/metal-backend/src") if p.suffix==".java")
     sources.append(ROOT/"interop/graphics/MetalProbe.java")
     sources.append(ROOT/"interop/graphics/MetalResourceProbe.java")
     sources.append(ROOT/"interop/graphics/NativeImageProbe.java")
@@ -51,7 +52,9 @@ def main(argv=None):
     if not compiled["exitCode"]:
         jar=out/"metal-backend.jar"
         with zipfile.ZipFile(jar,"w",zipfile.ZIP_DEFLATED) as archive:
-            for f in sorted(classes.rglob("*.class")):archive.write(f,f.relative_to(classes).as_posix())
+            for f in sorted(content_paths(classes)):
+                if f.suffix==".class":
+                    archive.write(f,f.relative_to(classes).as_posix())
         binary=out/"libfaot_metal.dylib"
         native=capture(["xcrun","--sdk",args.sdk,"clang","-target",target,"-std=c11","-fobjc-arc","-O2","-Wall","-Wextra","-Werror",
             "-I",str(home/"include"),"-I",str(home/"include/darwin"),"-I",str(ROOT/"ios/glfw-lite"),"-dynamiclib",

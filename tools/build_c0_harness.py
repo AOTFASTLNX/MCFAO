@@ -24,6 +24,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from mod_file_policy import is_metadata
 
 ROOT = Path(__file__).resolve().parent.parent
 PROJECT = ROOT / "ios/C0Harness/C0Harness.xcodeproj"
@@ -32,7 +33,6 @@ BUNDLE_ID = "org.fabricaot.research.c0.kexin"
 DEFAULT_DYLIB = ROOT / "artifacts/c0/client-link-02/client-graph.dylib"
 
 def validate_shader_bundle(directory: Path,simulator: bool)->dict:
-    from mod_file_policy import is_metadata
     if directory.is_symlink():raise ValueError("Shader bundle must not be a symlink")
     directory=directory.resolve(strict=True);report=json.loads((directory.parent/'result.json').read_text());index=directory/'index.json'
     if report.get('status')!='VANILLA_SHADERS_PRECOMPILED' or report.get('sdk')!=('iphonesimulator' if simulator else 'iphoneos') or sha256(index)!=report.get('indexSHA256'):
@@ -118,7 +118,7 @@ def export_archive(timeout: int) -> dict:
                    "-archivePath", str(HARNESS_DIR / "C0Harness.xcarchive"),
                    "-exportOptionsPlist", str(ROOT / "ios/C0Harness/ExportOptions.plist"),
                    "-exportPath", str(out), "-allowProvisioningUpdates"], timeout=timeout)
-    ipas = sorted(out.glob("*.ipa")) if out.is_dir() else []
+    ipas = sorted(p for p in out.glob("*.ipa") if p.is_file() and not is_metadata(p.name))
     outcome.update({"exportPath": str(out), "succeeded": outcome["exitCode"] == 0 and bool(ipas),
                     "ipa": str(ipas[0]) if ipas else None})
     if ipas:

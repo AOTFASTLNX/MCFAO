@@ -26,14 +26,17 @@ xcodebuild -project ios/C0Harness/C0Harness.xcodeproj -scheme WorldDevice \
   FAOT_GRAPHICS_NATIVE_DIR="$BASE/Frameworks" FAOT_GAME_ASSETS_DIR="" build > "$WORK/xcodebuild.log" 2>&1 || { tail -80 "$WORK/xcodebuild.log"; exit 1; }
 APP="$WORK/DerivedData/Build/Products/World Device-iphoneos/C0Harness.app"
 test -f "$APP/C0Harness"
-if [ -d "$BASE/assets" ]; then ditto "$BASE/assets" "$APP/assets"; fi
+if [ -d "$BASE/assets" ]; then
+  mkdir -p "$APP/assets"
+  /usr/bin/rsync -a --exclude '._*' --exclude '.DS_Store' --exclude '__MACOSX' "$BASE/assets/" "$APP/assets/"
+fi
 python3 - "$APP/FabricAOT-build.json" "$BASE_SOURCE_REF" "$WORK/base.ipa" <<'PY'
 import hashlib,json,subprocess,sys
 from pathlib import Path
 Path(sys.argv[1]).write_text(json.dumps({'source':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'aotBaseSource':sys.argv[2],'baseIPASHA256':hashlib.file_digest(open(sys.argv[3],'rb'),'sha256').hexdigest(),'scope':'UIKit launcher refresh; unchanged AOT and native graphics libraries'},indent=2))
 PY
 mkdir -p "$WORK/package/Payload"
-ditto "$APP" "$WORK/package/Payload/C0Harness.app"
-(cd "$WORK/package" && zip -qry "$WORK/unsigned.ipa" Payload)
+/usr/bin/rsync -a --exclude '._*' --exclude '.DS_Store' --exclude '__MACOSX' "$APP/" "$WORK/package/Payload/C0Harness.app"
+(cd "$WORK/package" && /usr/bin/zip -qry "$WORK/unsigned.ipa" Payload -x '*/._*' '*/.DS_Store' '*/__MACOSX/*')
 echo "unsigned=$WORK/unsigned.ipa" >> "$GITHUB_OUTPUT"
 echo "log=$WORK/xcodebuild.log" >> "$GITHUB_OUTPUT"

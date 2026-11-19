@@ -97,6 +97,7 @@ def java_home() -> Path:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--java-home", type=Path)
     parser.add_argument("--fetch-missing", action="store_true")
     args = parser.parse_args(argv)
     output = args.output if args.output.is_absolute() else ROOT / args.output
@@ -105,7 +106,7 @@ def main(argv=None) -> int:
         fetched = fetch_missing()
         if fetched:
             (output / "fetched.json").write_text(json.dumps(fetched, indent=2) + "\n")
-    record = build(java_home(), output)
+    record = build(args.java_home or java_home(), output)
     print(json.dumps({key: record[key] for key in ("status", "sourceSHA256", "classesDirectory")}, indent=2))
     return 0
 

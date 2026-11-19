@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
 from bootstrap_toolchain import sha256
 from build_method_splitter import gradle_asm
@@ -16,6 +17,22 @@ from lwjgl_codegen import generate_callbacks,generate_jni,parse_natives,CALLBACK
 from run_b0_reference import sandbox_policy
 from fetch_stb import verify_sources
 from build_glfw_lite import exported_symbols, validate_input_exports
+from mod_file_policy import content_paths, is_metadata
+
+
+def filter_overlay_metadata(jar):
+    """Clean a generated overlay before hashing it or exposing it on the Java classpath."""
+    clean = jar.with_suffix(".clean")
+    with zipfile.ZipFile(jar) as source:
+        entries = source.infolist()
+        content = [item for item in entries if not is_metadata(item.filename)]
+        if len(content) == len(entries):
+            return
+        with zipfile.ZipFile(clean, "x") as target:
+            for item in content:
+                target.writestr(item, source.read(item))
+    clean.replace(jar)
+
 
 def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__)
@@ -36,7 +53,7 @@ def main(argv=None):
             if sha256(path)!=entry["sha256"]:p.error("Reference LWJGL input changed: "+str(path))
             libraries[path.stem.split('-3.4')[0]]=path
     if set(libraries)!={"lwjgl","lwjgl-glfw","lwjgl-stb","lwjgl-openal"}:p.error("Hash-verified LWJGL 3.4.1 core/GLFW/STB/OpenAL inputs required")
-    sources=sorted((ROOT/"compiler/lwjgl-lite/src").rglob("*.java"))
+    sources=sorted(p for p in content_paths(ROOT/"compiler/lwjgl-lite/src") if p.suffix==".java")
     steps=[]
     def step(command,name,cwd=ROOT):
         r=capture(list(map(str,command)),out/name,180,cwd=cwd);steps.append(r)
@@ -47,7 +64,7 @@ def main(argv=None):
             "callbackABIs":[name for name,_ in CALLBACKS],"slotsPerABI":32,
             "scope":"JNI/GLFW and bounded memory image STB bridge; no game renderer, Minecraft boot or device acceptance"}
     try:
-        stb=verify_sources();result["stbSourcesSHA256"]={f.name:sha256(f) for f in sorted(stb.glob('*.h'))}
+        stb=verify_sources();result["stbSourcesSHA256"]={f.name:sha256(f) for f in sorted(stb.glob('*.h')) if not is_metadata(f.name)}
         classes=out/"overlay-classes";classes.mkdir()
         cp=os.pathsep.join(map(str,libraries.values()))
         step([home/"bin/javac","--release","17","-proc:none","-cp",cp,"-d",classes,*sources],"javac")
@@ -68,6 +85,7 @@ def main(argv=None):
             # Only the core overlay carries replacement classes. It appears first on the classpath,
             # including our safe glfw.Callbacks helper; the original module contains no duplicate patch.
             step([home/"bin/java","-cp",os.pathsep.join(map(str,[transformer,asm])),"fabricaot.graphics.Overlay",library,jar,classes if module=="lwjgl" else empty,symbol_file],module+"-overlay")
+            filter_overlay_metadata(jar)
             overlay_libraries.append(jar)
         overlay_libraries.sort(key=lambda path: path.name!="lwjgl-ios.jar")
         native_text=subprocess.check_output([str(home/"bin/javap"),"-p","-s","-cp",str(libraries["lwjgl"]),"org.lwjgl.system.JNI"],text=True)

@@ -15,6 +15,7 @@ from bootstrap_toolchain import sha256
 from capture import ROOT
 from graphics_common import register_tree
 from host_tools import developer_dir, xcode_tool
+from mod_file_policy import is_metadata
 from run_b0_reference import execute
 
 CACHE=cache_path('graphics/shader-toolchain')
@@ -51,15 +52,15 @@ def cache_inputs()->dict:
             temporary.rename(path)
         if path.stat().st_size!=spec["size"] or sha256(path)!=spec["sha256"]:raise ValueError("Changed shader tool archive: "+str(path))
         directory=CACHE/name;extract(path,directory)
-        children=list(directory.iterdir())
+        children=[path for path in directory.iterdir() if not is_metadata(path.name)]
         if len(children)!=1 or not children[0].is_dir():raise ValueError("Unexpected shader tool root: "+name)
         roots[name]=children[0]
     return roots
 
-def policy(work: Path)->str:
+def policy(work: Path, *, inputs: tuple[Path, ...] = (CACHE,))->str:
     def sub(path):return '(subpath '+json.dumps(str(Path(path).resolve()))+')'
     return '\n'.join(['(version 1)','(deny default)','(allow file-read-metadata)',
-        '(allow file-read* '+ ' '.join(sub(p) for p in ['/System','/usr','/bin','/Library/Apple/System',*( [developer_dir()] if developer_dir(False) else [] ),CACHE,work])+' (literal "/") (literal "/dev/null") (literal "/dev/urandom") (literal "/Library/Preferences/com.apple.dt.Xcode.plist"))',
+        '(allow file-read* '+ ' '.join(sub(p) for p in ['/System','/usr','/bin','/Library/Apple/System',*( [developer_dir()] if developer_dir(False) else [] ),*inputs,work])+' (literal "/") (literal "/dev/null") (literal "/dev/urandom") (literal "/Library/Preferences/com.apple.dt.Xcode.plist"))',
         '(allow file-write* '+sub(work)+' (literal "/dev/null"))','(allow process-exec)','(allow process-fork)',
         '(allow sysctl-read)','(allow process-info* (target self))','(allow signal (target self))',
         '(allow mach-lookup (global-name "com.apple.system.opendirectoryd.libinfo") (global-name "com.apple.system.notification_center"))'])+'\n'

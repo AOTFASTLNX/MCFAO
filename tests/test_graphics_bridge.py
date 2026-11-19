@@ -1,6 +1,8 @@
 import json
+import io
 import os
 import sys
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,6 +10,7 @@ from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"tools"))
 from build_glfw_lite import required_symbols,exported_symbols,INPUT_POLL_EXPORTS,validate_input_exports
 import build_glfw_lite
+from build_openal_soft import stage_inputs
 from graphics_common import bridge_overlays,register_tree
 from lwjgl_codegen import descriptor,generate_callbacks,generate_jni,mangle,parse_natives
 from bootstrap_toolchain import sha256
@@ -18,6 +21,39 @@ from stage_game_assets import verified_assets
 import hashlib
 
 class NativeBoundaryTests(unittest.TestCase):
+    def test_openal_stages_clean_cmake_modules_from_archives(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            module = Path("cmake-3.31.12-macos-universal/CMake.app/Contents/share/Modules/Compiler")
+            cache = root / "external-cache"
+            dirty = cache / "cmake" / module / "._ADSP-DetermineCompiler.cmake"
+            dirty.parent.mkdir(parents=True)
+            dirty.write_bytes(b"\x00\x05\x16\x07")
+            source_archive = cache / "openal.tar.gz"
+            cmake_archive = cache / "cmake.tar.gz"
+            for archive, members in (
+                (source_archive, {"openal-soft-pin/CMakeLists.txt": b"project(OpenAL)"}),
+                (cmake_archive, {
+                    str(module / "ADSP-DetermineCompiler.cmake"): b"set(TEST 1)",
+                    "cmake-3.31.12-macos-universal/CMake.app/Contents/bin/cmake": b"fixture",
+                }),
+            ):
+                with tarfile.open(archive, "w:gz") as output:
+                    for path, content in members.items():
+                        entry = tarfile.TarInfo(path)
+                        entry.size = len(content)
+                        output.addfile(entry, io.BytesIO(content))
+            scratch = root / "scratch"
+            source, cmake = stage_inputs(
+                scratch, source_archive, cmake_archive,
+                {"commit": "pin"}, {"version": "3.31.12"},
+            )
+            self.assertTrue((source / "CMakeLists.txt").is_file())
+            self.assertTrue(cmake.is_relative_to(scratch))
+            self.assertEqual((scratch / "cmake" / module / "ADSP-DetermineCompiler.cmake").read_bytes(), b"set(TEST 1)")
+            self.assertFalse((scratch / "cmake" / module / dirty.name).exists())
+            self.assertTrue(dirty.is_file())
+
     def test_packaged_source_derives_glfw_exports_from_the_client(self):
         # The distributed app omits artifacts/, so GLFW derives its export list
         # from the selected client JAR instead of a repository-local evidence

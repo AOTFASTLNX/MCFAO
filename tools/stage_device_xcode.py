@@ -12,6 +12,7 @@ from build_c0_harness import sha256, validate_dylib, validate_shader_bundle
 from capture import ROOT
 from graphics_common import register_tree
 from glfw_runtime_contract import validate_glfw_renderer
+from mod_file_policy import is_metadata
 
 
 def main(argv=None):
@@ -74,7 +75,7 @@ def main(argv=None):
     if args.gl41:
         runtime = read_report(args.gl41, {"GL41_RUNTIME_FETCHED"})
         for name, fingerprint in runtime["filesSHA256"].items():
-            if name.endswith(".dylib"):
+            if name.endswith(".dylib") and not is_metadata(name):
                 add(args.gl41 / name, fingerprint, dylib=True)
     if args.lwjgl_opengl:
         shim = read_report(args.lwjgl_opengl, {"LWJGL_OPENGL_SHIM_BUILT"})

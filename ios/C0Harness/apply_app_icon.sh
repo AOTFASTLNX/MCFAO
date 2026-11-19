@@ -23,7 +23,7 @@ for name in Assets.car "${FAOT_APP_ICON_NAME}60x60@2x.png" "${FAOT_APP_ICON_NAME
     echo "error: compiled icon is missing $name" >&2
     exit 1
   fi
-  /usr/bin/ditto "$FAOT_APP_ICON_DIR/$name" "$resources/$name"
+  /usr/bin/ditto --norsrc --noextattr --noqtn "$FAOT_APP_ICON_DIR/$name" "$resources/$name"
 done
 if [ ! -f "$FAOT_APP_ICON_DIR/partial.plist" ]; then
   echo "error: compiled icon Info.plist fragment is missing" >&2

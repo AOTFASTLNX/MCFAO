@@ -97,6 +97,24 @@ class ConfigReflectionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "path mismatch"):
             reflection_from_jar(memory)
 
+    def test_jar_scan_ignores_sidecars_and_reports_a_damaged_real_class(self):
+        for has_metadata in (False, True):
+            with self.subTest(has_metadata=has_metadata):
+                memory = io.BytesIO()
+                sidecar = bytes.fromhex("00051607")
+                with zipfile.ZipFile(memory, "w") as jar:
+                    jar.writestr("mod/Config.class", class_bytes(
+                        "mod/Config", interfaces=["me/shedaniel/autoconfig/ConfigData"]))
+                    if has_metadata:
+                        for name in ("mod/._Config.class", "mod/__MACOSX/nested/Config.class",
+                                     "._nested/mod/Config.class"):
+                            jar.writestr(name, sidecar)
+                self.assertIn("mod.Config", {row["name"] for row in reflection_from_jar(memory)})
+                with zipfile.ZipFile(memory, "a") as jar:
+                    jar.writestr("mod/Broken.class", sidecar)
+                with self.assertRaisesRegex(ValueError, "Invalid configuration class header.*!mod/Broken.class"):
+                    reflection_from_jar(memory)
+
     def test_truncated_class_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "Truncated"):
             class_shape(class_bytes("mod/Data")[:20])
