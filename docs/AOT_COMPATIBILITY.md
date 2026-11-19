@@ -27,13 +27,17 @@ Builder 接收 `.mrpack` 和 Prism 实例，并把经校验的实例副本交给
 | --- | --- | --- | --- | --- |
 | Freecam 1.4.0-alpha.3 + Fabric API 0.148.0 | PASS | PASS，47 个 ID（含嵌套） | SKIPPED | UNVERIFIED |
 | Biomes O’ Plenty 26.1.2.0.5 + GlitchCore 26.1.2.0.0 + TerraBlender 26.1.2.0.2 + 同版 Fabric API | PASS | PASS，50 个 ID（含嵌套） | SKIPPED | UNVERIFIED |
-| 两组 Mod 合并 | PASS | PASS，54 个 ID（含嵌套） | PASS，无签名 IPA | UNVERIFIED |
+| 两组 Mod 合并，经 Builder 暂存 Prism 实例 | PASS | PASS，54 个 ID（含嵌套），无排除 | PASS，无签名 IPA | UNVERIFIED |
 | 第一方 Fabric + Mixin + 包内声明资源夹具 | PASS，客户端 JAR 资源逐字节核对 | PASS，5 个游戏类已转换 | SKIPPED | UNVERIFIED |
 | 原版 26.1.2 GL41 | PASS | SKIPPED | PASS，无签名 IPA | UNVERIFIED |
 
-组合包使用仓库锁定的 GraalVM CE 25.0.2 构建。Native Image 分析报告记录 54,771 个可达类型。ARM64 可重定位对象中有 `RenderPipelines.<clinit>`、`ModClient.addWoodType`、`GsonConfigLoader.read` 以及 Fabric 渲染适配符号。Native Image 读取的反射配置包含 `ModConfigDTO` 及其嵌套配置类型。该次构建对象 SHA-256 为 `6792fe5196efecafbaa27f504e534d8216217bf26caa44c0114b8a932fa3a9e2`，无签名 IPA SHA-256 为 `20cc9399e6b7433a8cbfd3a4a2dab0f06f6c034a95a7ea092fd3ad563cb3d216`。链接报告仍列出已知的 JDK 管理 JNI 入口 `Java_com_sun_management_internal_OperatingSystemImpl_initialize0`。
+组合包使用仓库锁定的 GraalVM CE 25.0.2 构建。Native Image 分析报告记录 54,771 个可达类型。ARM64 可重定位对象中有 `RenderPipelines.<clinit>`、`ModClient.addWoodType`、`GsonConfigLoader.read` 以及 Fabric 渲染适配符号。Native Image 读取的反射配置包含 `ModConfigDTO` 及其嵌套配置类型。Prism 暂存前后的五个根 JAR 哈希一致，生成的无签名 IPA 经 Builder 逐文件复验。该次构建对象 SHA-256 为 `9f46ba6e27f2aae0f946cc0730666752e10636c3a7606b466ee6552d0e568b23`，无签名 IPA SHA-256 为 `b00fed1de348ba662c83a72c5dd28d368c15c32bafb872d1a0f9c7411c708553`。链接报告仍列出已知的 JDK 管理 JNI 入口 `Java_com_sun_management_internal_OperatingSystemImpl_initialize0`。
+
+第一方 macOS Native Image 对照使用同一 JDK 及 `--no-fallback`。对同一个确有公开无参构造器的夹具，只注册类型时运行抛出 `NoSuchMethodException`，使用扫描器生成的元数据时实际实例化成功，输出 `REFLECTIVE_CONSTRUCTOR_PASS`。
 
 原版回归使用同一组 GL41 原生依赖，生成 ARM64 可重定位对象及完整无签名 IPA，IPA SHA-256 为 `1bdbe340ceaa09833240cfe9d94ee5b232d885daecfe406c7d1f08424df17f24`。
+
+本地任务基线通过 585 个 Python 测试、90 个前端单元测试和兼容性摘要的 Playwright 键盘交互测试。公开 Builder 基线上的移植另行运行了测试，并完成真实组合包的隔离转换。
 
 已有 LAN-r4 记录对应原版 GL41 IPA。本次报告中的 Mod 构建为新生成的测试样本，设备启动、菜单、世界交互和存档均保留 UNVERIFIED。
 
