@@ -24,6 +24,9 @@ class MetadataTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
+        cache = patch('mod_download_cache.cache_path', return_value=self.root / 'compiler-cache')
+        cache.start()
+        self.addCleanup(cache.stop)
         self.good = jar_bytes()
 
     def prism(self):
@@ -108,7 +111,10 @@ class MetadataTests(unittest.TestCase):
         def gui_fetch(entry, target):
             calls.append(entry['path'])
             target.write_bytes(self.good)
-        with patch.object(w, 'download', side_effect=gui_fetch):
+        # Exercise both download loops independently; the shared-cache hit has
+        # its own regression, and would otherwise skip the GUI download loop.
+        with (patch('mod_download_cache.cache_path', return_value=self.root / 'gui-cache'),
+              patch.object(w, 'download', side_effect=gui_fetch)):
             w.stage_source(source, self.root / 'gui')
         self.assertEqual(calls[-1], 'mods/example.jar')
         self.assertEqual(len(calls), 2)
