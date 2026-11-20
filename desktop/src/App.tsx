@@ -978,6 +978,7 @@ export default function App() {
         "team",
         "exportOptions",
         "unsigned",
+        "testVersion",
         "output",
       ].some((k) => k in patch)
     )
@@ -2274,6 +2275,26 @@ export default function App() {
                             disabled={!native || !!busy || !!active}
                             locked={!!busy || !!active}
                           />
+                          <div className="field">
+                            <label>
+                              <span>
+                                测试版本 <small>可选</small>
+                              </span>
+                              <input
+                                value={form.testVersion || ""}
+                                maxLength={64}
+                                placeholder="例如 LAN-r5-20261117"
+                                onChange={(e) =>
+                                  update({ testVersion: e.target.value })
+                                }
+                                spellCheck={false}
+                              />
+                            </label>
+                            <small>
+                              填写后显示在 iOS 启动页、日志和 IPA
+                              文件名中；留空隐藏测试版本文字。已有构建重新导出时沿用原构建标记。
+                            </small>
+                          </div>
                           <label className="setting-row">
                             <span className="setting-label">
                               <strong>导出未签名 IPA</strong>
@@ -2389,6 +2410,10 @@ export default function App() {
                                   ]
                                 : []),
                               ["构建目标", "iOS ARM64 · Java 25 AOT"],
+                              [
+                                "测试版本",
+                                form.testVersion?.trim() || "未设置",
+                              ],
                               [
                                 "渲染后端",
                                 "OpenGL 兼容 · GL41 / Zink / MoltenVK",

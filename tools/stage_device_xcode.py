@@ -12,12 +12,13 @@ from build_c0_harness import sha256, validate_dylib, validate_shader_bundle
 from capture import ROOT
 from graphics_common import register_tree
 from glfw_runtime_contract import validate_glfw_renderer
+from renderer_profile import DEFAULT_RENDERER, RENDERERS
 from mod_file_policy import is_metadata
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--renderer", choices=("metal", "gl41"), default="metal")
+    parser.add_argument("--renderer", choices=RENDERERS, default=DEFAULT_RENDERER)
     for name in ("client", "glfw", "lwjgl", "openal"):
         parser.add_argument(f"--{name}", required=True, type=Path, help="Build report directory")
     for name in ("metal", "shaders"):

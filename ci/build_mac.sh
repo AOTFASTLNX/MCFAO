@@ -16,7 +16,9 @@ SOURCE_SHA="${SOURCE_SHA:-}" # CircleCI sets this to the triggering commit
 HEAP_GIB="${HEAP_GIB:-8}"
 JOBS="${JOBS:-4}"
 AOT_PAR="${AOT_PAR:-4}"
-RENDERER="${FAOT_RENDERER:-metal}"
+# Zink (OSMesa/MoltenVK) is the project renderer; the native Metal backend
+# stays available as an explicit FAOT_RENDERER=metal comparison build.
+RENDERER="${FAOT_RENDERER:-gl41}"
 
 log() { printf '\n=== [%s] %s ===\n' "$(date +%H:%M:%S)" "$*"; }
 die() { printf 'FATAL: %s\n' "$*" >&2; exit 1; }

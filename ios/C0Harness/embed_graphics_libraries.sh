@@ -21,7 +21,7 @@ if [ -n "${FAOT_GAME_ASSETS_DIR:-}" ]; then
     echo "error: Verified local Minecraft assets are missing: $FAOT_GAME_ASSETS_DIR" >&2
     exit 1
   fi
-  case "${FAOT_RENDERER:-metal}" in
+  case "${FAOT_RENDERER:-gl41}" in
     gl41) renderer_files="liblwjgl_opengl.dylib libOSMesa.8.dylib libMoltenVK.dylib" ;;
     metal) renderer_files="libfaot_metal.dylib fabricaot-present.metallib fabricaot-shaders/index.json" ;;
     *) echo "error: unknown FAOT_RENDERER" >&2; exit 1 ;;

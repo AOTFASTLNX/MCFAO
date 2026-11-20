@@ -5,6 +5,9 @@ from pathlib import Path
 
 COMMON = ("client-graph.dylib", "libglfw.dylib", "liblwjgl.dylib", "libopenal.dylib")
 RENDERERS = ("metal", "gl41")
+# Zink (OSMesa/MoltenVK) is the project renderer. The native Metal backend is
+# kept as an explicitly selected comparison path, never the default.
+DEFAULT_RENDERER = "gl41"
 
 def libraries(renderer):
     if renderer not in RENDERERS:

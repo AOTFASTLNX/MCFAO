@@ -19,6 +19,7 @@ export interface BuildForm {
   iconFit?: "fit" | "fill";
   iconBackground?: string;
   iconPadding?: number;
+  testVersion?: string;
   resourceSelection: ResourceSelection | null;
   existingBuild?: string;
   workspace: string;
@@ -136,6 +137,7 @@ export const defaultForm: BuildForm = {
   iconFit: "fit",
   iconBackground: "transparent",
   iconPadding: 0,
+  testVersion: "",
   resourceSelection: null,
   workspace: "",
   python: "",
@@ -354,6 +356,13 @@ export function buildProblems(
   canPrepare = false,
 ): string[] {
   const result: string[] = [];
+  if (
+    form.testVersion?.trim() &&
+    !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(form.testVersion.trim())
+  )
+    result.push(
+      "测试版本需为 1–64 位英文字母、数字、点、下划线或短横线，且以字母或数字开头。",
+    );
   if (!desktop) result.push("请在 NCL Builder 桌面应用中执行构建。");
   if (!form.workspace.trim()) result.push("请选择 NCL 项目目录。");
   if (!form.config.trim() && !canPrepare)
@@ -413,6 +422,7 @@ export function restoreForm(raw: string | null): BuildForm {
     "output",
     "team",
     "icon",
+    "testVersion",
   ] as const) {
     if (
       value[key] !== undefined &&
