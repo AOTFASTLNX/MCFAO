@@ -1,6 +1,6 @@
 [package]
 name = "fabricaot-desktop"
-version = "0.2.9"
+version = "0.2.91"
 description = "Native Craft Launcher local modpack and build workspace"
 edition = "2021"
 rust-version = "1.77.2"

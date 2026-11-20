@@ -3742,11 +3742,15 @@ code {
   cursor: pointer;
 }
 
-.setting-switch {
+/* Keep the switch geometry above the compact checkbox rule. Its selector has
+   the same specificity as input[type="checkbox"], so the later class rule
+   wins while ordinary checkboxes stay 14px square. */
+input.setting-switch {
   appearance: none;
   flex: none;
   width: 36px;
   height: 22px;
+  min-height: 22px;
   margin: 0;
   border: 1px solid var(--input-border);
   border-radius: 999px;

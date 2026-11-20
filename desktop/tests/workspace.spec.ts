@@ -29,6 +29,26 @@ test("quick build defaults off and persists keyboard changes", async ({ page }) 
   await settings.click();
   const quickBuild = page.getByRole("switch", { name: "快速构建" });
   await expect(quickBuild).not.toBeChecked();
+  const switchGeometry = await quickBuild.evaluate((element) => {
+    const style = getComputedStyle(element);
+    const thumb = getComputedStyle(element, "::before");
+    return {
+      width: style.width,
+      height: style.height,
+      minHeight: style.minHeight,
+      padding: style.padding,
+      thumbWidth: thumb.width,
+      thumbHeight: thumb.height,
+    };
+  });
+  expect(switchGeometry).toEqual({
+    width: "36px",
+    height: "22px",
+    minHeight: "22px",
+    padding: "2px",
+    thumbWidth: "16px",
+    thumbHeight: "16px",
+  });
   await quickBuild.focus();
   await page.keyboard.press("Space");
   await expect(quickBuild).toBeChecked();
@@ -971,7 +991,9 @@ test("settings place labels left of controls without a wrapping card", async ({
     const rect = (element: Element) => element.getBoundingClientRect();
     return Array.from(document.querySelectorAll(".setting-row")).map((row) => {
       const label = row.querySelector(".setting-label")!;
-      const control = row.querySelector(".setting-control, .theme-options")!;
+      const control = row.querySelector(
+        ".setting-control, .theme-options, .setting-switch",
+      )!;
       const a = rect(label);
       const b = rect(control);
       return {
