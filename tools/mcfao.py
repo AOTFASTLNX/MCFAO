@@ -17,7 +17,7 @@ import subprocess
 import sys
 from uuid import uuid4
 import zipfile
-from renderer_profile import config_names, libraries as renderer_libraries, validate_runtime
+from renderer_profile import DEFAULT_RENDERER, RENDERERS, config_names, libraries as renderer_libraries, validate_runtime
 from external_storage import ExternalStorageUnavailable, require_mount
 
 from bootstrap_toolchain import sha256
@@ -107,7 +107,7 @@ def toolchain(home: Path) -> dict:
     }
 
 
-def load_config(path: Path, renderer: str = "metal") -> dict:
+def load_config(path: Path, renderer: str = DEFAULT_RENDERER) -> dict:
     config = read_json(path)
     required = (set(CONFIG_PATHS) - {"metal", "shaders"}) | set(config_names(renderer))
     allowed = set(CONFIG_PATHS) | OPTIONAL_CONFIG_PATHS | {"gl41", "lwjglOpengl"}
@@ -137,7 +137,7 @@ def asset_files(assets: Path, metadata: Path) -> dict:
     return actual
 
 
-def inputs(config: dict, renderer: str = "metal") -> tuple[dict, Path, list[Path]]:
+def inputs(config: dict, renderer: str = DEFAULT_RENDERER) -> tuple[dict, Path, list[Path]]:
     prepared = read_json(config["prepared"] / "result.json")
     if prepared["status"] != "PREPARED":
         raise ValueError("Expected a verified PREPARED client reference")
@@ -384,7 +384,7 @@ def loader_client(pipeline, args, config, client, inputs):
     return jar, report
 
 
-def app_facts(app: Path, requested_device: str | None, logs: Path, renderer="metal", signed_app=True) -> dict:
+def app_facts(app: Path, requested_device: str | None, logs: Path, renderer=DEFAULT_RENDERER, signed_app=True) -> dict:
     info = plistlib.loads((app / "Info.plist").read_bytes())
     executable = app / info["CFBundleExecutable"]
     facts = binary_platform(executable)
@@ -439,7 +439,7 @@ def app_facts(app: Path, requested_device: str | None, logs: Path, renderer="met
             "dynamicCodeEntitlements": "ABSENT", "imageExports": sorted(abi), "gameCode": gameplay, "deviceRun": "NOT RUN"}
 
 
-def validate_package(app, staged, asset_hashes, renderer="metal"):
+def validate_package(app, staged, asset_hashes, renderer=DEFAULT_RENDERER):
     frameworks = app / "Frameworks"
     validate_runtime(app, renderer)
     if renderer == "metal":
@@ -561,7 +561,7 @@ def resolve_development_team(bundle_identifier: str = BUNDLE_IDENTIFIER,
     return team
 
 
-def device_xcode(staged: Path, assets: Path, team: str | None = None, *, renderer="metal", unsigned=False,
+def device_xcode(staged: Path, assets: Path, team: str | None = None, *, renderer=DEFAULT_RENDERER, unsigned=False,
                  bundle_id=BUNDLE_IDENTIFIER, icon: Path | None = None, icon_name: str | None = None,
                  test_version_label="") -> list:
     team = ("" if unsigned else resolve_development_team(bundle_id)) if team is None else team
@@ -605,7 +605,7 @@ def verify(output: Path, device: str | None) -> dict:
     logs = output / "verify" / uuid4().hex
     if report.get("ipa") and (sha256(Path(report["ipa"])) != report["sha256"] or Path(report["ipa"]).stat().st_size != report["bytes"]):
         raise ValueError("IPA changed since packaging")
-    return app_facts(app, device, logs, report.get("renderer", "metal"), report["status"] == "SIGNED_DEVICE_APP")
+    return app_facts(app, device, logs, report.get("renderer", DEFAULT_RENDERER), report["status"] == "SIGNED_DEVICE_APP")
 
 
 def export_ipa(args) -> dict:
@@ -645,7 +645,7 @@ def export_ipa(args) -> dict:
             raise RuntimeError(f"{name} failed. Logs: {log}")
 
     archive = output / "WorldDevice.xcarchive"
-    renderer = manifest.get("renderer", "metal")
+    renderer = manifest.get("renderer", DEFAULT_RENDERER)
     bundle_id = evidence.get("bundleID", BUNDLE_IDENTIFIER)
     seed = build / "instance-seed"
     step("archive", [*device_xcode(staged, assets, renderer=renderer, bundle_id=bundle_id,
@@ -715,7 +715,7 @@ def build(args, config):
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         if (output / "result.json").exists():
             raise ValueError("Completed build is immutable. Use verify or select a new output.")
-        renderer = getattr(args, "renderer", "metal")
+        renderer = getattr(args, "renderer", DEFAULT_RENDERER)
         manifest, client, libraries = inputs(config, renderer)
         manifest.update({"testVersion": test_version(getattr(args, "test_version", "")), "unsigned": getattr(args, "unsigned", False), "bundleID": getattr(args, "bundle_id", BUNDLE_IDENTIFIER),
                          "heapGiB": getattr(args, "heap_gib", 9), "parallelism": getattr(args, "parallelism", 4)})
@@ -879,14 +879,14 @@ def main(argv=None):
     commands = parser.add_subparsers(dest="action", required=True)
     doctor = commands.add_parser("doctor")
     doctor.add_argument("--config", type=Path, required=True)
-    doctor.add_argument("--renderer", choices=("metal", "gl41"), default="metal")
+    doctor.add_argument("--renderer", choices=RENDERERS, default=DEFAULT_RENDERER)
     compile_command = commands.add_parser("build")
     compile_command.add_argument("--version", choices=(VERSION,), required=True)
     compile_command.add_argument("--loader", choices=("vanilla", "fabric"), required=True)
     compile_command.add_argument("--config", type=Path, required=True)
     compile_command.add_argument("--mods", type=Path)
     compile_command.add_argument("--instance-data", type=Path, help="Verified first-party import root; seed config/resourcepacks without overwriting device files")
-    compile_command.add_argument("--renderer", choices=("metal", "gl41"), default=os.environ.get("FAOT_RENDERER", "metal"))
+    compile_command.add_argument("--renderer", choices=RENDERERS, default=os.environ.get("FAOT_RENDERER", DEFAULT_RENDERER))
     compile_command.add_argument("--unsigned", action="store_true")
     compile_command.add_argument("--test-version", type=test_version, default="", help="Optional test label shown in the launcher, logs and IPA filename")
     compile_command.add_argument("--bundle-id", default=BUNDLE_IDENTIFIER)
