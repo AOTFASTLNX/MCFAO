@@ -171,6 +171,8 @@ ExportOptions.plist 使用本地 debugging 导出和当前 Team；其他用户�
 
 `ios/C0Harness/C0Harness.xcodeproj` 把真实 Minecraft 26.1.2 的 AOT 镜像装进 iOS App。宿主用 `dlopen` 装载镜像，再调用 `run_main(argc, argv)`。Java 输出保存在 `Documents/c0-logs/`。设备诊断和原版单人模拟器分别使用各自的 Scheme。
 
+启动页和游戏均为横屏应用：默认诊断目标的 `Info.plist`、`WorldDevice`/`WorldSimulator` 使用的 `Info.WorldSimulator.plist`，以及启动页和按键编辑器都只声明左右横屏。竖屏状态恢复时，启动场景会请求一次横屏几何，不需要用户先旋转设备。
+
 镜像在 `run_main` 里自行创建 isolate。宿主通过 `-XX:ReservedAddressSpaceSize=<字节>` 传入预留空间，设备诊断默认 1 GiB，模拟器默认 2 GiB。
 
 打开 Xcode 工程，选择 **WorldSimulator** 和 **Native Craft 26.1.2**，按 ⌘R 可进入原版横屏菜单。左右横屏均由应用支持。本地 AOT、Metal 着色器和原生库由下面的命令核验并准备。新模拟器安装应用后，需要将经过哈希验证的资源目录复制到该应用的 `Documents/assets`。本次测试模拟器已经准备好。

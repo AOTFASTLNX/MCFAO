@@ -597,6 +597,19 @@ static void FAOTProbeReservations(FILE *logFile) {
     };
     self.window.rootViewController = launcher;
     [self.window makeKeyAndVisible];
+    [self requestLandscapeForScene:(UIWindowScene *)scene];
+}
+
+/* The app only supports landscape, but a session restored while the phone is held upright can
+   briefly attach with a portrait geometry. Ask once for landscape instead of presenting the
+   launcher sideways until the user rotates the device. */
+- (void)requestLandscapeForScene:(UIWindowScene *)scene {
+    UIInterfaceOrientation orientation = scene.interfaceOrientation;
+    if (orientation == UIInterfaceOrientationLandscapeLeft ||
+        orientation == UIInterfaceOrientationLandscapeRight) return;
+    UIWindowSceneGeometryPreferencesIOS *preferences =
+        [[UIWindowSceneGeometryPreferencesIOS alloc] initWithInterfaceOrientations:UIInterfaceOrientationMaskLandscapeRight];
+    [scene requestGeometryUpdateWithPreferences:preferences errorHandler:nil];
 }
 @end
 

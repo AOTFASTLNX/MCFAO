@@ -18,7 +18,7 @@
 @implementation FAOTControlEditorViewController
 
 - (BOOL)prefersStatusBarHidden { return YES; }
-- (UIInterfaceOrientationMask)supportedInterfaceOrientations { return UIInterfaceOrientationMaskAllButUpsideDown; }
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations { return UIInterfaceOrientationMaskLandscape; }
 
 - (instancetype)initWithLayout:(FAOTControlLayout *)layout
                     layoutName:(NSString *)layoutName

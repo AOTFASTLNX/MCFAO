@@ -14,6 +14,21 @@ Builder 接收 `.mrpack` 和 Prism 实例，并把经校验的实例副本交给
 
 `PASS` 表示该阶段通过实际检查，`FAIL` 表示检查失败，`SKIPPED` 表示未执行或不适用，`UNVERIFIED` 表示缺少该阶段的行为证据。启动和真机状态由对应运行证据确定。导入无法解析的依赖时，报告会保留 Loader 的原因。现有排除确认仍要求用户同意，且只对独立构建副本生效。
 
+## 2026-11-20：GL41 补丁校验回归
+
+NCL Builder 0.2.91 的一次 Fabric 子集构建在 `gl41-patch` 阶段停止。外层只报 `GlDevice patch failed`；该次尝试的 `product/transform/stderr.log` 记录了 `Unexpected changed entries`。`GLX` 和 `SystemReport` 已被改写来避开 iOS 不支持的 OSHI 硬件探测，但 Java 的变更清单漏了这两个类。
+
+Java 现在用同一份注册表执行补丁并要求每个目标实际发生变更。Python 仍逐项比对输入输出 JAR，只允许预期的改动与两个辅助类，并在 Java 失败时报告底层错误和日志目录。可使用本机工具链及该次任务 `split` 阶段生成的 `client.jar` 复跑回归：
+
+```sh
+MCFAO_TEST_GL41_TOOLCHAIN="$SPLITTER_DIR" MCFAO_TEST_GL41_CLIENT="$SPLIT_CLIENT_JAR" \
+  python3 -B -m unittest discover -s tests -p test_gl41_manifest.py -v
+```
+
+使用原任务同一份拆分 JAR（SHA-256 `7a416a282dca8208bd2fd8e989d282a941a9570be95e80a9b1dbd649b0451337`）、GraalVM 25.0.2 与 ASM 9.9 复测，返回 `GL41_CLIENT_PATCHED`。缺少补丁目标的对照仍失败，并输出 Java 原因及完整日志位置。
+
+切换本机存储路径后，`mcfao doctor` 返回 `INPUTS_VERIFIED`，共核验 4,332 项输入。包含修复的 Builder 0.2.91 arm64 本地测试版已打包，macOS 临时签名与包内源码清单验核通过，仍可读取原失败任务记录。完整 AOT、IPA 和真机未重跑。
+
 ## 两条启动回归
 
 - **RenderPipelines** · `AotExport` 曾在所有 Fabric 导出中无条件调用 `RuntimeLowering.lowerRenderPipelineRegister`。该函数把游戏注册替换为 Metal 着色器包守卫 `fabricaot.metal.BundledPipelines.register`。GL41 的编译输入缺少这个 Metal 专用类，内容 Mod 访问 `Sheets` 时便会触发该引用。现在仅原生 Metal 安装守卫，GL41 保留游戏注册及正常 Knot Mixin 输出。最终类路径检查会阻断旧 Metal 类型定义和客户端符号引用。
