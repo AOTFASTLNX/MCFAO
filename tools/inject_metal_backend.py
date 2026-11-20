@@ -49,6 +49,7 @@ def main(argv=None):
              'net/minecraft/client/multiplayer/ClientChunkCache.class',
              'net/minecraft/client/player/LocalPlayer.class',
              'net/minecraft/network/Connection.class',
+              'com/mojang/blaze3d/platform/GLX.class','net/minecraft/SystemReport.class',
               'net/minecraft/client/gui/screens/FaviconTexture.class',
               'net/minecraft/client/gui/render/pip/PictureInPictureRenderer.class'}
     with zipfile.ZipFile(client) as before,zipfile.ZipFile(jar) as after:

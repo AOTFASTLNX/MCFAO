@@ -35,12 +35,89 @@ public final class InjectBackend implements Opcodes {
     private static final String RADIUS_PACKET = "net/minecraft/network/protocol/game/ClientboundSetChunkCacheRadiusPacket";
     private static final String CENTER_PACKET = "net/minecraft/network/protocol/game/ClientboundSetChunkCacheCenterPacket";
     private static final String POSITION_PACKET = "net/minecraft/network/protocol/game/ClientboundPlayerPositionPacket";
+    public static final String SYSTEM_REPORT = "net/minecraft/SystemReport.class";
+    public static final String GLX = "com/mojang/blaze3d/platform/GLX.class";
 
     private static AbstractInsnNode next(AbstractInsnNode n) {
         do { n = n.getNext(); } while (n != null && n.getOpcode() < 0);
         return n;
     }
     private static boolean op(AbstractInsnNode n, int opcode) { return n != null && n.getOpcode() == opcode; }
+
+    /** Replace the two vanilla diagnostics that construct an unsupported OSHI SystemInfo on iOS. */
+    public static byte[] useIosHardwareDiagnostics(byte[] bytes) {
+        ClassNode cls = new ClassNode();
+        new ClassReader(bytes).accept(cls, 0);
+        if ((cls.name + ".class").equals(GLX)) {
+            MethodNode cpu = cls.methods.stream()
+                    .filter(method -> method.name.equals("_getCpuInfo") && method.desc.equals("()Ljava/lang/String;"))
+                    .findFirst().orElseThrow();
+            if (Arrays.stream(cpu.instructions.toArray()).noneMatch(InjectBackend::constructsOshi)) {
+                throw new IllegalArgumentException("Unexpected GLX CPU diagnostics");
+            }
+            cpu.instructions.clear();
+            cpu.tryCatchBlocks.clear();
+            cpu.localVariables = null;
+            cpu.instructions.add(new MethodInsnNode(INVOKESTATIC, "java/lang/Runtime",
+                    "getRuntime", "()Ljava/lang/Runtime;", false));
+            cpu.instructions.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/Runtime",
+                    "availableProcessors", "()I", false));
+            cpu.instructions.add(new MethodInsnNode(INVOKESTATIC, "java/lang/Integer",
+                    "toString", "(I)Ljava/lang/String;", false));
+            cpu.instructions.add(new LdcInsnNode(" logical CPUs, "));
+            cpu.instructions.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/String",
+                    "concat", "(Ljava/lang/String;)Ljava/lang/String;", false));
+            cpu.instructions.add(new LdcInsnNode("os.arch"));
+            cpu.instructions.add(new LdcInsnNode("unknown"));
+            cpu.instructions.add(new MethodInsnNode(INVOKESTATIC, "java/lang/System",
+                    "getProperty", "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;", false));
+            cpu.instructions.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/String",
+                    "concat", "(Ljava/lang/String;)Ljava/lang/String;", false));
+            cpu.instructions.add(new InsnNode(ARETURN));
+        } else if ((cls.name + ".class").equals(SYSTEM_REPORT)) {
+            int matches = 0;
+            for (MethodNode method : cls.methods) {
+                for (AbstractInsnNode instruction : method.instructions.toArray()) {
+                    if (!constructsOshi(instruction)) continue;
+                    AbstractInsnNode duplicate = next(instruction);
+                    AbstractInsnNode init = next(duplicate);
+                    AbstractInsnNode call = next(init);
+                    if (!op(duplicate, DUP) || !(init instanceof MethodInsnNode constructor)
+                            || constructor.getOpcode() != INVOKESPECIAL
+                            || !constructor.owner.equals("oshi/SystemInfo") || !constructor.name.equals("<init>")
+                            || !constructor.desc.equals("()V") || !(call instanceof MethodInsnNode hardware)
+                            || !hardware.owner.equals(cls.name) || !hardware.name.equals("putHardware")
+                            || !hardware.desc.equals("(Loshi/SystemInfo;)V")) {
+                        throw new IllegalArgumentException("Unexpected SystemReport hardware allocation");
+                    }
+                    InsnList ios = new InsnList();
+                    // The original stack already holds this. Keep the storage probe outside OSHI.
+                    ios.add(new InsnNode(DUP));
+                    ios.add(new LdcInsnNode("Hardware inventory"));
+                    ios.add(new LdcInsnNode("Detailed hardware inventory is unavailable on iOS"));
+                    ios.add(new MethodInsnNode(INVOKEVIRTUAL, cls.name,
+                            "setDetail", "(Ljava/lang/String;Ljava/lang/String;)V", false));
+                    ios.add(new MethodInsnNode(INVOKEVIRTUAL, cls.name, "putStorage", "()V", false));
+                    method.instructions.insertBefore(instruction, ios);
+                    for (AbstractInsnNode original : List.of(instruction, duplicate, init, call)) {
+                        method.instructions.remove(original);
+                    }
+                    matches++;
+                }
+            }
+            if (matches != 1) throw new IllegalArgumentException("Expected one SystemReport OSHI diagnostic");
+        } else {
+            throw new IllegalArgumentException("Unexpected hardware diagnostics class: " + cls.name);
+        }
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        cls.accept(writer);
+        return writer.toByteArray();
+    }
+
+    private static boolean constructsOshi(AbstractInsnNode instruction) {
+        return instruction instanceof TypeInsnNode type
+                && type.getOpcode() == NEW && type.desc.equals("oshi/SystemInfo");
+    }
     static byte[] transform(byte[] bytes) {
         ClassNode cls = new ClassNode(); new ClassReader(bytes).accept(cls, 0);
         int matches = 0;
@@ -432,6 +509,7 @@ public final class InjectBackend implements Opcodes {
                 if (name.equals(CHUNK_CACHE+".class")) { bytes=instrumentChunkCache(bytes);chunkCacheTargets++; }
                 if (name.equals(LOCAL_PLAYER+".class")) { bytes=instrumentLocalPlayer(bytes);playerTargets++; }
                 if (name.equals(CONNECTION+".class")) { bytes=instrumentConnection(bytes);connectionTargets++; }
+                if (name.equals(GLX) || name.equals(SYSTEM_REPORT)) bytes = useIosHardwareDiagnostics(bytes);
                 if (!written.add(name)) throw new IllegalArgumentException("Duplicate jar entry: " + name);
                 ZipEntry copy = new ZipEntry(name); copy.setTime(0); output.putNextEntry(copy); output.write(bytes); output.closeEntry();
             }

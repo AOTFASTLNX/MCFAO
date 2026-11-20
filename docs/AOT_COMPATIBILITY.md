@@ -2,11 +2,13 @@
 
 Builder 接收 `.mrpack` 和 Prism 实例，并把经校验的实例副本交给 `mcfao build`。Minecraft 26.1.2、Java 25 和 Fabric Loader 0.19.3 仍由现有输入清单锁定。GL41 使用 OpenGL、OSMesa/Zink 和 MoltenVK，原生 Java Metal 是独立的可选后端。
 
+旧故障字节码、全类路径扫描结果和真机验收状态见 [2026-11-20 AOT 启动与链接审计](evidence/AOT_LINKAGE_AUDIT_20261120.md)。
+
 ## 构建顺序
 
 1. 从整合包清单取得带哈希的依赖文件。Fabric 预处理检查 JAR 和声明的嵌套 JAR，使用固定版本 Loader 解析版本约束、选定 Mod、入口点及 Mixin。
 2. 通过文件和网络拒绝探针后，在隔离环境中运行 Knot 获取实际转换字节。Fabric Mixin 转换失败会中止对应导出。可选目标、未解析的 accessor 和运行时替换点由转换报告记录。
-3. 对拆分与后端补丁后的最终客户端 JAR 扫描字节码。按 Native Image 使用的顺序建立类型索引，检查实际入口类的继承闭包，并记录类型、调用、字段、构造器和静态初始化引用。可能只存在于兼容分支的缺失类型与 GL、LWJGL、JNI 和动态访问点作为警告。
+3. 扫描拆分及后端补丁后的完整 Native Image 类路径，按实际顺序及 Multi-Release 规则建立类型索引。检查入口类继承和生成分派，并报告类型、调用、字段、构造器、静态初始化、方法句柄及 bootstrap 引用。可能只存在于兼容分支的缺失类型与 GL、LWJGL、JNI 和动态访问点作为警告。
 4. 合并维护配置、静态推断、受控生成的 Fabric 服务和资源注册，以及可选的 GraalVM Tracing Agent 结果。随后执行现有 Native Image、ARM64 链接与 IPA 校验。构建工作区的阶段检查点绑定原始输入、工具源码和产物哈希，重试先验证这些哈希。
 5. `compatibility.json` 是构建记录界面使用的报告。完整的字节码诊断在 AOT 阶段的 `bytecode-findings.json`，元数据来源及成员校验在 `work/mdaf-report.json`，Fabric 转换明细在 Fabric 阶段的 `result.json`。发行产物复验检查输入、原生编译参数、链接目标、已记录的报告和封装内容。
 

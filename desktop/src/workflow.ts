@@ -48,6 +48,11 @@ export interface AotCompatibility {
     code: string;
     severity: "fix" | "warning" | "blocker";
     location?: string | null;
+    renderer?: string;
+    stage?: string;
+    archive?: string;
+    mod?: string;
+    suggestion?: string;
     target: string;
     count: number;
   }[];

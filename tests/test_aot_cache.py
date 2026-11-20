@@ -36,13 +36,16 @@ class AotCacheTests(unittest.TestCase):
         (aot / "result.json").write_text(json.dumps({
             "targetCodeGeneration": "RELOCATABLE_OBJECT", "analysisExitCode": 0,
             "sandboxProbe": "PASS", "builderGC": "g1",
+            "renderer": "gl41", "compiledMetadataSHA256": {"reflect-config.json": "fixture"},
+            "bytecodePreflight": {"key": "fixture"},
             "imageObject": {"path": str(image), "sha256": sha256(image)},
         }))
         (aot / "analysis/command.json").write_text(json.dumps({
             "argv": ["native-image", "--no-fallback", "-H:+ExitAfterRelocatableImageWrite",
                      "-O1", "--parallelism=4", "-J-Xmx9g"]
         }))
-        (aot / "compatibility.json").write_text('{"schemaVersion": 1}')
+        (aot / "compatibility.json").write_text(json.dumps(
+            {"schemaVersion": 1, "renderer": "gl41", "blockers": 0, "stages": {"static": "PASS"}}))
         fabric = self.root / "fabric.json"
         fabric.write_text(json.dumps({
             "status": "FABRIC_AOT_INPUT_PREPARED", "renderer": "gl41",
@@ -55,6 +58,7 @@ class AotCacheTests(unittest.TestCase):
             **self.inputs, "modsSHA256": {"/staged/job-b/fixture.jar": "mod"},
             "instanceSHA256": {"options.txt": "new"}, "appIcon": {"sha256": "icon"},
             "requestedDevice": "device", "unsigned": True,
+            "testVersion": "TEST-stage-2",
         }
         self.assertEqual(cache_key(self.inputs), cache_key(other_job))
         for change in ({"modsSHA256": {"/staged/job-b/fixture.jar": "different bytes"}},
@@ -62,7 +66,7 @@ class AotCacheTests(unittest.TestCase):
                        {"filesSHA256": {"/compiler/settings.json": "other metadata"}},
                        {"tracingDirectories": ["/first", "/second"]},
                        {"heapGiB": 8}, {"parallelism": 3}, {"optimizationLevel": "-Ob"},
-                       {"builderGC": "parallel"}, {"target": "arm64-simulator"}):
+                       {"builderGC": "parallel"}, {"target": "arm64-simulator"}, {"renderer": "metal"}):
             with self.subTest(change=change):
                 self.assertNotEqual(cache_key(self.inputs), cache_key({**other_job, **change}))
 

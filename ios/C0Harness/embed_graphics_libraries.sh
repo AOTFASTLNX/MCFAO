@@ -40,6 +40,10 @@ if [ -n "${FAOT_GRAPHICS_NATIVE_DIR:-}" ]; then
     exit 1
   fi
   mkdir -p "$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH"
+  if [ -f "$FAOT_GRAPHICS_NATIVE_DIR/FAOTBuildProvenance.json" ]; then
+    copy_content_file "$FAOT_GRAPHICS_NATIVE_DIR/FAOTBuildProvenance.json" \
+      "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/FAOTBuildProvenance.json"
+  fi
   for name in libglfw.dylib liblwjgl.dylib libfaot_metal.dylib libopenal.dylib; do
     if [ ! -f "$FAOT_GRAPHICS_NATIVE_DIR/$name" ]; then continue; fi
     copy_content_file "$FAOT_GRAPHICS_NATIVE_DIR/$name" "$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH/$name"

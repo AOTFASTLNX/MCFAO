@@ -118,6 +118,13 @@ def main(argv=None):
     if len(objects) != 1:
         parser.error(f"Expected exactly one relocatable client object, found {len(objects)}")
     object_sha256 = sha256(objects[0])
+    image_record = image_dir / "result.json"
+    renderer = None
+    if image_record.is_file():
+        image = json.loads(image_record.read_text())
+        renderer = image.get("renderer")
+        if renderer and (image.get("imageObject") or {}).get("sha256") != object_sha256:
+            parser.error("Native Image object differs from the compilation report")
     report = json.loads((runtime / "result.json").read_text())
     try:
         target = validate_runtime(report, args.sdk)
@@ -163,6 +170,7 @@ def main(argv=None):
     else:
         status = "BLOCKED"
     outcome = {"status": status, "target": target, "sdk": args.sdk,
+               "renderer": renderer,
                "imageObject": {"path": str(objects[0]), "sha256": object_sha256,
                                "bytes": objects[0].stat().st_size},
                "runtime": str(runtime), "runtimeArchivesSHA256": archive_sha256,

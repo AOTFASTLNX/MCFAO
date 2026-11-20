@@ -245,6 +245,14 @@ const compatibilityReasons: Record<string, string> = {
   METAL_CLASS_ON_GL41: "GL41 类路径包含原生 Metal 类型",
   MISSING_REQUIRED_TYPE: "缺少必需类型",
   MISSING_TYPE: "符号引用的类型缺失",
+  MISSING_METHOD: "符号引用的方法缺失",
+  MISSING_FIELD: "符号引用的字段缺失",
+  INCOMPATIBLE_MEMBER_KIND: "成员的静态或实例类型不匹配",
+  INCOMPATIBLE_MEMBER_OWNER: "接口与类的引用不匹配",
+  ILLEGAL_PRIVATE_ACCESS: "无权访问私有成员",
+  OSHI_IOS_UNSUPPORTED: "OSHI 硬件查询不支持 iOS",
+  SERVICE_PROVIDER_MISSING: "服务声明的提供者缺失",
+  SERVICE_LOADER_CALL: "服务加载待验证",
   LWJGL_MEMBER_MISSING: "LWJGL 方法或字段缺失",
   OPENGL_AFTER_41: "调用超出 GL 4.1 的 API",
   RESOURCE_METADATA: "已注册静态资源",
@@ -290,7 +298,11 @@ function CompatibilitySummary({ report }: { report: AotCompatibility }) {
                 {compatibilityReasons[finding.code] ?? finding.code} ·{" "}
                 {finding.target}
                 {finding.location && ` · ${finding.location}`}
+                {(finding.mod || finding.archive) &&
+                  ` · ${finding.mod || finding.archive}`}
+                {finding.renderer && ` · ${finding.renderer}`}
                 {finding.count > 1 && ` · ${finding.count} 处`}
+                {finding.suggestion && ` · ${finding.suggestion}`}
               </li>
             ))}
           </ul>

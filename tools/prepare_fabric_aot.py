@@ -19,6 +19,7 @@ from capture import ROOT, capture
 from mod_file_policy import content_paths, is_metadata, mod_candidates
 from prepare_b0 import jar_bytes, select_libraries
 from run_b0_reference import execute, require_run, sandbox_policy
+from renderer_profile import DEFAULT_RENDERER, RENDERERS
 
 TOOL = ROOT / "interop/fabric/tool"
 FIXTURE = ROOT / "interop/fabric/fixture"
@@ -419,7 +420,7 @@ def build_fixture(prepared, output):
     (mods / "mcfao-fixture.jar").write_bytes(jar_bytes(contents))
 
 
-def prepare(prepared, client, mods, output, audited, trace_agent=False, renderer="metal"):
+def prepare(prepared, client, mods, output, audited, trace_agent=False, renderer=DEFAULT_RENDERER):
     home, libraries, engine, report = load_reference(prepared)
     if client not in libraries or client.name != "26.1.2.jar":
         raise ValueError("The input must be the verified owned client in the prepared manifest")
@@ -668,9 +669,11 @@ def main(argv=None):
     mode.add_argument("--audited-mods", action="store_true")
     parser.add_argument("--trace-agent", action="store_true",
                         help="Collect bounded GraalVM tracing metadata during the sandboxed audited export")
-    parser.add_argument("--renderer", choices=("gl41", "metal"), default="metal")
+    parser.add_argument("--renderer", choices=RENDERERS, default=os.environ.get("FAOT_RENDERER", DEFAULT_RENDERER))
     parser.add_argument("--compatibility-report", type=Path)
     args = parser.parse_args(argv)
+    if args.renderer not in RENDERERS:
+        parser.error("Unsupported renderer: " + args.renderer)
     if args.trace_agent and not args.audited_mods:
         parser.error("--trace-agent requires --audited-mods")
     if not args.fixture and (not args.client or not args.mods):

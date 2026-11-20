@@ -2,12 +2,26 @@
 from __future__ import annotations
 import argparse
 from pathlib import Path
+import subprocess
+from uuid import UUID
 
 COMMON = ("client-graph.dylib", "libglfw.dylib", "liblwjgl.dylib", "libopenal.dylib")
 RENDERERS = ("metal", "gl41")
 # Zink (OSMesa/MoltenVK) is the project renderer. The native Metal backend is
 # kept as an explicitly selected comparison path, never the default.
 DEFAULT_RENDERER = "gl41"
+BUILD_PROVENANCE = "FAOTBuildProvenance.json"
+
+
+def dylib_uuid(path: Path):
+    output = subprocess.check_output(
+        ["/usr/bin/xcrun", "dwarfdump", "--uuid", str(path)], text=True).splitlines()
+    if len(output) != 1:
+        raise ValueError(f"Expected one Mach-O UUID: {path}")
+    label, identifier, architecture, *_ = output[0].split()
+    if label != "UUID:" or architecture != "(arm64)":
+        raise ValueError(f"Expected arm64 Mach-O UUID: {path}")
+    return str(UUID(identifier)).upper()
 
 def libraries(renderer):
     if renderer not in RENDERERS:

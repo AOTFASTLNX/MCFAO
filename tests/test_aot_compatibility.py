@@ -10,7 +10,8 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
-from aot_compatibility import RENDER_PIPELINES, add_bytecode_results, bytecode_report, transform_report
+from aot_compatibility import (RENDER_PIPELINES, add_bytecode_results, bytecode_report,
+                               cached_bytecode_report, transform_report)
 from probe_client_graph import collect_mdaf_configuration
 from run_b0_reference import execute
 
@@ -80,6 +81,21 @@ JAVA_FIXTURES = {
             public void runtimeDefine(ClassLoader parent) throws Exception {
                 java.lang.invoke.MethodHandles.lookup().defineClass(new byte[0]);
             }
+        }
+    """,
+    "third/Dependency": """
+        package third;
+        public class Dependency {
+            public static int VALUE;
+            public static void touch() {}
+        }
+    """,
+    "third/LibraryCaller": """
+        package third;
+        public class LibraryCaller {
+            static int value = Dependency.VALUE;
+            public static void main(String[] args) { Dependency.touch(); }
+            public Runnable optional() { return Dependency::touch; }
         }
     """,
 }
@@ -167,6 +183,86 @@ class AotCompatibilityTests(unittest.TestCase):
             "static": "PASS", "transform": "PASS", "aot": "SKIPPED",
             "startup": "UNVERIFIED", "device": "UNVERIFIED",
         })
+
+    def test_missing_library_members_have_method_location_and_reachability(self):
+        client = self.jar("main-fixture.jar", lambda name: name == "first/NoDefault.class")
+        caller = self.jar("library-caller.jar", lambda name: name == "third/LibraryCaller.class",
+                          {"META-INF/services/third.Service": "third.Missing # optional provider\n"})
+        unavailable = self.root / "dependency.jar"
+        data = (self.classes / "third/Dependency.class").read_bytes()
+        with zipfile.ZipFile(unavailable, "w") as archive:
+            archive.writestr("third/Dependency.class", data.replace(b"VALUE", b"OTHER").replace(b"touch", b"other"))
+        settings = subprocess.run(["java", "-XshowSettings:properties", "-version"], check=True,
+                                  capture_output=True, text=True, timeout=30).stderr
+        home = next(Path(line.split("=", 1)[1].strip()) for line in settings.splitlines()
+                    if line.strip().startswith("java.home ="))
+        _, _, findings, graph = bytecode_report(
+            client, [client, caller, unavailable], "gl41", java_home=home, entrypoint="third/LibraryCaller")
+        expected = {
+            ("MISSING_FIELD", "blocker", "third/LibraryCaller#<clinit>()V"),
+            ("MISSING_METHOD", "blocker", "third/LibraryCaller#main([Ljava/lang/String;)V"),
+            ("MISSING_METHOD", "warning", "third/LibraryCaller#optional()Ljava/lang/Runnable;"),
+            ("SERVICE_PROVIDER_MISSING", "warning", "META-INF/services/third.Service"),
+        }
+        self.assertTrue(expected <= {(row["code"], row["severity"], row["location"]) for row in findings})
+        self.assertTrue(all(row["archive"] == caller.name for row in findings))
+        self.assertEqual(graph["classes"], 3)
+        _, _, findings, _ = bytecode_report(
+            client, [client, caller], "gl41", entrypoint="third/LibraryCaller")
+        self.assertTrue(any(row["severity"] == "blocker" and row["target"] == "third/Dependency"
+                            for row in findings))
+
+    def test_preflight_cache_tracks_content_order_and_renderer(self):
+        client = self.jar("cache-client.jar", lambda name: name == "first/NoDefault.class")
+        caller = self.jar("cache-library.jar", lambda name: name == "third/LibraryCaller.class")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+
+            def scan(classpath, renderer):
+                return cached_bytecode_report(root, client, classpath, renderer, java_home=root,
+                                              required=(), entrypoint=None)
+
+            cold = scan([client, caller], "gl41")
+            warm = scan([client, caller], "gl41")
+            self.assertFalse(cold[-1]["cacheHit"])
+            self.assertTrue(warm[-1]["cacheHit"])
+            self.assertEqual(cold[:-1], warm[:-1])
+            self.assertFalse(scan([caller, client], "gl41")[-1]["cacheHit"])
+            self.assertFalse(scan([client, caller], "metal")[-1]["cacheHit"])
+            (root / (cold[-1]["key"] + ".json")).write_text("{}")
+            self.assertFalse(scan([client, caller], "gl41")[-1]["cacheHit"])
+            with zipfile.ZipFile(caller, "a") as archive:
+                archive.writestr("changed.txt", "different content")
+            self.assertFalse(scan([client, caller], "gl41")[-1]["cacheHit"])
+
+    def test_higher_multi_release_definition_and_classpath_precedence(self):
+        client = self.jar("mr.jar", lambda name: name == RENDER_PIPELINES + ".class",
+                          {"META-INF/MANIFEST.MF": "Manifest-Version: 1.0\r\nMulti-Release: true\r\n\r\n"})
+        entry = RENDER_PIPELINES + ".class"
+        code = (self.classes / entry).read_bytes()
+        with zipfile.ZipFile(client, "a") as archive:
+            archive.writestr("META-INF/versions/25/" + entry,
+                             code.replace(b"fabricaot/metal/", b"fixture/backend/"))
+            archive.writestr("META-INF/versions/26/" + entry, code)
+        bad = self.jar("shadowed.jar", lambda name: name == entry)
+        _, _, findings, graph = bytecode_report(client, [client, bad], "gl41")
+        self.assertFalse(any(row["severity"] == "blocker" for row in findings))
+        self.assertEqual(graph["classes"], 1)
+        _, _, findings, _ = bytecode_report(client, [bad, client], "gl41")
+        self.assertTrue(any(row["code"] == "METAL_REFERENCE_ON_GL41" for row in findings))
+
+    def test_bad_tracing_constructor_descriptor_is_reported(self):
+        client = self.jar("reflection-negative.jar", lambda name: name == "first/ModConfigDTO.class")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            trace = root / "trace"
+            trace.mkdir()
+            (trace / "reflect-config.json").write_text(json.dumps([{
+                "name": "first.ModConfigDTO", "methods": [{"name": "<init>", "parameterTypes": ["int"]}]
+            }]))
+            _, report = collect_mdaf_configuration([], [], [trace], [client], root)
+            self.assertTrue(any(row["status"] == "UNRESOLVED_MEMBERS" and row["type"] == "first.ModConfigDTO"
+                                for row in report["reflectionResolution"]["findings"]))
 
 
 class BuildLogTests(unittest.TestCase):

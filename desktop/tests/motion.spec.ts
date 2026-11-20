@@ -413,9 +413,13 @@ test("build history shows AOT findings and leaves launch and device unverified",
         count: 1,
       },
       {
-        code: "MIXIN_TARGET_UNAVAILABLE",
+        code: "MISSING_METHOD",
         severity: "warning",
-        target: "fixture.OptionalMixin",
+        target: "fixture/OptionalApi.run()V",
+        location: "fixture/Feature#run()V",
+        mod: "optional-fixture",
+        renderer: "gl41",
+        suggestion: "Check the dependency version.",
         count: 1,
       },
     ],
@@ -431,7 +435,7 @@ test("build history shows AOT findings and leaves launch and device unverified",
   await summary.focus();
   await summary.press("Enter");
   await expect(
-    report.getByText(/Mixin 目标不可用.*fixture.OptionalMixin/),
+    report.getByText(/符号引用的方法缺失.*fixture\/OptionalApi\.run.*optional-fixture.*gl41.*Check the dependency version/),
   ).toBeVisible();
 });
 

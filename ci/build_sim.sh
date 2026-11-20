@@ -112,7 +112,7 @@ time python3 -B tools/probe_client_graph.py \
   --prepared artifacts/b0/prepared-04 --runtime artifacts/b1/runtime-ios --caps artifacts/ci/a1/caps \
   --b1-evidence artifacts/evidence/b1-user-device-run-01/result.json \
   --client-jar artifacts/ci/injected/client-26.1.2-metal.jar \
-  --graphics-bridge artifacts/sim/lwjgl --metal-bootstrap artifacts/sim/metal \
+  --graphics-bridge artifacts/sim/lwjgl --renderer metal --metal-bootstrap artifacts/sim/metal \
   --full-build --relocatable --include-game-resources --heap-gib "$HEAP_GIB" --parallelism "$AOT_PAR" \
   --output artifacts/ci/aot
 

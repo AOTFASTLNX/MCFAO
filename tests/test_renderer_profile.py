@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 import mcfao
-from renderer_profile import libraries, config_names, validate_runtime
+from renderer_profile import BUILD_PROVENANCE, libraries, config_names, validate_runtime
 from glfw_runtime_contract import CONTRACT, GL41_EXPORTS, validate_bytes, validate_glfw_renderer
 
 class RendererProfileTests(unittest.TestCase):
@@ -16,10 +16,28 @@ class RendererProfileTests(unittest.TestCase):
             names = set(mcfao.CONFIG_PATHS) - {"metal", "shaders"}
             names.update(config_names("gl41"))
             config = root / "config.json"
-            config.write_text(json.dumps({key: str(root) for key in names}))
+            config.write_text(json.dumps({**{key: str(root) for key in names},
+                                          "metal": str(root / "retired-metal")}))
             self.assertNotIn("metal", mcfao.load_config(config, "gl41"))
             with self.assertRaises(ValueError):
                 mcfao.load_config(config, "metal")
+
+    def test_provenance_is_bound_to_renderer_build_and_each_dylib(self):
+        with tempfile.TemporaryDirectory() as temp:
+            app = Path(temp)
+            path = app / BUILD_PROVENANCE
+            uuids = {name: f"uuid-for-{name}" for name in libraries("gl41")}
+            record = dict(schemaVersion=1, buildKey="build", sourceCommit="commit",
+                          renderer="gl41", dylibUUIDs=uuids)
+            path.write_text(json.dumps(record))
+            with patch("mcfao.dylib_uuid", side_effect=lambda image: f"uuid-for-{image.name}"):
+                self.assertEqual(mcfao.validate_build_provenance(app, "build", "commit", "gl41"), record)
+                with self.assertRaises(ValueError):
+                    mcfao.validate_build_provenance(app, "stale", "commit", "gl41")
+                uuids["client-graph.dylib"] = "older-client"
+                path.write_text(json.dumps(record))
+                with self.assertRaises(ValueError):
+                    mcfao.validate_build_provenance(app, "build", "commit", "gl41")
 
     def test_gl41_contract_rejects_missing_libraries_and_does_not_read_metal_shaders(self):
         with tempfile.TemporaryDirectory() as temp:

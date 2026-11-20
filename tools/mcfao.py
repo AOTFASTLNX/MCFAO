@@ -17,7 +17,8 @@ import subprocess
 import sys
 from uuid import uuid4
 import zipfile
-from renderer_profile import DEFAULT_RENDERER, RENDERERS, config_names, libraries as renderer_libraries, validate_runtime
+from renderer_profile import (BUILD_PROVENANCE, DEFAULT_RENDERER, RENDERERS, config_names,
+                              dylib_uuid, libraries as renderer_libraries, validate_runtime)
 from external_storage import ExternalStorageUnavailable, require_mount
 import aot_cache
 
@@ -117,7 +118,7 @@ def load_config(path: Path, renderer: str = DEFAULT_RENDERER) -> dict:
     if not required <= config.keys() or config.keys() - allowed:
         raise ValueError("Config requires " + ", ".join(CONFIG_PATHS) + ". Optional paths are openjdkSource and graalSource.")
     return {name: (path.parent / Path(value).expanduser()).resolve(strict=True)
-            for name, value in config.items()}
+            for name, value in config.items() if name in required or name in OPTIONAL_CONFIG_PATHS}
 
 
 def runtime_sources(config):
@@ -171,6 +172,9 @@ def inputs(config: dict, renderer: str = DEFAULT_RENDERER) -> tuple[dict, Path, 
         add(file)
     for file in sorted(content_paths(home / "lib/svm")):
         if file.is_file():
+            add(file)
+    for file in sorted((home / "jmods").glob("*.jmod")):
+        if not is_metadata(file.name):
             add(file)
     for file in sorted(content_paths(home / "include")):
         if file.suffix == ".h":
@@ -478,10 +482,20 @@ def validate_package(app, staged, asset_hashes, renderer=DEFAULT_RENDERER):
         if is_metadata(library.name):
             continue
         packaged = frameworks / library.name
-        before = command("/usr/bin/xcrun", "dwarfdump", "--uuid", library).split()[:3]
-        after = command("/usr/bin/xcrun", "dwarfdump", "--uuid", packaged).split()[:3]
-        if len(before) != 3 or before != after:
+        if dylib_uuid(library) != dylib_uuid(packaged):
             raise ValueError(f"Embedded image UUID differs: {library.name}")
+    if (staged / BUILD_PROVENANCE).is_file():
+        if sha256(app / BUILD_PROVENANCE) != sha256(staged / BUILD_PROVENANCE):
+            raise ValueError("Packaged build provenance differs from the staged file")
+
+
+def validate_build_provenance(app, build_key, commit, renderer):
+    report = read_json(app / BUILD_PROVENANCE)
+    expected = {name: dylib_uuid(app / "Frameworks" / name) for name in renderer_libraries(renderer)}
+    if report != dict(schemaVersion=1, buildKey=build_key, sourceCommit=commit,
+                      renderer=renderer, dylibUUIDs=expected):
+        raise ValueError("Packaged build provenance does not match the build or its dylibs")
+    return report
 
 
 def write_payload_ipa(app: Path, ipa: Path):
@@ -628,6 +642,10 @@ def verify(output: Path, device: str | None) -> dict:
         verify_icon(app, icon["assetName"])
     if test_version(plistlib.loads((app / "Info.plist").read_bytes()).get("FAOTTestVersion", "")) != test_version(report.get("testVersion", "")):
         raise ValueError("Packaged test version differs from recorded build")
+    if report.get("buildProvenance") is not None:
+        provenance = validate_build_provenance(app, report["buildKey"], report["sourceCommit"], report["renderer"])
+        if provenance != report["buildProvenance"]:
+            raise ValueError("Build provenance differs from the recorded result")
     logs = output / "verify" / uuid4().hex
     if report.get("ipa") and (sha256(Path(report["ipa"])) != report["sha256"] or Path(report["ipa"]).stat().st_size != report["bytes"]):
         raise ValueError("IPA changed since packaging")
@@ -700,6 +718,9 @@ def export_ipa(args) -> dict:
     if len(apps) != 1:
         raise ValueError("Expected one exported iPhoneOS app")
     validate_package(apps[0], staged, evidence["assetsSHA256"], renderer)
+    provenance = None
+    if manifest.get("buildProvenance") is not None:
+        provenance = validate_build_provenance(apps[0], manifest["buildKey"], manifest["sourceCommit"], renderer)
     if icon and icon.get("assetName"):
         verify_icon(apps[0], icon["assetName"])
     if test_version(plistlib.loads((apps[0] / "Info.plist").read_bytes()).get("FAOTTestVersion", "")) != label:
@@ -708,6 +729,7 @@ def export_ipa(args) -> dict:
               "sha256": sha256(ipa), "bytes": ipa.stat().st_size, "build": str(build),
               "exportOptionsSHA256": sha256(options), "testVersion": label,
               "renderer": renderer, "sourceCommit": manifest.get("sourceCommit"),
+              "buildProvenance": provenance,
               "verification": app_facts(apps[0], args.device, output / "verify", renderer)}
     write_json(output / "result.json", result)
     return result
@@ -756,6 +778,7 @@ def compile_client_image(pipeline, manifest, config, client, libraries, loader_r
         "--caps", config["caps"], "--b1-evidence", config["b1Evidence"],
         "--client-jar", injected / ("client.jar" if gl41 else "client-26.1.2-metal.jar"), "--graphics-bridge", config["lwjgl"],
         "--renderer", renderer, "--compatibility-report", pipeline.root / "compatibility.json",
+        "--preflight-cache", cache_path("aot-preflight"),
         *([] if gl41 else ["--metal-bootstrap", config["metal"]]), "--full-build", "--relocatable",
         "--include-game-resources", "--heap-gib", str(manifest["heapGiB"]),
         "--builder-gc", manifest["builderGC"], f'--optimization={manifest["optimizationLevel"]}',
@@ -908,6 +931,7 @@ def build(args, config):
             *(argument for name in config_names(renderer)
               for argument in ("--lwjgl-opengl" if name == "lwjglOpengl" else f"--{name}", config[name])),
             "--renderer", renderer,
+            "--build-key", key, "--source-commit", manifest["sourceCommit"],
             "--output", "{product}"))
         seed = None
         if instance:
@@ -933,6 +957,7 @@ def build(args, config):
             *([f"FAOT_INSTANCE_DATA_DIR={seed}"] if seed else []), "-derivedDataPath", "{product}", "build"],
             outputs=lambda attempt: attempt / "product/Build/Products/World Device-iphoneos/C0Harness.app")
         validate_package(app, staged, manifest["assetsSHA256"], renderer)
+        provenance = validate_build_provenance(app, key, manifest["sourceCommit"], renderer)
         if icon_name:
             verify_icon(app, icon_name)
         if seed and tree_files(seed) != tree_files(app / "instance-seed"):
@@ -945,6 +970,7 @@ def build(args, config):
         write_json(output / "result.json", {
             "status": "UNSIGNED_DEVICE_APP" if manifest["unsigned"] else "SIGNED_DEVICE_APP", "target": TARGET, "buildKey": key,
             "renderer": renderer, "sourceCommit": manifest["sourceCommit"],
+            "buildProvenance": provenance,
             "quickBuild": quick_build, "aotReused": restored is not None,
             "ipa": str(ipa), "bytes": ipa.stat().st_size, "sha256": sha256(ipa),
             "signature": "UNSIGNED" if manifest["unsigned"] else "DEVELOPMENT_SIGNED",
@@ -991,7 +1017,7 @@ def main(argv=None):
                                  help="Host Native Image JVM collector (default: G1 for Fabric, Parallel for vanilla)")
     compile_command.add_argument("--quick-build", action="store_true",
                                  help="Reuse matching, verified local AOT objects")
-    compile_command.add_argument("--parallelism", type=int, choices=range(1,9), default=4)
+    compile_command.add_argument("--parallelism", type=int, choices=range(1,5), default=4)
     compile_command.add_argument("--prepare-only", action="store_true",
                                  help="Stop after Fabric metadata inspection or audited transformation")
     compile_command.add_argument("--audited-mods", action="store_true",

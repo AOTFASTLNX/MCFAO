@@ -56,6 +56,8 @@ def main(argv=None):
         # a multi-megabyte signed manifest otherwise makes Native Image rescan it per resource.
         changed_classes = [name for name in changed if name != "META-INF/MANIFEST.MF"]
         expected = ["com/mojang/blaze3d/opengl/GlDevice.class",
+                    "com/mojang/blaze3d/platform/GLX.class",
+                    "net/minecraft/SystemReport.class",
                     "net/minecraft/client/multiplayer/LevelLoadTracker$WaitingForPlayerChunk.class",
                     "net/minecraft/client/Minecraft.class",
                     "net/minecraft/client/multiplayer/ClientPacketListener.class",

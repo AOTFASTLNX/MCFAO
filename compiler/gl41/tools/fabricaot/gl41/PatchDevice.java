@@ -151,6 +151,7 @@ public final class PatchDevice {
                     case CHUNK_CACHE -> InjectBackend.instrumentChunkCache(data);
                     case CONNECTION -> InjectBackend.instrumentConnection(data);
                     case DYNAMIC_UNIFORMS -> presizeUniformBuffers(data);
+                    case InjectBackend.GLX, InjectBackend.SYSTEM_REPORT -> InjectBackend.useIosHardwareDiagnostics(data);
                     default -> data;
                 };
                 if (!Arrays.equals(data, patched)) changed.add(entry.getName());

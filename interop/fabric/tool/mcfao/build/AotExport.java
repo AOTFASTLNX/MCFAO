@@ -302,6 +302,7 @@ public final class AotExport implements Opcodes {
         var literalResourceOwners = new TreeMap<String, Integer>();
         var ambiguousLiteralResources = new TreeSet<String>();
         var retainedLiteralResources = new TreeSet<String>();
+        var classModOwners = new TreeMap<String, String>();
         var mergedResources = new TreeSet<String>();
         // Every assets/ and data/ path that actually ships in the merged jar. The namespace
         // table is derived from these paths rather than from Mod metadata, so a Mod that ships
@@ -549,6 +550,7 @@ public final class AotExport implements Opcodes {
                                     bytes = classBytes(raw);
                                 }
                                 put(jar, names, name, bytes);
+                                classModOwners.put(raw.name, id);
                                 mixinClasses.add(raw.name);
                                 modClasses.add(raw.name.replace('/', '.'));
                                 continue;
@@ -609,6 +611,7 @@ public final class AotExport implements Opcodes {
                                                 ? recomputedClassBytes(node) : classBytes(node))
                                         : data);
                                 modClasses.add(node.name.replace('/', '.'));
+                                classModOwners.put(node.name, id);
                             } catch (RuntimeException problem) {
                                 failures.add(id + "/" + name + ": " + problem.getMessage());
                             }
@@ -955,6 +958,7 @@ public final class AotExport implements Opcodes {
         report.put("renderer", renderer);
         report.put("namespace", "official");
         report.put("resolvedMods", selected);
+        report.put("classModOwners", classModOwners);
         report.put("entrypoints", entries);
         report.put("gameTransforms", changes);
         report.put("resources", resources);

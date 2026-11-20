@@ -16,9 +16,6 @@ SOURCE_SHA="${SOURCE_SHA:-}" # CircleCI sets this to the triggering commit
 HEAP_GIB="${HEAP_GIB:-8}"
 JOBS="${JOBS:-4}"
 AOT_PAR="${AOT_PAR:-4}"
-# Zink (OSMesa/MoltenVK) is the project renderer; the native Metal backend
-# stays available as an explicit FAOT_RENDERER=metal comparison build.
-RENDERER="${FAOT_RENDERER:-gl41}"
 
 log() { printf '\n=== [%s] %s ===\n' "$(date +%H:%M:%S)" "$*"; }
 die() { printf 'FATAL: %s\n' "$*" >&2; exit 1; }
@@ -79,6 +76,8 @@ fi
 # ---------------------------------------------------------------- stage 1
 log "stage 1: GraalVM + upstream sources"
 cd "$WORK/src"
+RENDERER="${FAOT_RENDERER:-$(PYTHONPATH=tools python3 -B -c 'from renderer_profile import DEFAULT_RENDERER; print(DEFAULT_RENDERER)')}"
+case "$RENDERER" in gl41|metal) ;; *) die "Unknown FAOT_RENDERER=$RENDERER" ;; esac
 time python3 -B tools/bootstrap_toolchain.py
 time python3 -B tools/fetch_upstream.py
 GRAAL=$(ls -d "$PWD"/.cache/toolchains/graalvm-25.0.2/*/Contents/Home)
@@ -115,6 +114,7 @@ time python3 -B tools/prepare_b0.py --graalvm-home "$GRAALVM_HOME" --client-dir 
 # Caller provides a local, previously audited mod directory on this isolated Mac. Mod
 # JARs and configs must not be committed to the source repository.
 CLIENT_INPUT="$CLIENT_DIR/meta/versions/26.1.2/26.1.2.jar"
+AOT_PROFILE_ARGS=(--renderer "$RENDERER")
 if [ "${FAOT_BUILD_LOADER:-vanilla}" = "fabric" ]; then
   if [ "${FAOT_FETCH_RECOLLECTION3:-0}" = "1" ]; then
     log "fetch 53 hash-locked public Recollection3 mod jars"
@@ -126,14 +126,15 @@ if [ "${FAOT_BUILD_LOADER:-vanilla}" = "fabric" ]; then
   log "stage 4a-0: Fabric Loader metadata and dependency inspection"
   time python3 -B tools/prepare_fabric_aot.py --prepared artifacts/b0/prepared-04 \
     --client "$CLIENT_INPUT" --mods "$FAOT_FABRIC_MODS_DIR" \
-    --inspect --output artifacts/ci/fabric-inspect
+    --inspect --renderer "$RENDERER" --output artifacts/ci/fabric-inspect
   log "stage 4a-1: sandboxed Fabric/Mixin transformation"
   time python3 -B tools/prepare_fabric_aot.py --prepared artifacts/b0/prepared-04 \
     --client "$CLIENT_INPUT" --mods "$FAOT_FABRIC_MODS_DIR" \
-    --audited-mods --output artifacts/ci/fabric-transform
+    --audited-mods --renderer "$RENDERER" --output artifacts/ci/fabric-transform
   python3 -B "$WORK/repo/ci/check_fabric_result.py" \
     artifacts/ci/fabric-transform/result.json "$FAOT_FABRIC_MODS_DIR"
   CLIENT_INPUT="artifacts/ci/fabric-transform/client.jar"
+  AOT_PROFILE_ARGS+=(--fabric-report artifacts/ci/fabric-transform/result.json --builder-gc g1)
 elif [ "${FAOT_BUILD_LOADER:-vanilla}" != "vanilla" ]; then
   die "Unknown FAOT_BUILD_LOADER"
 fi
@@ -181,6 +182,7 @@ time python3 -B tools/collect_shader_catalog.py --output artifacts/graphics/shad
 log "stage 3e: Metal backend + OpenAL Soft"
 time python3 -B tools/build_metal_backend.py --sdk iphoneos \
   --graphics-bridge artifacts/graphics/lwjgl-ios-world-01 \
+  "${AOT_PROFILE_ARGS[@]}" \
   --glfw-library artifacts/graphics/glfw-ios-world-01/libglfw.dylib \
   --output artifacts/graphics/metal-ios-world-03
 log "stage 3f: translate vanilla shaders"
@@ -291,7 +293,7 @@ if [ "$RENDERER" = "metal" ]; then
 else
   STAGE_RENDERER_ARGS+=(--gl41 artifacts/graphics/gl41-ios-01 --lwjgl-opengl artifacts/graphics/lwjgl-opengl-ios-01)
 fi
-python3 -B tools/stage_device_xcode.py   --client artifacts/graphics/main-link-ios-world-01   --glfw artifacts/graphics/glfw-ios-world-01   --lwjgl artifacts/graphics/lwjgl-ios-world-01   --openal artifacts/graphics/openal-ios-world-01   "${STAGE_RENDERER_ARGS[@]}"   --output artifacts/graphics/world-device-input-02
+python3 -B tools/stage_device_xcode.py   --client artifacts/graphics/main-link-ios-world-01   --glfw artifacts/graphics/glfw-ios-world-01   --lwjgl artifacts/graphics/lwjgl-ios-world-01   --openal artifacts/graphics/openal-ios-world-01   "${STAGE_RENDERER_ARGS[@]}"   --source-commit "$SRC_HEAD" --output artifacts/graphics/world-device-input-02
 
 log "stage 4g: xcodebuild + IPA"
 G=artifacts/graphics

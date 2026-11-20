@@ -118,6 +118,7 @@ class StageTests(unittest.TestCase):
                     if name == "aot":
                         self.assertEqual(argv[argv.index("--builder-gc") + 1], expected)
                         self.assertIn("--optimization=-O1", argv)
+                        self.assertIn("--preflight-cache", argv)
                         raise RuntimeError("stop at AOT")
                     return self.root
 
@@ -130,7 +131,8 @@ class StageTests(unittest.TestCase):
                     compile_game(args, config)
                 manifest = json.loads((args.output / "inputs.json").read_text())
                 self.assertEqual(manifest["builderGC"], expected)
-                self.assertEqual(cache_path.called, quick)
+                self.assertEqual([call.args[0] for call in cache_path.call_args_list],
+                                 [*(["aot-objects"] if quick else []), "aot-preflight"])
 
     def test_development_team_is_selected_from_an_installed_profile(self):
         now = datetime(2026, 11, 11, tzinfo=timezone.utc)

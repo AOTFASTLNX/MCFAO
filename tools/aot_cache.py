@@ -11,7 +11,7 @@ from uuid import uuid4
 from bootstrap_toolchain import sha256
 
 
-PACKAGING_FIELDS = {"unsigned", "bundleID", "appIcon", "requestedDevice", "instanceSHA256"}
+PACKAGING_FIELDS = {"unsigned", "bundleID", "appIcon", "requestedDevice", "instanceSHA256", "testVersion"}
 REQUIRED_FILES = ("client-graph.o", "result.json", "compatibility.json", "analysis/command.json")
 
 
@@ -42,7 +42,7 @@ def record(cache, key, aot, image_object, loader_report):
     entries = {name: {"path": str(path), "sha256": sha256(path)} for name, path in files.items()}
     with TemporaryDirectory(dir=cache) as temporary:
         pending = Path(temporary) / "record.json"
-        pending.write_text(json.dumps({"schemaVersion": 1, "key": key, "files": entries}, indent=2) + "\n")
+        pending.write_text(json.dumps({"schemaVersion": 2, "key": key, "files": entries}, indent=2) + "\n")
         pending.replace(cache / (key + ".json"))
 
 
@@ -56,7 +56,7 @@ def restore(cache, key, output, inputs):
         if index.is_symlink():
             return None
         record = json.loads(index.read_text())
-        if (record["schemaVersion"] != 1 or record["key"] != key or set(record["files"]) != expected):
+        if (record["schemaVersion"] != 2 or record["key"] != key or set(record["files"]) != expected):
             return None
         stage = output / "aot"
         stage.mkdir(exist_ok=True)
@@ -80,9 +80,14 @@ def restore(cache, key, output, inputs):
                     return None
             result_path = pending / "result.json"
             result = json.loads(result_path.read_text())
+            compatibility = json.loads((pending / "compatibility.json").read_text())
             flags = json.loads((pending / "analysis/command.json").read_text())["argv"]
             if (result["targetCodeGeneration"] != "RELOCATABLE_OBJECT" or result.get("analysisFailure")
                     or result.get("analysisExitCode") != 0 or result.get("sandboxProbe") != "PASS"
+                    or result.get("renderer") != inputs["renderer"]
+                    or compatibility.get("renderer") != inputs["renderer"]
+                    or compatibility.get("blockers") != 0 or compatibility["stages"]["static"] != "PASS"
+                    or not result.get("compiledMetadataSHA256") or not result.get("bytecodePreflight")
                     or result.get("builderGC") != inputs["builderGC"]
                     or result["imageObject"]["sha256"] != record["files"]["client-graph.o"]["sha256"]
                     or not {"--no-fallback", "-H:+ExitAfterRelocatableImageWrite", inputs["optimizationLevel"],
