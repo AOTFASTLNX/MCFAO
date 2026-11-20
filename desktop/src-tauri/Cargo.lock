@@ -742,7 +742,7 @@ dependencies = [
 
 [[package]]
 name = "fabricaot-desktop"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "objc2",
  "objc2-app-kit",
