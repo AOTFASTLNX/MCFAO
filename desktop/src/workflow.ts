@@ -30,6 +30,7 @@ export interface BuildForm {
   source: string;
   team: string;
   forceCompile: boolean;
+  quickBuild?: boolean;
 }
 type CompatibilityStage = "PASS" | "FAIL" | "SKIPPED" | "UNVERIFIED";
 export interface AotCompatibility {
@@ -145,6 +146,7 @@ export const defaultForm: BuildForm = {
   source: "",
   team: "",
   forceCompile: false,
+  quickBuild: false,
 };
 export const configurationFields = [
   ["prepared", "客户端参考输入", "folder"],
@@ -254,22 +256,26 @@ export function explainError(
   stage: string,
 ): ErrorExplanation | null {
   if (!error.trim()) return null;
-  const label = stageName(stage);
   const has = (needle: string) => error.includes(needle);
 
-  if (has("OutOfMemoryError") || has("ran out of memory")) {
+  const isNativeImage = stage === "aot" || has("mcfao build: aot failed") ||
+    has("Native Image stopped before producing an image");
+  if (isNativeImage && (has("OutOfMemoryError: Java heap space") || has("The Native Image build process ran out of memory"))) {
     const heap = /-Xmx(\d+)g/.exec(error);
+    const collector = /Native Image builder: (g1|parallel) GC/.exec(error)?.[1];
+    const phase = /Native Image last completed phase: ([1-8])\/8/.exec(error);
+    const phases = ["初始化", "可达性分析", "构建编译模型", "解析方法",
+      "内联方法", "编译方法", "布置方法", "生成镜像"];
+    const budget = heap ? `（堆上限 ${heap[1]} GiB）` : "";
+    const progress = phase ? `最后完成的步骤为${phases[Number(phase[1]) - 1]}。` : "";
+    const next = collector
+      ? ["查看任务里的 Native Image 和 GC 日志，确认堆使用情况。", "可精简本次构建的内容，再重新编译。"]
+      : ["用新版构建器重试。Fabric 编译现在默认使用 G1 回收器。"];
     return {
-      title: `${label}内存不足`,
-      cause:
-        `${heap ? `原生编译只拿到 ${heap[1]} GiB 堆内存，` : "原生编译的 Java 堆不够用，"}` +
-        "在分析阶段就耗尽了。这是编译主机的内存限制，和整合包、Mod 兼容性无关。",
-      next: [
-        "关闭占用内存较多的其它应用，给编译器留出余量。",
-        "重试时让构建器使用更大的堆内存（Apple Silicon 18 GB 机型可用 9 GiB）。",
-        "若仍然耗尽，需要减少同时启用的内容或换内存更大的 Mac。",
-      ],
-      retryHelps: false,
+      title: "Java 25 原生编译堆耗尽",
+      cause: `Native Image 的构建 JVM${budget}耗尽了 Java 堆。${progress}`,
+      next,
+      retryHelps: !collector,
     };
   }
   if (has("Build inputs changed")) {
@@ -436,6 +442,9 @@ export function restoreForm(raw: string | null): BuildForm {
   if (value.unsigned !== undefined && typeof value.unsigned !== "boolean")
     throw new Error("未签名选项无效");
   result.unsigned = value.unsigned === true;
+  if (value.quickBuild !== undefined && typeof value.quickBuild !== "boolean")
+    throw new Error("快速构建选项无效");
+  result.quickBuild = value.quickBuild === true;
   result.loader = value.loader === "vanilla" ? "vanilla" : "fabric";
   // The game source is a per-visit choice: a stored pack must never preselect
   // the next build. The field is accepted for older records and ignored.

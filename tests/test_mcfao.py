@@ -12,9 +12,10 @@ import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 
-from mcfao import (Build, device_xcode, export_ipa, load_config, resolve_development_team,
+from mcfao import (Build, build as compile_game, device_xcode, export_ipa, load_config, resolve_development_team,
                    main as mcfao_main, select_development_team, tree_files, write_json)
 from external_storage import ExternalStorageUnavailable
+from probe_client_graph import native_failure_reason
 from prepare_fabric_aot import MAX_TRANSFORM_ARCHIVES
 from prepare_fabric_aot import inspect_archives, inspect_compatibility, main as prepare_fabric
 from prepare_fabric_aot import merge_client, root_mod_ids, runtime_overlay_sources
@@ -68,6 +69,68 @@ class StageTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "fixture failed.*Logs:"):
                 Build(self.root, "key").step("fixture", ["builder", "{product}"])
         self.assertFalse((self.root / "fixture/checkpoint.json").exists())
+
+    def test_aot_failure_carries_heap_settings_and_the_last_completed_phase(self):
+        def capture(argv, folder, _timeout):
+            folder.mkdir()
+            product = Path(argv[1])
+            analysis = product / "analysis"
+            analysis.mkdir(parents=True)
+            (analysis / "stdout.log").write_text(
+                "[2/8] Performing analysis... (199.0s @ 7.09GB)\n"
+                "[6/8] Compiling methods...    [***] (277.1s @ 7.52GB)\n"
+                "[7/8] Laying out methods...   [*]\n"
+                "Terminating due to java.lang.OutOfMemoryError: Java heap space\n"
+            )
+            run = {"exitCode": 3, "timedOut": False}
+            write_json(product / "result.json", {
+                "builderGC": "g1", "heapGiB": 9,
+                "analysisFailure": native_failure_reason(analysis, run),
+            })
+            return {"exitCode": 2, "timedOut": False}
+
+        with patch("mcfao.capture", side_effect=capture):
+            with self.assertRaises(RuntimeError) as error:
+                Build(self.root, "key").step("aot", ["builder", "{product}"])
+        self.assertIn("Native Image builder: g1 GC, -Xmx9g", str(error.exception))
+        self.assertIn("Native Image last completed phase: 6/8", str(error.exception))
+        self.assertIn("Java heap space", str(error.exception))
+
+    def test_game_build_pins_the_host_collector_in_the_manifest_and_probe(self):
+        config = {name: self.root / name for name in
+                  ("prepared", "splitter", "bootstrapRuntime", "caps", "b1Evidence", "lwjgl")}
+        for name in ("prepared", "splitter"):
+            config[name].mkdir()
+        write_json(config["prepared"] / "result.json", {"javaHome": "/fixture/java"})
+        write_json(config["splitter"] / "result.json", {"asmJars": []})
+        mods = self.root / "mods"
+        mods.mkdir()
+        (mods / "fixture.jar").write_bytes(archive([("fabric.mod.json", b"{}")]))
+        for loader, override, expected, quick in (("fabric", None, "g1", False), ("vanilla", None, "parallel", False),
+                                                  ("fabric", "parallel", "parallel", False), ("fabric", None, "g1", True)):
+            with self.subTest(loader=loader, override=override, quick=quick):
+                args = SimpleNamespace(output=self.root / f"{loader}-{override}-{quick}", mods=mods,
+                                       loader=loader, renderer="gl41", builder_gc=override,
+                                       device=None, audited_mods=True, prepare_only=False, trace_agent=False,
+                                       quick_build=quick)
+
+                def step(name, argv, **_kwargs):
+                    if name == "aot":
+                        self.assertEqual(argv[argv.index("--builder-gc") + 1], expected)
+                        self.assertIn("--optimization=-O1", argv)
+                        raise RuntimeError("stop at AOT")
+                    return self.root
+
+                with (patch("mcfao.inputs", return_value=({"filesSHA256": {}, "renderer": "gl41"}, self.root / "client.jar", [])),
+                      patch("mcfao.loader_client", return_value=(self.root / "client.jar", None)),
+                      patch("mcfao.cache_path", return_value=self.root / "cache") as cache_path,
+                      patch.dict("os.environ", {"MCFAO_OPT_LEVEL": "-O1"}),
+                      patch.object(Build, "step", side_effect=step),
+                      self.assertRaisesRegex(RuntimeError, "stop at AOT")):
+                    compile_game(args, config)
+                manifest = json.loads((args.output / "inputs.json").read_text())
+                self.assertEqual(manifest["builderGC"], expected)
+                self.assertEqual(cache_path.called, quick)
 
     def test_development_team_is_selected_from_an_installed_profile(self):
         now = datetime(2026, 11, 11, tzinfo=timezone.utc)

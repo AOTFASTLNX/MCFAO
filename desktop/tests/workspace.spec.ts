@@ -23,6 +23,24 @@ async function pick(page: Page, label: string, option: string) {
     .click();
   await expect(trigger).toHaveAttribute("aria-expanded", "false");
 }
+test("quick build defaults off and persists keyboard changes", async ({ page }) => {
+  await page.goto("/");
+  const settings = page.getByRole("button", { name: "设置", exact: true });
+  await settings.click();
+  const quickBuild = page.getByRole("switch", { name: "快速构建" });
+  await expect(quickBuild).not.toBeChecked();
+  await quickBuild.focus();
+  await page.keyboard.press("Space");
+  await expect(quickBuild).toBeChecked();
+  await page.reload();
+  await settings.click();
+  await expect(quickBuild).toBeChecked();
+  await quickBuild.click();
+  await expect(quickBuild).not.toBeChecked();
+  await page.reload();
+  await settings.click();
+  await expect(quickBuild).not.toBeChecked();
+});
 test("client grading filters combine with categories and keep selection independent", async ({
   page,
 }) => {

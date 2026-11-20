@@ -188,3 +188,33 @@ PointsToAnalysis.addRootMethod → DefaultAnalysisPolicy.staticRootMethodGraph
 | 原生库 | `UnsatisfiedLinkError: liblwjgl.dylib` | iOS 无 LWJGL natives，GLFW 无 iOS 后端 | **未解决，Gate C 真实阻断** |
 
 跑到这里说明 AOT、链接、签名、堆预留都不是瓶颈：`[Datafixer Bootstrap/INFO]: 291 Datafixer optimizations took 260 milliseconds` 是 Minecraft 自己的代码在跑。真正缺的是图形与窗口层。
+
+## 2026-11-20 Recollection3 方法布局阶段堆耗尽
+
+桌面任务 `03eb0f50` 与前一失败任务均通过可达性分析及方法编译。失败前的最后一条完成记录是 `[6/8] Compiling methods`，后续方法布局没有完成。两次均为 GraalVM CE 25.0.2 构建 JVM 的 `Java heap space`，退出码 3。最近一次启动前的系统可用内存指标为 56%，高于 35% 的构建预检门槛。
+
+凌晨的成功任务 `768a7fa0` 与失败任务使用相同的 41 个根 Mod JAR（逐文件 SHA-256）、`-Xmx9g`、3 个构建线程和同样规模的可达图（78,877 个类型、320,987 个方法）。最近一次失败的 Parallel GC 保留日志包含 185 次 Full GC，末尾的老年代固定在 6 GiB 且占满，反复回收后整个堆仍约 7.91 GiB。Native Image 从构建 JVM 的 `Runtime.maxMemory()` 读到 8.59 GB。
+
+`mcfao build --loader fabric` 默认给构建 JVM 传 G1。G1 按区域分配各代，复测中 Native Image 报告的可用堆为 9.66 GB，`-Xmx9g` 和 50% 物理内存上限保持不变。构建清单记录 `builderGC`，可用 `--builder-gc parallel` 做对照。G1 的 `-J` 参数只传给 Mac 构建 JVM。失败任务保留所选堆上限、GC、最后完成的 Native Image 阶段和原始错误。
+
+对照从失败任务的同一个已转换客户端 JAR、CAP 与原生依赖重跑现有 Builder 包内探针，将 `--output` 指向新目录并加入 `--builder-gc g1 --oom-stack`。沙箱拒绝对照通过。Native Image 可达图规模相同，最后完成方法布局并生成 526,894,872 字节的 ARM64 可重定位对象。Native Image 报告用时 9 分 42 秒。GC 日志记录两次 Full GC、约 65 秒回收停顿，旧配置最近一次失败记录约 717 秒回收停顿。保留的命令、原始日志和结果见 [本地对照目录](../artifacts/evidence/recollection3-aot-g1-20261120/aot-evidence/)。
+
+用该对象重跑现有 Builder 的 iPhoneOS 运行库构建、`arm64-apple-ios17.0` 链接、GL41 封装和 Builder 无签名 IPA 逐文件复验。链接报告的 14 个未实现 JNI 入口与凌晨成功产物一致。对照 IPA 为 635,213,223 字节，SHA-256 为 `d4e29edf0d8a43c9ef0ae913f2dddccceec6ade333e7d956fe3e637896b38e10`。签名与真机运行未测试。
+
+42 个编排测试、19 个诊断与存储相关测试、90 个前端单元测试和 TypeScript 检查通过。源码工作区的个人外接盘清单仍指向缺失的 `/Volumes/K/MCFAO-data`，全量 Python 测试中有 18 项依赖该配置或旧缓存路径而报错。新版桌面包的正式打包同样被存储预检暂停。
+
+## 可选快速构建
+
+使用同一已转换的 Recollection3 客户端、G1 和 9 GiB 堆，各测一次。三组可达类型、字段和方法数一致。
+
+| Native Image 参数 | AOT 用时 | 方法编译 |
+| --- | ---: | ---: |
+| `-O1`，3 线程 | 9 分 42 秒 | 204.7 秒 |
+| `-Ob`，3 线程 | 8 分 37 秒 | 139.5 秒 |
+| `-O1`，4 线程 | 8 分 05 秒 | 157.8 秒 |
+
+快速构建选择 `-O1` 与 4 线程，关闭时使用 `-O1` 与 3 线程重新编译。8 分钟目标仍待实测达成，尚未完成三次冷编译稳定性对照。验证记录保存在 [本地产物目录](../artifacts/evidence/recollection3-quick-build-20261120/)。
+
+4 线程对象通过 iPhoneOS ARM64 链接、Xcode 封装和无签名 IPA 逐文件校验。用该 526,976,816 字节对象验证缓存恢复，切换暂存路径及封装参数后仍命中。复制及散列校验用时 0.402 秒，随后复验了对象符号。此计时只覆盖缓存恢复，完整构建仍执行链接、封装和校验。尚未验证 iPhone 运行。
+
+缓存及编排测试、Chrome 设置开关持久化、TypeScript 和前端产物构建通过。源码工作区仍缺少旧外接盘配置所指的 `/Volumes/K/MCFAO-data`，新版桌面包预检暂停，全量 Python 回归有 17 项依赖旧路径而报错。

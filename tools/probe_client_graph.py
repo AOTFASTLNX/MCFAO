@@ -31,6 +31,7 @@ from verify_aot_classpath import verify_entries
 NATIVE_FAILURE = re.compile(
     r"OutOfMemoryError|ran out of memory|NativeImage\$NativeImageError|"
     r"UnsatisfiedLinkError|NoClassDefFoundError|Exception in thread|^Error:")
+NATIVE_COMPLETED_PHASE = re.compile(r"^\[([1-8])/8\].*\(\d+(?:\.\d+)?s @ [\d.]+GB\)\s*$")
 
 
 def native_failure_reason(folder: Path, run: dict, limit=6):
@@ -41,10 +42,16 @@ def native_failure_reason(folder: Path, run: dict, limit=6):
     failure instead of reporting a bare exit code.
     """
     lines = []
+    last_completed_phase = None
     for name in ("stderr.log", "stdout.log"):
         path = folder / name
         if path.is_file():
-            lines.extend(path.read_text(errors="replace").splitlines())
+            output = path.read_text(errors="replace").splitlines()
+            lines.extend(output)
+            if name == "stdout.log":
+                for line in output:
+                    if match := NATIVE_COMPLETED_PHASE.match(line):
+                        last_completed_phase = int(match[1])
     picked = []
     for line in lines:
         if NATIVE_FAILURE.search(line):
@@ -53,7 +60,8 @@ def native_failure_reason(folder: Path, run: dict, limit=6):
             if len(picked) == limit: break
     if not picked:
         picked = [line.strip() for line in lines if line.strip()][-4:]
-    return {"exitCode": run["exitCode"], "timedOut": run["timedOut"], "lines": picked}
+    return {"exitCode": run["exitCode"], "timedOut": run["timedOut"], "lines": picked,
+            "lastCompletedPhase": last_completed_phase}
 
 def verify_split_runtime_input(candidate: Path)->dict|None:
     manifest=candidate.parent/'result.json'
@@ -157,6 +165,8 @@ def run(argv, resources):
     parser.add_argument("--b1-evidence", type=Path, default=ROOT / "artifacts/evidence/b1-user-device-run-01/result.json")
     parser.add_argument("--heap-gib", type=int, choices=(6, 7, 8, 9), default=6)
     parser.add_argument("--builder-gc", choices=("parallel", "g1"), default="parallel")
+    parser.add_argument("--optimization", choices=("-O0", "-O1", "-O2", "-O3", "-Ob", "-Os"),
+                        default=os.environ.get("MCFAO_OPT_LEVEL", "-O1"))
     parser.add_argument("--oom-stack", action="store_true", help="Let the build JVM report the first OOM instead of immediately exiting")
     parser.add_argument("--census-agent",type=Path,help="Sandbox-verified first-party Mac JVMTI agent directory")
     parser.add_argument("--census-at",default=None,
@@ -513,7 +523,7 @@ def run(argv, resources):
             entry["name"]: sorted([item["name"] for item in entry.get("methods", ())] +
                                   [item["name"] for item in entry.get("fields", ())])
             for entry in inferred if entry.get("methods") or entry.get("fields")}
-        cmd=[*base,str(executable),"--no-fallback","-H:+SharedArenaSupport",os.environ.get("MCFAO_OPT_LEVEL","-O1"),f"--parallelism={args.parallelism}",f"-J-Xmx{args.heap_gib}g","-J-XX:-UsePerfData",
+        cmd=[*base,str(executable),"--no-fallback","-H:+SharedArenaSupport",args.optimization,f"--parallelism={args.parallelism}",f"-J-Xmx{args.heap_gib}g","-J-XX:-UsePerfData",
              "-J-Duser.home="+str(work/"home"),"-J-Djava.io.tmpdir="+str(work/"tmp"),"-H:+UnlockExperimentalVMOptions",
              "--shared","--verbose","--diagnostics-mode","-H:+PrintAnalysisStatistics",
              "-H:BuildOutputJSONFile="+str(work/"build-output.json"),

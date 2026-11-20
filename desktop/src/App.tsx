@@ -2980,11 +2980,9 @@ export default function App() {
                                 disabled={!native || !!busy || !!active}
                                 onClick={() =>
                                   void attempt("正在恢复构建", async () => {
-                                    // Retry reuses the recorded request: the
-                                    // builder no longer remembers a pack, and
-                                    // the supervisor rejects a changed request.
+                                    // Retry keeps the recorded pack and uses the current build preference.
                                     const next = await workbench<BuildJob>(
-                                      job.request,
+                                      { ...job.request, quickBuild: form.quickBuild },
                                       "retry",
                                       job.id,
                                     );
@@ -3156,6 +3154,26 @@ export default function App() {
                   ) : (
                     <AccountPanel disabled={!!active || !!busy} />
                   )}
+                </div>
+                <div className="settings-group">
+                  <h2>构建</h2>
+                  <label className="setting-row setting-switch-row">
+                    <span className="setting-label">
+                      <strong id="quick-build-label">快速构建</strong>
+                      <small id="quick-build-description">
+                        开启时复用匹配的编译产物，或快速编译。关闭时从头编译。适用于新建和重试。
+                      </small>
+                    </span>
+                    <input
+                      className="setting-switch"
+                      type="checkbox"
+                      role="switch"
+                      aria-labelledby="quick-build-label"
+                      aria-describedby="quick-build-description"
+                      checked={form.quickBuild === true}
+                      onChange={(event) => update({ quickBuild: event.target.checked })}
+                    />
+                  </label>
                 </div>
                 <div className="settings-group">
                   <h2>外观</h2>

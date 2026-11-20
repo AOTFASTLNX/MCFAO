@@ -549,20 +549,36 @@ class WorkbenchTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, '已有构建'):
                 w.start(request)
 
-    def test_retry_preserves_staged_inputs_and_original_build_directory(self):
+    def test_retry_applies_current_compile_preference_and_preserves_staged_inputs(self):
+        from contextlib import nullcontext
         from types import SimpleNamespace
-        request = {'loader': 'vanilla', 'output': str(self.root / 'output')}
+        request = {'loader': 'vanilla', 'output': str(self.root / 'output'), 'quickBuild': True}
         old_id = 'e' * 32
         path = w.job_path(self.root, old_id)
         path.parent.mkdir(parents=True)
         w.write_json(path, dict(id=old_id, state='failed', stage='aot', request=request,
                                build=str(self.root / 'original-build'), sourceFolder=str(self.root / 'original-source'),
                                folder=str(path.parent)))
-        with patch.object(w, 'validate_request', return_value=self.root), patch.object(w.subprocess, 'Popen', return_value=SimpleNamespace(pid=12345)):
-            job = w.start(request, old_id)
-        self.assertEqual(job['build'], str(self.root / 'original-build'))
-        self.assertEqual(job['sourceFolder'], str(self.root / 'original-source'))
-        self.assertNotEqual(job['id'], old_id)
+        with (patch.object(w, 'validate_request', return_value=self.root),
+              patch.object(w, 'control_lock', side_effect=lambda _: nullcontext()),
+              patch.object(w, 'require_mount'),
+              patch.object(w, 'storage_paths', return_value={'jobs': path.parent.parent}),
+              patch.object(w, 'require_space'), patch.object(w, 'history', return_value=[]),
+              patch.object(w.subprocess, 'Popen', return_value=SimpleNamespace(pid=12345))):
+            for enabled in (True, False):
+                with self.subTest(enabled=enabled):
+                    job = w.start(w.retry_request(w.read_json(path), self.root, enabled), old_id)
+                    self.assertEqual(job['request']['quickBuild'], enabled)
+                    self.assertEqual(job['build'] == str(self.root / 'original-build'), enabled)
+                    self.assertEqual(job['sourceFolder'], str(self.root / 'original-source'))
+                    self.assertNotEqual(job['id'], old_id)
+                    with patch.object(w, 'execute') as execute:
+                        w.compile_build(['python', 'mcfao.py'], path.parent,
+                                        {**job['request'], 'config': str(self.root/'config.json')},
+                                        job['build'], None, None, lambda **_: None, {})
+                    argv = execute.call_args.args[0]
+                    self.assertEqual('--quick-build' in argv, enabled)
+                    self.assertEqual(argv[argv.index('--parallelism') + 1], '4' if enabled else '3')
 
     def test_retry_after_app_update_uses_new_bundle_and_preserves_saved_inputs(self):
         workspace = self.root / 'New.app/Contents/Resources/source'
