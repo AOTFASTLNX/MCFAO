@@ -1,6 +1,6 @@
 # Native Craft Launcher — 编码 Agent 根指令
 
-> 2026-11-15 集成决策：本次主要渲染路线按 docs/evidence/ADR-009.md：Blaze3D OpenGL → LWJGL JNI → OSMesa/Zink → MoltenVK → Metal/CAMetalLayer；保留 compiler/metal-backend 为可选 Metal 构建。所有开发位于 integration/gl41-gui-ipa-20261115 或子分支，禁止推送/合并 main 或删除备份分支。桌面构建器继续 desktop/ 的 Tauri 2 + React + TypeScript + Rust，仅验收 Apple Silicon macOS。
+> 2026-11-15 集成决策：本次主要渲染路线按 docs/evidence/ADR-009.md：Blaze3D OpenGL → LWJGL JNI → OSMesa/Zink → MoltenVK → Metal/CAMetalLayer；保留 compiler/metal-backend 为可选 Metal 构建。所有开发位于 integration/gl41-gui-ipa-20261115 或子分支，仅在用户明确指示时，才可将 main 合入当前分支、将变更合入 main 或推送 main；按用户指定的方向及远端执行。禁止删除备份分支。桌面构建器继续 desktop/ 的 Tauri 2 + React + TypeScript + Rust，仅验收 Apple Silicon macOS。
 > 2026-11-17 存储：仓库对磁盘布局没有硬性要求，默认使用项目内目录；构建前只需满足 tools/storage_config.py 的空间预检。维护者本机可选用外接盘，通过未跟踪的 external-storage.json 声明符号链接映射（说明见 docs/EXTERNAL_STORAGE.md）。仅当仓库根存在这份个人清单时，tools/external_storage.py 才会在卷未挂载或链接损坏时暂停构建（退出码 3）；此时 Agent 不得绕过、跳过或伪造该检查，也不要在断盘时删除或重建链接。
 
 
