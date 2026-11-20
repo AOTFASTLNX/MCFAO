@@ -1,9 +1,11 @@
+import os
 from pathlib import Path
 import sys
 import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
+PREPARED = Path(os.environ.get("MCFAO_TEST_FABRIC_PREPARED", ROOT / "artifacts/b0/prepared-04"))
 sys.path.insert(0, str(ROOT / "tools"))
 from capture import capture
 from prepare_fabric_aot import compile_java as _compile_java, load_reference
@@ -35,10 +37,31 @@ def newest_metal_backend():
 
 
 class RuntimeLoweringTests(unittest.TestCase):
-    @unittest.skipUnless((ROOT / "artifacts/b0/prepared-04/result.json").is_file(),
+    @unittest.skipUnless((PREPARED / "result.json").is_file(),
+                         "Requires the pinned local Java/ASM/Minecraft toolchain")
+    def test_texture_sampler_matches_desktop_pixels_without_rewriting_escapes(self):
+        home, libraries, engine, _ = load_reference(PREPARED)
+        classpath = [*engine, *libraries]
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            classes = output / "classes"
+            classes.mkdir()
+            compile_java(home, classpath, [
+                ROOT / "interop/fabric/tool/mcfao/build/TextureImageLowering.java",
+                ROOT / "interop/fabric/tool/mcfao/aot/TextureImage.java",
+                ROOT / "interop/diagnostics/TextureImageProbe.java",
+            ], classes, output / "compile")
+            result = capture([str(home / "bin/java"), "-Xverify:all", "-Djava.awt.headless=true",
+                              "--enable-native-access=ALL-UNNAMED", "-cp",
+                              os.pathsep.join(map(str, [classes, *classpath])),
+                              "mcfao.build.TextureImageProbe"], output / "run", 30)
+            self.assertEqual(result["exitCode"], 0, (output / "run/stderr.log").read_text())
+            self.assertIn("MCFAO_TEXTURE_IMAGE_PASS", (output / "run/stdout.log").read_text())
+
+    @unittest.skipUnless((PREPARED / "result.json").is_file(),
                          "Requires the pinned local Java/ASM toolchain")
     def test_jade_tooltip_mod_names_answer_from_the_generated_table(self):
-        home, _, engine, _ = load_reference(ROOT / "artifacts/b0/prepared-04")
+        home, _, engine, _ = load_reference(PREPARED)
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)
             classes = output / "classes"
@@ -56,7 +79,7 @@ class RuntimeLoweringTests(unittest.TestCase):
                           (output / "run/stdout.log").read_text())
 
     def test_mods_asking_for_their_own_jar_get_a_nominal_path(self):
-        home, _, engine, _ = load_reference(ROOT / "artifacts/b0/prepared-04")
+        home, _, engine, _ = load_reference(PREPARED)
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)
             classes = output / "classes"
@@ -74,10 +97,10 @@ class RuntimeLoweringTests(unittest.TestCase):
             self.assertIn("MCFAO_MOD_FILE_PASS",
                           (output / "run/stdout.log").read_text())
 
-    @unittest.skipUnless((ROOT / "artifacts/b0/prepared-04/result.json").is_file(),
+    @unittest.skipUnless((PREPARED / "result.json").is_file(),
                          "Requires the pinned local Java/ASM toolchain")
     def test_json_reads_through_a_mod_wrapper_register_their_type(self):
-        home, _, engine, _ = load_reference(ROOT / "artifacts/b0/prepared-04")
+        home, _, engine, _ = load_reference(PREPARED)
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)
             classes = output / "classes"
@@ -94,10 +117,10 @@ class RuntimeLoweringTests(unittest.TestCase):
             self.assertIn("MCFAO_SERIALIZATION_ROOT_PASS",
                           (output / "run/stdout.log").read_text())
 
-    @unittest.skipUnless((ROOT / "artifacts/b0/prepared-04/result.json").is_file(),
+    @unittest.skipUnless((PREPARED / "result.json").is_file(),
                          "Requires the pinned local Java/ASM toolchain")
     def test_custom_stage_singletons_and_lazy_identity(self):
-        home, libraries, engine, _ = load_reference(ROOT / "artifacts/b0/prepared-04")
+        home, libraries, engine, _ = load_reference(PREPARED)
         classpath = [*engine, *libraries]
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)
@@ -114,10 +137,10 @@ class RuntimeLoweringTests(unittest.TestCase):
                              (output / "run/stderr.log").read_text())
             self.assertIn("MCFAO_STAGE_SINGLETON_CACHE_PASS", (output / "run/stdout.log").read_text())
 
-    @unittest.skipUnless((ROOT / "artifacts/b0/prepared-04/result.json").is_file(),
+    @unittest.skipUnless((PREPARED / "result.json").is_file(),
                          "Requires the pinned local Java/ASM toolchain")
     def test_glitchcore_event_types_are_resolved_at_build_time(self):
-        home, _, engine, _ = load_reference(ROOT / "artifacts/b0/prepared-04")
+        home, _, engine, _ = load_reference(PREPARED)
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)
             classes = output / "classes"
@@ -134,10 +157,10 @@ class RuntimeLoweringTests(unittest.TestCase):
             self.assertIn("MCFAO_GLITCHCORE_EVENT_LOWERING_PASS",
                           (output / "run/stdout.log").read_text())
 
-    @unittest.skipUnless((ROOT / "artifacts/b0/prepared-04/result.json").is_file(),
+    @unittest.skipUnless((PREPARED / "result.json").is_file(),
                          "Requires the pinned local Java/ASM toolchain")
     def test_fabric_api_interfaces_are_pinned_for_dual_initializers(self):
-        home, libraries, engine, _ = load_reference(ROOT / "artifacts/b0/prepared-04")
+        home, libraries, engine, _ = load_reference(PREPARED)
         classpath = [*engine, *libraries]
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)
@@ -155,10 +178,10 @@ class RuntimeLoweringTests(unittest.TestCase):
             self.assertIn("MCFAO_FABRIC_API_CLOSURE_PASS",
                           (output / "run/stdout.log").read_text())
 
-    @unittest.skipUnless((ROOT / "artifacts/b0/prepared-04/result.json").is_file(),
+    @unittest.skipUnless((PREPARED / "result.json").is_file(),
                          "Requires the pinned local Java/ASM toolchain")
     def test_mixin_plugin_early_init_is_replayed_in_closed_world(self):
-        home, libraries, engine, _ = load_reference(ROOT / "artifacts/b0/prepared-04")
+        home, libraries, engine, _ = load_reference(PREPARED)
         classpath = [*engine, *libraries]
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)
@@ -177,10 +200,10 @@ class RuntimeLoweringTests(unittest.TestCase):
             self.assertIn("MCFAO_IMMEDIATELYFAST_EARLY_INIT_PASS",
                           (output / "run/stdout.log").read_text())
 
-    @unittest.skipUnless((ROOT / "artifacts/b0/prepared-04/result.json").is_file(),
+    @unittest.skipUnless((PREPARED / "result.json").is_file(),
                          "Requires the pinned local Java/ASM toolchain")
     def test_indigo_renderer_decision_without_runtime_plugin(self):
-        home, _, engine, _ = load_reference(ROOT / "artifacts/b0/prepared-04")
+        home, _, engine, _ = load_reference(PREPARED)
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)
             classes = output / "classes"
@@ -197,10 +220,10 @@ class RuntimeLoweringTests(unittest.TestCase):
             self.assertIn("MCFAO_INDIGO_GATE_LOWERING_PASS",
                           (output / "run/stdout.log").read_text())
 
-    @unittest.skipUnless((ROOT / "artifacts/b0/prepared-04/result.json").is_file(),
+    @unittest.skipUnless((PREPARED / "result.json").is_file(),
                          "Requires the pinned local Java/ASM toolchain")
     def test_render_pipelines_are_gated_by_the_shader_bundle(self):
-        home, libraries, engine, _ = load_reference(ROOT / "artifacts/b0/prepared-04")
+        home, libraries, engine, _ = load_reference(PREPARED)
         client = next(path for path in libraries if path.name == "26.1.2.jar")
         metal = newest_metal_backend()
         classpath = [metal, *engine, *libraries]
@@ -228,10 +251,10 @@ class RuntimeLoweringTests(unittest.TestCase):
             self.assertEqual(unreadable["exitCode"], 0, (output / "open/stderr.log").read_text())
             self.assertIn("MCFAO_PIPELINE_BUNDLE_PASS open", (output / "open/stdout.log").read_text())
 
-    @unittest.skipUnless((ROOT / "artifacts/b0/prepared-04/result.json").is_file(),
+    @unittest.skipUnless((PREPARED / "result.json").is_file(),
                          "Requires the pinned local Java/ASM toolchain")
     def test_framework_configs_are_discovered_without_the_loader(self):
-        home, _, engine, _ = load_reference(ROOT / "artifacts/b0/prepared-04")
+        home, _, engine, _ = load_reference(PREPARED)
         client = newest_merged_client()
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)
@@ -247,10 +270,10 @@ class RuntimeLoweringTests(unittest.TestCase):
             self.assertEqual(result["exitCode"], 0, (output / "run/stderr.log").read_text())
             self.assertIn("MCFAO_CONFIG_DISCOVERY_PASS", (output / "run/stdout.log").read_text())
 
-    @unittest.skipUnless((ROOT / "artifacts/b0/prepared-04/result.json").is_file(),
+    @unittest.skipUnless((PREPARED / "result.json").is_file(),
                          "Requires the pinned local Java/ASM toolchain")
     def test_mod_resource_namespaces_reach_the_builtin_pack(self):
-        home, libraries, engine, _ = load_reference(ROOT / "artifacts/b0/prepared-04")
+        home, libraries, engine, _ = load_reference(PREPARED)
         client = next(path for path in libraries if path.name == "26.1.2.jar")
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)

@@ -53,6 +53,8 @@ OVERRIDE_QUERIES = {"canCollideWith", "canBeCollidedWith", "canHitEntity",
 # ``supplier.get().getClass()`` inside its constructor, so the config class name appears nowhere
 # but the ``X::new`` method handle passed at the call site.
 T_CONFIG_HANDLER = "traben/tconfig/TConfigHandler"
+GSON_CLASS_ARGS = "(Lcom/google/gson/Gson;Ljava/lang/Class;)"
+ACC_ENUM = 0x4000
 
 
 def _instruction_length(code, position):
@@ -195,6 +197,47 @@ def has_typed_gson_loader(owner, methods, code_bodies, pool):
             previous.append((opcode, value))
     return any(field_owner == owner and descriptor == "Ljava/lang/Class;"
                for _, field_owner, _, descriptor in assigned & constructed & decoded)
+
+
+def gson_serializer_flow(owner, methods, code_bodies, pool):
+    """Find Class literals passed to Gson serializers and trace their stored Class fields."""
+    sites, assigned, decoded, forwards = set(), set(), set(), set()
+    for method, code in zip(methods, code_bodies, strict=True):
+        previous = deque(maxlen=2)
+        for opcode, value in instructions(code, pool):
+            if (opcode == 0xb5 and method == "<init>" + GSON_CLASS_ARGS + "V"
+                    and list(previous) == [(0x2a, None), (0x2c, None)]):
+                assigned.add(value)
+            if opcode in (0xb6, 0xb7, 0xb8) and previous:
+                _, callee, member, desc = value
+                last_op, last = previous[-1]
+                serializer_constructor = (opcode == 0xb7 and member == "<init>"
+                                          and desc == GSON_CLASS_ARGS + "V")
+                factory = opcode == 0xb8 and desc == GSON_CLASS_ARGS + "L" + callee + ";"
+                if (serializer_constructor or factory) and last_op in (0x12, 0x13) and (
+                        isinstance(last, tuple) and last[0] == 7):
+                    sites.add((callee, last[1]))
+                if len(previous) == 2 and previous[0] == (0x2a, None) and last_op == 0xb4:
+                    if (opcode == 0xb6 and callee == "com/google/gson/Gson" and member == "fromJson"
+                            and desc.endswith("Ljava/lang/Class;)Ljava/lang/Object;")):
+                        decoded.add(last)
+                    elif serializer_constructor:
+                        forwards.add((last, callee))
+            previous.append((opcode, value))
+    class_fields = {field for field in assigned if field[1] == owner and field[3] == "Ljava/lang/Class;"}
+    return sorted(sites), bool(class_fields & decoded), sorted({target for field, target in forwards
+                                                              if field in class_fields})
+
+
+def gson_serializer_roots(shapes):
+    serializers = {name for name, shape in shapes.items() if shape["gsonSerializer"][1]}
+    while True:
+        added = {name for name, shape in shapes.items() if serializers.intersection(shape["gsonSerializer"][2])}
+        if added <= serializers:
+            break
+        serializers.update(added)
+    return {target for shape in shapes.values() for owner, target in shape["gsonSerializer"][0]
+            if owner in serializers and target in shapes and not target.startswith(PLATFORM_PREFIXES)}
 
 
 def member_sites(code, pool):
@@ -549,12 +592,16 @@ def class_shape(data, *, graph=False, declarations_only=False):
     if (b"com/google/gson/Gson" in data and b"getConstructor" in data
             and "Ljava/lang/Class;" in declared_fields):
         gson_loader = has_typed_gson_loader(this, code_methods, code_bodies, pool)
+    serializer = ([], False, [])
+    if b"Lcom/google/gson/Gson;Ljava/lang/Class;" in data:
+        serializer = gson_serializer_flow(this, code_methods, code_bodies, pool)
     shape = {**declarations, "fieldTypes": sorted(field_types),
             "declaredFields": sorted(declared_fields),
             "declaredFieldNames": sorted(declared_field_names), "fields": fields,
             "methods": methods, "methodSignatures": method_signatures,
             "constructors": sorted(constructors), "publicNoArgConstructor": public_no_arg,
             "jsonLoaderSites": typed_sites, "gsonConstructorLoader": gson_loader, "reflection": sites,
+            "gsonSerializer": serializer,
             "forName": forname, "factories": sorted(factories),
             "classLiterals": sorted(literals)}
     if graph:
@@ -605,6 +652,8 @@ def config_entries(shapes, serialization_roots=(), open_roots=()):
             visited.add(name)
             selected.add(name)
             shape = shapes[name]
+            if shape["access"] & ACC_ENUM:
+                continue  # Gson needs enum constants, not the enum's constructors or fields' types.
             # Include serialized inherited fields, then descend into the field types this kind of
             # root can reach.
             if shape["parent"] in shapes:
@@ -614,12 +663,16 @@ def config_entries(shapes, serialization_roots=(), open_roots=()):
                                if not type_.startswith(PLATFORM_PREFIXES))
             else:
                 pending.extend(type_ for type_ in shape["fieldTypes"] if type_.startswith(package))
+            # A config can have a Minecraft enum, including as a generic EnumMap key. Include
+            # the resolved enum without following its references into the rest of the game.
+            pending.extend(t for t in shape["fieldTypes"] if t in shapes and shapes[t]["access"] & ACC_ENUM)
     # Gson asks for a declared no-arg constructor first and falls back to sun.misc.Unsafe when the
     # class has none (a config whose only constructor takes arguments, or a protected one). The
     # closed world refuses that fallback unless the type is registered as unsafe-allocatable, so
     # every selected type without a no-arg constructor carries the permission itself. Shapes come
     # from this build's own scan, which keeps the decision tied to the bytecode being registered.
-    return [{"name": name.replace("/", "."), "allDeclaredConstructors": True,
+    return [{"name": name.replace("/", "."), "allDeclaredFields": True} if shapes[name]["access"] & ACC_ENUM else
+            {"name": name.replace("/", "."), "allDeclaredConstructors": True,
              "allDeclaredFields": True,
              **({"allDeclaredMethods": True} if shapes[name]["parent"] == "java/lang/Record" else {}),
              **({"unsafeAllocated": True} if "()V" not in shapes[name]["constructors"] else {})}
@@ -803,11 +856,12 @@ def reflection_from_jar(path, *, class_visitor=None, diagnostics=None, include_e
             elif diagnostics is not None:
                 diagnostics.append({"code": "CONFIG_NO_PUBLIC_NOARG", "severity": "warning",
                                     "location": shape["name"], "target": target})
+    serializer_roots = gson_serializer_roots(shapes)
     if diagnostics is not None:
         diagnostics.extend({"code": "TYPED_GSON_CONFIG", "severity": "fix", "target": target}
-                           for target in sorted(typed_roots))
+                           for target in sorted(typed_roots | serializer_roots))
     return _merge(config_entries(shapes, sorted(yacl_config_roots(shapes)),
-                                 open_roots=[*roots, *sorted(json_config_roots(shapes) | typed_roots)]),
+                                 open_roots=[*roots, *sorted(json_config_roots(shapes) | typed_roots | serializer_roots)]),
                   [*member_entries(shapes, sites), *forname_entries(shapes, forname),
                    *override_entries(shapes),
                    *framework_config_entries(shapes, config_roots)])

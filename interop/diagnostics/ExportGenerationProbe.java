@@ -1,8 +1,12 @@
 package mcfao.build;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.InsnNode;
@@ -25,7 +29,47 @@ public final class ExportGenerationProbe {
         public ConfigInfo(String name, String version) { this.name = name; this.version = version; }
     }
 
+    static final class LiteralResourceCalls {
+        static void lookups(String dynamic) {
+            LiteralResourceCalls.class.getResourceAsStream("/fixture-root.png");
+            LiteralResourceCalls.class.getResource("fixture-relative.ogg");
+            LiteralResourceCalls.class.getClassLoader().getResourceAsStream("ui/font.ttf");
+            ClassLoader.getSystemResource("defaults.json");
+            LiteralResourceCalls.class.getClassLoader().getResourceAsStream("/loader-wrong.png");
+            LiteralResourceCalls.class.getResource("/fixture.so");
+            LiteralResourceCalls.class.getResource("/large.png");
+            LiteralResourceCalls.class.getResource("/bad/../escape.png");
+            LiteralResourceCalls.class.getResource(dynamic);
+        }
+    }
+
+    private static void checkLiteralResources() throws Exception {
+        var node = new ClassNode();
+        try (var stream = ExportGenerationProbe.class.getResourceAsStream(
+                "ExportGenerationProbe$LiteralResourceCalls.class")) {
+            new ClassReader(stream).accept(node, 0);
+        }
+        Path small = Files.createTempFile("mcfao-resource-sample", ".bin");
+        Path large = Files.createTempFile("mcfao-resource-limit", ".bin");
+        try {
+            Files.write(large, new byte[1024 * 1024 + 1]);
+            var expected = Set.of("fixture-root.png", "mcfao/build/fixture-relative.ogg", "ui/font.ttf", "defaults.json");
+            var input = new HashMap<String, Path>();
+            for (String name : expected) input.put(name, small);
+            for (String name : List.of("fixture.so", "/loader-wrong.png", "bad/../escape.png", "dynamic.png",
+                    node.name + ".class")) input.put(name, small);
+            input.put("large.png", large);
+            var retained = new HashMap<String, Path>();
+            AotExport.collectLiteralResources(node, input, retained);
+            if (!retained.keySet().equals(expected)) throw new AssertionError("Retained classpath files: " + retained);
+        } finally {
+            Files.deleteIfExists(large);
+            Files.deleteIfExists(small);
+        }
+    }
+
     public static void main(String[] args) throws Exception {
+        checkLiteralResources();
         var relocated = AotExport.shadedGuavaTypes();
         var guavaLoader = new ClassLoader(null) {
             protected Class<?> findClass(String name) throws ClassNotFoundException {
