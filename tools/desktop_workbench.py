@@ -31,6 +31,7 @@ from external_storage import ExternalStorageUnavailable, require_mount
 import cleanup_storage
 import storage_change
 from storage_inventory import inventory as storage_inventory
+import storage_service
 from storage_config import storage_paths, job_roots, require_space, save_paths, reset_paths, space_report, control_lock
 import native_dependencies
 import app_icon
@@ -42,7 +43,8 @@ KEYS = ('prepared', 'caps', 'bootstrapRuntime', 'splitter', 'versionMetadata', '
 OPTIONAL_KEYS = {'openjdkSource', 'graalSource', 'metal', 'shaders'}
 PUBLIC_ACTIONS = ('bootstrap', 'check', 'dependencies', 'start', 'status', 'cancel', 'history', 'retry',
                   'resolve-exclusions', 'save-config', 'icon-preview', 'storage-plan',
-                  'storage-clean', 'storage-settings', 'storage-change-plan', 'storage-change-apply', 'reset-storage', 'save-storage', 'setup-start', 'setup-status')
+                  'storage-clean', 'storage-settings', 'storage-change-plan', 'storage-change-apply', 'reset-storage', 'save-storage', 'setup-start', 'setup-status',
+                  'storage-snapshot', 'storage-scan-start', 'storage-scan-status', 'storage-scan-cancel', 'storage-refresh')
 ACTIVE = {'queued', 'running', 'cancelling', 'awaiting-exclusions'}
 STAGES = ['validate', 'source', 'doctor', 'fabric', 'split', 'gl41-patch', 'aot',
           'runtime', 'link', 'stage', 'package', 'archive', 'export-log', 'verify']
@@ -272,8 +274,12 @@ def storage(action, request):
         if action != 'storage-plan':
             raise ValueError('自定义存储目录需单独确认逐文件清理计划；当前只提供只读统计')
         paths = storage_paths()
-        report = storage_inventory(paths)
-        return dict(status='STORAGE_PLAN', dataRoot='configured directories', freeBytes=min((v['freeBytes'] for v in report['volumes']), default=0),
+        # One traversal for both the cleanup preview and the per-role usage.
+        measured = cleanup_storage._Measured()
+        plan = cleanup_storage.plan(data_root=ROOT, measured=measured)
+        report = storage_service.inventory(paths, store=True)
+        return dict(status='STORAGE_PLAN', dataRoot='configured directories',
+                    freeBytes=min((v['freeBytes'] for v in report['volumes']), default=0),
                     reclaimBytes=0, groups=[], activeJobs=[], blocked=True,
                     reason='自定义目录支持占用统计与 Finder 管理，暂不提供自动清理。', **report)
     data_root = cleanup_storage.default_data_root()
@@ -282,16 +288,51 @@ def storage(action, request):
                                       keep_builds=int(request.get('keepBuilds', 2)))
         # Legacy layouts keep CLI builds and evidence under artifacts; the nested
         # jobs directory is excluded from builds by the read-only inventory.
-        cache = data_root / 'cache'
-        if not cache.exists(): cache = data_root / '.cache'
-        result.update(storage_inventory(dict(cache=cache, builds=data_root / 'artifacts',
-            jobs=data_root / 'artifacts/desktop-jobs', rust=data_root / 'desktop/src-tauri/target')))
+        paths = dict(cache=data_root / 'cache', builds=data_root / 'artifacts',
+                     jobs=data_root / 'artifacts/desktop-jobs',
+                     rust=data_root / 'desktop/src-tauri/target')
+        if not paths['cache'].exists():
+            paths['cache'] = data_root / '.cache'
+        result.update(storage_service.inventory(paths, store=True))
         return result
     groups = request.get('groups')
     if not isinstance(groups, list) or not groups or not all(isinstance(g, str) for g in groups):
         raise ValueError('请选择要清理的内容')
-    return cleanup_storage.apply(data_root=data_root, groups=groups,
-                                 keep_builds=int(request.get('keepBuilds', 2)))
+    result = cleanup_storage.apply(data_root=data_root, groups=groups,
+                                   keep_builds=int(request.get('keepBuilds', 2)))
+    # Deleted trees must not be counted from the index; recompute on next visit.
+    try:
+        removed = [Path(item['path']) for item in result.get('removed', [])]
+        storage_service.invalidate(storage_service.paths_for(data_root), removed)
+    except Exception:
+        pass
+    return result
+
+def storage_scan(action, request):
+    """Cached, background and incremental storage scans (read-only)."""
+    data_root = cleanup_storage.default_data_root()
+    paths = storage_service.paths_for(data_root)
+    if action == 'storage-snapshot':
+        cached = storage_service.snapshot(paths)
+        return dict(status='STORAGE_SNAPSHOT', cached=bool(cached), plan=cached,
+                    task=storage_service.status())
+    if action == 'storage-scan-start':
+        # Repeated clicks and page switches reuse the worker that is already
+        # running instead of spawning a competing traversal of the same disks.
+        return dict(status='STORAGE_SCAN', **storage_service.start(paths))
+    if action == 'storage-scan-status':
+        task = request.get('task')
+        state = storage_service.status(task if isinstance(task, str) else None)
+        return dict(status='STORAGE_SCAN_STATUS', **state)
+    if action == 'storage-scan-cancel':
+        task = request.get('task')
+        state = storage_service.cancel(task if isinstance(task, str) else None)
+        return dict(status='STORAGE_SCAN_CANCELLED', **state)
+    # storage-refresh: replay the journal and re-walk only what changed.
+    updated = storage_service.refresh(paths)
+    return dict(status='STORAGE_REFRESH', incremental=bool(updated),
+                plan=updated, task=storage_service.status())
+
 
 def source_overrides(report, build_loader, force_compile=False):
     if report['fatal']:
@@ -896,6 +937,19 @@ def run_job(path):
         update(state='succeeded', stage='verify', ipa=str(ipa), sha256=digest, bytes=result['bytes'], finishedAt=now())
     except InterruptedError as e: update(state='cancelled', error=str(e), finishedAt=now())
     except Exception as e: update(state='failed', error=str(e), finishedAt=now())
+    finally:
+        # A build writes many gigabytes into its output and cache trees. Drop the
+        # cached directories for those paths so the storage page never shows the
+        # pre-build totals; the next refresh re-walks only what changed.
+        try:
+            request = job.get('request') or {}
+            touched = [Path(job['build'])] if job.get('build') else []
+            if request.get('output'):
+                touched.append(resolve(request['output']))
+            storage_service.invalidate(storage_service.paths_for(
+                cleanup_storage.default_data_root()), touched)
+        except Exception:
+            pass
 
 def retry_request(job, workspace, quick_build=None):
     request = dict(job['request'])
@@ -1050,6 +1104,9 @@ def main():
                                          request.get('quickBuild')), args.id)
         elif args.action == 'resolve-exclusions': result = resolve_exclusions(workspace, args.id, request.get('fields', {}))
         elif args.action in ('storage-plan', 'storage-clean'): result = storage(args.action, request.get('fields', request))
+        elif args.action in ('storage-snapshot', 'storage-scan-start', 'storage-scan-status',
+                             'storage-scan-cancel', 'storage-refresh'):
+            result = storage_scan(args.action, request.get('fields', request))
         elif args.action == 'status': result = snapshot(job_path(workspace, args.id))
         elif args.action == 'cancel': result = cancel(workspace, args.id)
         else: result = history(workspace)

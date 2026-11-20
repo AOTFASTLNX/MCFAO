@@ -25,6 +25,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
+import storage_scan  # noqa: E402  (local tool module)
+
 # Stage directories written by `tools/mcfao.py` for every build attempt.
 INTERMEDIATE_STAGES = (
     "fabric", "split", "metal-injection", "gl41-patch", "aot", "runtime",
@@ -48,23 +50,18 @@ def human(value: float) -> str:
 
 
 def tree_bytes(path: Path) -> int:
-    """Allocated bytes, without following links. Errors are reported as zero."""
-    total = 0
-    try:
-        with os.scandir(path) as entries:
-            for entry in entries:
-                try:
-                    if entry.is_symlink():
-                        continue
-                    if entry.is_dir(follow_symlinks=False):
-                        total += tree_bytes(Path(entry.path))
-                    elif entry.is_file(follow_symlinks=False):
-                        total += entry.stat(follow_symlinks=False).st_blocks * 512
-                except OSError:
-                    continue
-    except OSError:
-        return 0
-    return total
+    """Allocated bytes, without following links.
+
+    Uses the shared iterative scanner so one traversal reports the size, the
+    file count and the ``.ipa`` presence that the planner needs, instead of
+    three separate recursive walks. An unreadable tree returns its partial
+    total; callers that must not under-report use ``measure_tree``.
+    """
+    return measure_tree(Path(path)).bytes
+
+
+def measure_tree(path: Path) -> "storage_scan.ScanResult":
+    return storage_scan.scan(path)
 
 
 def free_bytes(path: Path) -> int:
@@ -130,14 +127,15 @@ def build_status(build: Path) -> str:
 
 
 def has_ipa(build: Path) -> bool:
-    """A finished IPA inside the build is the deliverable, not a cache."""
-    try:
-        for entry in build.rglob("*.ipa"):
-            if entry.is_file() and not entry.is_symlink():
-                return True
-    except OSError:
-        return True  # Unreadable is treated as present, so we never delete blindly.
-    return False
+    """A finished IPA inside the build is the deliverable, not a cache.
+
+    This is the safety check that runs on its own, without a plan; it must never
+    trust a cached size. Unreadable trees count as containing an IPA.
+    """
+    result = storage_scan.scan(build)
+    if not result.complete:
+        return True
+    return result.ipa > 0
 
 
 def stage_paths(build: Path) -> list[Path]:
@@ -146,13 +144,43 @@ def stage_paths(build: Path) -> list[Path]:
             if (build / name).is_dir() and not (build / name).is_symlink()]
 
 
+class _Measured:
+    """One scanner pass per directory; reused by every later query in a plan."""
+
+    def __init__(self):
+        self.cache = {}
+
+    def get(self, path: Path):
+        key = str(path)
+        result = self.cache.get(key)
+        if result is None:
+            result = storage_scan.scan(path)
+            self.cache[key] = result
+        return result
+
+    def bytes(self, path: Path) -> int:
+        return self.get(path).bytes
+
+    def ipa(self, path: Path) -> bool:
+        result = self.get(path)
+        return (not result.complete) or result.ipa > 0
+
+    def stages(self, build: Path) -> int:
+        total = 0
+        for stage in stage_paths(build):
+            total += self.bytes(stage)
+        return total
+
+
 def plan(*, data_root: Path, keep_builds: int = 2, include_cache: bool = True,
-         include_builds: bool = True, include_intermediates: bool = True) -> dict:
+         include_builds: bool = True, include_intermediates: bool = True,
+         measured: _Measured | None = None) -> dict:
     artifacts = data_root / "artifacts"
     cache = data_root / "cache"
     if not cache.exists():
         cache = data_root / ".cache"
     jobs = data_root / "artifacts/desktop-jobs"
+    measured = measured or _Measured()
     groups = []
     running = active_jobs(jobs)
     busy = [job for job in running if job["alive"]]
@@ -162,7 +190,7 @@ def plan(*, data_root: Path, keep_builds: int = 2, include_cache: bool = True,
         for name in CACHE_CHILDREN:
             path = cache / name
             if path.is_dir() and not path.is_symlink():
-                items.append({"path": str(path), "bytes": tree_bytes(path),
+                items.append({"path": str(path), "bytes": measured.bytes(path),
                               "reason": "工具链与源码缓存，可重新下载或编译"})
         if items:
             groups.append({"id": "cache", "label": "编译缓存",
@@ -173,19 +201,19 @@ def plan(*, data_root: Path, keep_builds: int = 2, include_cache: bool = True,
     if include_cache and rust_target.is_dir() and not rust_target.is_symlink():
         groups.append({"id": "rust", "label": "Rust 编译缓存",
                        "detail": "Tauri 工作台自身的 cargo 产物，可重新编译。",
-                       "items": [{"path": str(rust_target), "bytes": tree_bytes(rust_target),
+                       "items": [{"path": str(rust_target), "bytes": measured.bytes(rust_target),
                                    "reason": "cargo target，可重新编译"}]})
 
     builds = build_directories(artifacts)
     if include_intermediates and builds:
         items = []
         for build in builds:
-            if has_ipa(build) or build_status(build) in ("DEVELOPMENT_IPA_VERIFIED", "UNSIGNED_IPA_EXPORTED"):
+            if measured.ipa(build) or build_status(build) in ("DEVELOPMENT_IPA_VERIFIED", "UNSIGNED_IPA_EXPORTED"):
                 continue
             if any(job.get("build") and str(build) in str(job.get("build")) for job in busy):
                 continue
             for stage in stage_paths(build):
-                items.append({"path": str(stage), "bytes": tree_bytes(stage),
+                items.append({"path": str(stage), "bytes": measured.bytes(stage),
                               "reason": f"{build.name} 的中间阶段，保留 result.json"})
         if items:
             groups.append({"id": "intermediates", "label": "构建中间产物",
@@ -197,11 +225,12 @@ def plan(*, data_root: Path, keep_builds: int = 2, include_cache: bool = True,
         keep = set(ordered[:max(0, keep_builds)])
         items = []
         for build in ordered:
-            if build in keep or has_ipa(build):
+            if build in keep or measured.ipa(build):
                 continue
             if any(job.get("build") and str(build) in str(job.get("build")) for job in busy):
                 continue
-            items.append({"path": str(build), "bytes": tree_bytes(build),
+            # A build keeps its manifest, inputs and logs; only its stages go.
+            items.append({"path": str(build), "bytes": measured.stages(build),
                           "reason": f"旧构建（{build_status(build)}），保留最近 {keep_builds} 个"})
         if items:
             groups.append({"id": "builds", "label": "旧构建目录",
@@ -215,9 +244,6 @@ def plan(*, data_root: Path, keep_builds: int = 2, include_cache: bool = True,
     for group in groups:
         if group['id'] == 'intermediates':
             group['items'] = [item for item in group['items'] if Path(item['path']).parent not in old_builds]
-        elif group['id'] == 'builds':
-            for item in group['items']:
-                item['bytes'] = sum(tree_bytes(stage) for stage in stage_paths(Path(item['path'])))
         group["bytes"] = sum(item["bytes"] for item in group["items"])
         group["count"] = len(group["items"])
     groups = [group for group in groups if group['items']]
@@ -241,18 +267,21 @@ def _remove(path: Path) -> None:
         path.unlink()
 
 
-def _remove_build(build: Path) -> int:
+def _remove_build(build: Path, measured: _Measured) -> int:
     """Remove a build's stages but keep its manifest, inputs and logs."""
     freed = 0
     for entry in stage_paths(build):
-        freed += tree_bytes(entry)
+        freed += measured.bytes(entry)
         _remove(entry)
     return freed
 
 
 def apply(*, data_root: Path, groups: list[str], keep_builds: int = 2) -> dict:
     """Delete exactly the planned paths; recompute so a stale request cannot widen scope."""
-    current = plan(data_root=data_root, keep_builds=keep_builds)
+    # A cached size is never an input here: every path below is re-validated on
+    # the live filesystem in this call, and its size is measured again.
+    measured = _Measured()
+    current = plan(data_root=data_root, keep_builds=keep_builds, measured=measured)
     if current["blocked"]:
         raise ValueError("有构建任务正在运行，请先完成或取消后再清理")
     allowed = {group["id"]: group for group in current["groups"]}
@@ -270,11 +299,16 @@ def apply(*, data_root: Path, groups: list[str], keep_builds: int = 2) -> dict:
                 raise ValueError(f"Path escapes the data root: {target}")
             if target.name in PROTECTED_NAMES or target.suffix in PROTECTED_SUFFIXES:
                 raise ValueError(f"Protected artefact: {target}")
-            size = tree_bytes(target)
+            if target.is_symlink() or not target.exists():
+                raise ValueError(f"清理目标已变化，请重新扫描：{target}")
             if name == "builds":
+                if has_ipa(target):
+                    raise ValueError(f"构建目录包含 IPA，已跳过：{target}")
                 # Keep result.json/inputs.json: they are the record of what was built.
-                freed += _remove_build(target)
+                freed += _remove_build(target, measured)
+                size = measured.stages(target)
             else:
+                size = measured.bytes(target)
                 _remove(target)
                 freed += size
             removed.append({"path": str(target), "bytes": size})

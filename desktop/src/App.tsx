@@ -112,6 +112,7 @@ import {
 import { NativeDependencies, DependencyTask } from "./NativeDependencies";
 import { jobStateName, type DependencyInventory } from "./workflow";
 import { StorageManager } from "./StorageManager";
+import { useStorageScan } from "./useStorageScan";
 import {
   StorageChangeDialog,
   type StorageChangePlan,
@@ -998,16 +999,18 @@ export default function App() {
     setError("");
   }
   useSetupProgress(formRef, setup, setSetup);
-  async function loadStorage() {
-    await attempt("正在统计磁盘占用", async () => {
-      const plan = await workbench<StoragePlan>(
-        formRef.current,
-        "storage-plan",
-      );
-      setStorage(plan);
-      setStorageDone("");
-    });
-  }
+  // The scan is owned here, above the page, so switching pages does not cancel
+  // it and every answer is tied to the workspace that requested it.
+  const storageScan = useStorageScan({
+    enabled: native,
+    workspace: form.workspace,
+    load: (action, fields) =>
+      workbench(formRef.current, action, undefined, fields),
+  });
+  useEffect(() => {
+    if (!storageScan.plan) return;
+    setStorage(storageScan.plan);
+  }, [storageScan.plan]);
   async function resetStorageDirectories() {
     await attempt("正在重置目录设置", async () => {
       const result = await workbench<{
@@ -1101,8 +1104,9 @@ export default function App() {
       );
       setStorageDone("已释放 " + size(result.freedBytes));
       setNotice("已释放 " + size(result.freedBytes));
-      setStorage(null);
-      setStorage(await workbench<StoragePlan>(formRef.current, "storage-plan"));
+      // The deletion invalidates every cached size; read the committed snapshot
+      // and let the next visit trigger its own refresh.
+      await storageScan.reload();
     });
   }
   async function attempt<T>(
@@ -1482,7 +1486,7 @@ export default function App() {
       }));
     }
     setPage(p);
-    if (p === "storage" && !storage && native && !busy) void loadStorage();
+    if (p === "storage" && native && !busy) void storageScan.open();
     setError("");
     setNotice("");
   }
@@ -3117,7 +3121,11 @@ export default function App() {
                   !!active || ["queued", "running"].includes(setup?.state || "")
                 }
                 done={storageDone}
-                onScan={() => void loadStorage()}
+                scan={storageScan.scanning ? storageScan.progress : null}
+                scanError={storageScan.error}
+                scanMessage={storageScan.message}
+                onScan={storageScan.rescan}
+                onCancelScan={() => void storageScan.cancel()}
                 onClean={(groups) => void cleanStorage(groups)}
                 onReveal={(path) =>
                   void attempt("正在打开 Finder", async () => {
