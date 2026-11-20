@@ -98,6 +98,15 @@ JAVA_FIXTURES = {
             public Runnable optional() { return Dependency::touch; }
         }
     """,
+    "first/DesktopImageCaller": """
+        package first;
+        public class DesktopImageCaller {
+            public static boolean export(java.awt.image.BufferedImage image, java.io.File file)
+                    throws java.io.IOException {
+                return javax.imageio.ImageIO.write(image, "png", file);
+            }
+        }
+    """,
 }
 
 
@@ -183,6 +192,15 @@ class AotCompatibilityTests(unittest.TestCase):
             "static": "PASS", "transform": "PASS", "aot": "SKIPPED",
             "startup": "UNVERIFIED", "device": "UNVERIFIED",
         })
+
+    def test_desktop_image_export_reports_the_call_site_without_blocking(self):
+        mod = self.jar("desktop-image.jar", lambda name: name == "first/DesktopImageCaller.class")
+        _, _, findings, _ = bytecode_report(mod, [mod], "gl41")
+        warnings = [row for row in findings if row["code"] == "DESKTOP_IMAGE_IOS_UNSUPPORTED"]
+        self.assertEqual([(row["severity"], row["target"], row["location"]) for row in warnings], [
+            ("warning", "javax/imageio/ImageIO.write",
+             "first/DesktopImageCaller#export(Ljava/awt/image/BufferedImage;Ljava/io/File;)Z"),
+        ])
 
     def test_missing_library_members_have_method_location_and_reachability(self):
         client = self.jar("main-fixture.jar", lambda name: name == "first/NoDefault.class")

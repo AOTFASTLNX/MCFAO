@@ -37,6 +37,10 @@ Last reviewed: 2026-11-19
 
 验证使用同一套实际 exFAT 工具链。直接执行 Native Image `--dry-run` 复现模块扫描失败。以 `run_a1_probe.py --graalvm-home <原 Java Home> --output <新输出> --mode ios-relocatable` 执行第一方探针时，Native Image 退出 0 并写出 ARM64 Mach-O 可重定位对象。该探针的设备 Gate 仍为 BLOCKED。原 Fabric 整合包的完整 AOT、开发签名和真机运行需分别复验。
 
+## 2026-11-20：整合包共享 Mod 缓存
+
+桌面和 CLI 在读取 .mrpack 清单后使用 tools/mod_download_cache.py。只查找选中的 Mod JAR，逐个核对清单声明的大小、SHA-1、SHA-512；然后把同一份已校验字节写入任务暂存，仍执行正常的 ZIP / Fabric 检查。自动下载按 SHA-512 原子发布，用户放入的 JAR 不会被改写。AppleDouble 和链接不作为缓存来源。跨任务命中、损坏恢复及静态检查回归见 tests/test_mod_download_cache.py。目录和使用方法见 [桌面构建说明](DESKTOP.md#来源与资源边界)。
+
 ## 2026-11-15 Mod 导入复核
 
 - 分支：`integration/gl41-gui-ipa-20261115-appledouble`。

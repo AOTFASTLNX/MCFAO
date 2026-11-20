@@ -27,14 +27,49 @@ MCFAO_TEST_GL41_TOOLCHAIN="$SPLITTER_DIR" MCFAO_TEST_GL41_CLIENT="$SPLIT_CLIENT_
 
 使用原任务同一份拆分 JAR（SHA-256 `7a416a282dca8208bd2fd8e989d282a941a9570be95e80a9b1dbd649b0451337`）、GraalVM 25.0.2 与 ASM 9.9 复测，返回 `GL41_CLIENT_PATCHED`。缺少补丁目标的对照仍失败，并输出 Java 原因及完整日志位置。
 
-切换本机存储路径后，`mcfao doctor` 返回 `INPUTS_VERIFIED`，共核验 4,332 项输入。包含修复的 Builder 0.2.91 arm64 本地测试版已打包，macOS 临时签名与包内源码清单验核通过，仍可读取原失败任务记录。完整 AOT、IPA 和真机未重跑。
+切换本机存储路径后，`mcfao doctor` 返回 `INPUTS_VERIFIED`，共核验 4,332 项输入。再次出现相同报错的任务日志确认调用了旧 0.2.91 包内脚本。随后以相同的 41 个根 Mod JAR、实例文件、图标及 GL41 参数复跑。`GL41-r2-20261120` 的 Fabric 转换、GL41 补丁、Native Image（79,143 个可达类型）和 iOS ARM64 链接均通过。
 
-## 两条启动回归
+本次生成的无签名 IPA 通过 Builder 0.2.92 附带的 `mcfao verify`。输入清单、IPA 文件名和包内 `FAOTTestVersion` 均为 `GL41-r2-20261120`。IPA SHA-256 为 `1c83c160add42f7980a46916780eb832f0e5baa3e0a706a98d1c58c570e00246`。后续真机日志证实进入游戏启动和首轮资源重载，未通过主菜单门槛。
+
+包含修复的 Builder 0.2.92 arm64 本地测试版已打包。版本号、macOS 临时签名、压缩包及包内源码清单验核通过，应用进程从新版路径启动。原失败任务仍可读取，重试解析到新版的包内源码。
+
+## 2026-11-20：模组 JAR 资源与配置元数据
+
+真机日志 `run-1795186717923-GL41-r2-20261120.log` 显示游戏已执行 Fabric 客户端入口、初始化 GL41，并在首次资源重载结束前退出。Sodium 用 `Class.getResourceAsStream("/config-icon.png")` 直接读 JAR 根目录里的图标。源 JAR 有该文件，但导出器的旧规则只收包目录下的文本文件；重载时空流传入 `NativeImage.read`，最终触发未处理的异常。
+
+导出器按资源所属 Mod 的字节码识别 `Class`、类字面量的 `ClassLoader` 和系统 ClassLoader 的字面量查找。保留既定文本类型和常用图片、字体、音频的准确 JAR 路径，为保留的文件生成 Native Image 资源条目。Minecraft `assets/` 和 `data/` 继续走原资源合并规则。单文件上限 1 MiB，同名冲突报告为歧义；不从其他 Mod 随意选择副本，也不导入原生库。此次同一份整合包的 Sodium 图标经字节级比对一致。
+
+同一日志还暴露了两个被捕获的配置兼容问题。配置图现在为实际引用的枚举（含 `EnumMap` 泛型键）注册枚举字段，不继续展开其引用的游戏类。对于把类字面量通过构建器交给 Gson 的序列化器，元数据扫描核对 `Class` 参数、字段传递和最终 `fromJson` 调用，并注册配置类型及继承字段。实际类路径已验证能发现 Sodium Extra 的 `FogType`、Xaero 雷达数据及其父类。
+
+Presence Footsteps 在设备上读到语法错误，但同版 Gson 的宽松解析可读取原 IPA 的配置副本，因此不能据此认定导入源损坏。IAS 的 `toRealPath(NOFOLLOW_LINKS)` 被 iOS 拒绝遍历 `/var`；认证及旁白也有各自的诊断。这些日志均未中止启动。本轮未改写用户配置或账号数据。
+
+第一方 Java 25 / GraalVM 25.0.2 对照在 JVM 和 macOS Native Image 上实际读取 JAR 根目录下的资源，并恢复 Gson 配置的继承字段和 `EnumMap` 键；两次均输出 `RESOURCE_GSON_NATIVE_PASS`。
+
+`GL41-r3-20261120` 复用原构建的 41 个根 Mod JAR 和 181 项实例输入，Fabric 转换、GL41 补丁、Native Image、iOS ARM64 链接和 `mcfao verify` 均通过。已在最终链接的 `client-graph.dylib` 中找到和源 JAR 完全一致的 Sodium PNG（1,832 字节）。无签名 IPA 的测试标识与输入和包内配置一致，SHA-256 为 `6c88ec09bed2ec7bcc2c52a244b2e954b09e589d3f52625a9052e3fefbd89322`；修复版真机启动和主菜单待复测。
+
+## 2026-11-20：地图模组的纹理解码
+
+`GL41-r3-20261120` 的真机日志确认首次资源重载结束、进入单人世界并执行了 274 个客户端 tick。随后 Xaero 世界地图生成地图纹理，`MapWriter.loadBlockColourFromTexture` 调用 `ImageIO.createImageInputStream`，初始化 `IIORegistry` 和 `Toolkit` 时因 iOS 缺少 `awt` 原生库退出。小地图读取方块纹理也使用同一调用形态。
+
+Fabric 导出规则 `ios.texture.png-native-image.v1` 按调用和数据流匹配：从 Minecraft `Resource.open()` 读入，图像、光栅和颜色模型保留在方法内，灰度走原始采样，彩色走 ARGB。规则只替换读取和取像素的调用，保留模组的采样循环、透明过滤、颜色计算、缓存和回退。解码复用 Minecraft `NativeImage`，并在复制像素后释放原生内存；读取上限为 16 MiB、4,194,304 像素，PNG 超过 8 位通道精度或无法解码时走原有异常回退。
+
+同一组 41 个根 Mod JAR 已重新经过隔离导出，确认两个地图写入器的对应方法均已改写。Java 25 回归对照了原桌面实现的彩色、透明、灰度、灰度加 alpha 和调色板像素，并验证损坏 PNG、错误分支和对象逃逸。地图的在线组件图片及 PNG 导出等其余 ImageIO 调用由最终类路径扫描标为 `DESKTOP_IMAGE_IOS_UNSUPPORTED`；警告不等于运行时已到达该路径。
+
+`GL41-r4-20261120` 保留 r3 的 109 个解析后模组、181 项实例输入和 Bundle ID。Native Image、iOS ARM64 链接、无签名 IPA 封装和 `mcfao verify` 均通过。构建记录、IPA 名称、包内 `FAOTTestVersion` 一致。IPA SHA-256：`ded8da9f14bb9732eb786f38413633c9ed7d293aadb626a44e4f9a32f69850de`。r4 仍需在真机进入世界，确认世界地图和小地图正常生成。
+
+可用构建配置中 `prepared` 指向的工具链目录单独运行像素对照：
+
+```sh
+MCFAO_TEST_FABRIC_PREPARED="$PREPARED_DIR" \
+  python3 -B -m unittest discover -s tests -p test_runtime_lowering.py -k texture_sampler
+```
+
+## 两条历史启动回归
 
 - **RenderPipelines** · `AotExport` 曾在所有 Fabric 导出中无条件调用 `RuntimeLowering.lowerRenderPipelineRegister`。该函数把游戏注册替换为 Metal 着色器包守卫 `fabricaot.metal.BundledPipelines.register`。GL41 的编译输入缺少这个 Metal 专用类，内容 Mod 访问 `Sheets` 时便会触发该引用。现在仅原生 Metal 安装守卫，GL41 保留游戏注册及正常 Knot Mixin 输出。最终类路径检查会阻断旧 Metal 类型定义和客户端符号引用。
 - **Freecam** · 本地 `1.4.0-alpha.3+mc26.1.2` 的 `ModConfigDTO` 有 `public <init>()V`。其配置控制器把该 DTO 的 class literal 传给 Gson 加载器。加载器在默认配置分支用动态 `Class#getConstructor()` 实例化，普通 Native Image 静态推断可能缺少该构造器注册。规则从字节码核对构造器参数、同一 Class 字段的赋值、无参反射和 Gson 读取，再为确有公开无参构造器的目标及其配置字段闭包生成元数据。类型缺少公开无参构造器时给出独立诊断。
 
-自动处理写入生成的客户端 JAR 或构建专用元数据。安全的已知类路径资源由直接 `Class.getResource*` 字面量和唯一来源确定。受控范围是有限大小的包内声明文件。Fabric 转换及其前置、后置条件继续使用现有规则引擎和固定输入。Mod 自带的宿主 Native Image 参数可改变整个构建的初始化策略，导出器继续过滤这些参数。
+自动处理写入生成的客户端 JAR 或构建专用元数据。Fabric 转换及其前置、后置条件使用现有规则引擎和固定输入。Mod 自带的宿主 Native Image 参数可改变整个构建的初始化策略，导出器继续过滤这些参数。
 
 可选的本地 `mcfao build --tracing-config <目录>` 接受受审计的 Tracing Agent 输出，并允许重复传入目录。支持统一的 reachability metadata 以及 Reflection、JNI、Resource、Proxy 和 Serialization 分文件格式。默认 GUI 构建直接使用现有图形 JNI 配置和自动生成的静态元数据。动态类定义、计算出的代理接口列表、序列化类型图、特殊 JNI 库和扩展调用仍需相应行为证据或适配。Prism 实例缺少未锁定的远程依赖时需要补齐实例。追踪只覆盖执行过的路径。参见 [GraalVM 25 reachability metadata](https://www.graalvm.org/jdk25/reference-manual/native-image/metadata/) 和 [Tracing Agent](https://www.graalvm.org/jdk25/reference-manual/native-image/metadata/AutomaticMetadataCollection/)。
 

@@ -37,6 +37,7 @@ REMEDIES = {
     "MISSING_FIELD": "Check the dependency version, mapping namespace and transformed field descriptor.",
     "METAL_REFERENCE_ON_GL41": "Regenerate the Fabric export and graphics patch for GL41.",
     "METAL_CLASS_ON_GL41": "Remove the native Metal backend input from the GL41 profile.",
+    "DESKTOP_IMAGE_IOS_UNSUPPORTED": "Check whether this call runs on iOS; port it to NativeImage or use an iOS-compatible alternative.",
     "REFLECTION_METADATA_UNRESOLVED": "Check the member signature against the selected class and trace this path if needed.",
 }
 
@@ -450,6 +451,8 @@ def bytecode_report(client, libraries, renderer, *, java_home=None, required=(),
 
 
 def dynamic_risk(owner, member, renderer):
+    if owner.startswith(("javax/imageio/", "java/awt/image/")) or owner in ("java/awt/Toolkit", "sun/awt/AppContext"):
+        return "DESKTOP_IMAGE_IOS_UNSUPPORTED"
     if (member == "defineClass" or member.startswith("defineHiddenClass")) and (
             owner.endswith("ClassLoader") or owner == "java/lang/invoke/MethodHandles$Lookup"):
         return "RUNTIME_CLASS_DEFINITION"

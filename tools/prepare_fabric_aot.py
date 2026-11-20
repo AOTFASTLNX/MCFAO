@@ -456,7 +456,7 @@ def prepare(prepared, client, mods, output, audited, trace_agent=False, renderer
     runtime_classes = None
     if runtime_sources:
         runtime_classes = work / "runtime-classes"
-        compile_java(home, [*classpath, *mod_files(work / "game/mods")],
+        compile_java(home, [*classpath, client, *mod_files(work / "game/mods")],
                      runtime_sources, runtime_classes, output / "compile-runtime")
     driver = prepared / "driver.jar"
     if sha256(driver) != report["binaries"]["driver.jar"]["sha256"]:

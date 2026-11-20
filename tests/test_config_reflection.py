@@ -1,7 +1,10 @@
 import io
 from pathlib import Path
+import shutil
 import struct
+import subprocess
 import sys
+import tempfile
 import unittest
 import zipfile
 
@@ -25,7 +28,7 @@ def u2(value):
 
 
 def class_bytes(name, parent="java/lang/Object", interfaces=(), fields=(), methods=(),
-                constructors=()):
+                constructors=(), access=0x21):
     pool = []
 
     def utf(value):
@@ -55,12 +58,75 @@ def class_bytes(name, parent="java/lang/Object", interfaces=(), fields=(), metho
     method_entries += [b"".join(map(u2, (1, utf("<init>"), utf(descriptor)))) + u2(0)
                        for descriptor in constructors]
     return (b"\xca\xfe\xba\xbe" + u2(0) + u2(69) + u2(len(pool) + 1) + b"".join(pool)
-            + u2(0x21) + u2(own) + u2(base) + u2(len(supers)) + b"".join(map(u2, supers))
+            + u2(access) + u2(own) + u2(base) + u2(len(supers)) + b"".join(map(u2, supers))
             + u2(len(members)) + b"".join(members)
             + u2(len(method_entries)) + b"".join(method_entries) + u2(0))
 
 
 class ConfigReflectionTests(unittest.TestCase):
+    def test_cross_package_enum_map_keys_register_without_traversing_game_types(self):
+        data = class_bytes("mod/Config", fields=[(0, "Ljava/util/EnumMap;",
+            "Ljava/util/EnumMap<Lnet/minecraft/Fog;Lmod/Value;>;")])
+        mode = class_bytes("net/minecraft/Fog", parent="java/lang/Enum", access=0x4021,
+                           fields=[(0, "Lnet/minecraft/Game;", None)])
+        shapes = {x["name"]: x for x in map(class_shape, [data, mode,
+                  class_bytes("mod/Value"), class_bytes("net/minecraft/Game"),
+                  class_bytes("net/minecraft/Unrelated", parent="java/lang/Enum", access=0x4021)])}
+        entries = {x["name"]: x for x in config_entries(shapes, open_roots=["mod/Config"])}
+        self.assertEqual(set(entries), {"mod.Config", "mod.Value", "net.minecraft.Fog"})
+        self.assertEqual(entries["net.minecraft.Fog"],
+                         {"name": "net.minecraft.Fog", "allDeclaredFields": True})
+
+    @unittest.skipUnless(shutil.which("javac"), "Requires javac")
+    def test_gson_builder_registers_data_and_inherited_fields_only_for_decoded_types(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            gson = root / "Gson.java"
+            gson.write_text("""package com.google.gson;
+                public class Gson { public <T> T fromJson(String json, Class<T> type) { return null; } }
+            """)
+            fixture = root / "Setup.java"
+            fixture.write_text("""package fixture;
+                import com.google.gson.Gson;
+                class Base { final java.util.Map<String, Object> overrides;
+                    Base(java.util.Map<String, Object> value) { overrides = value; } }
+                class Data extends Base { Data(java.util.Map<String, Object> value) { super(value); } }
+                class Other {}
+                class Serializer {
+                    final Gson gson;
+                    final Class<?> dataClass;
+                    Serializer(Gson gson, Class<?> type) { this.gson = gson; this.dataClass = type; }
+                    Object decode(String json) { return gson.fromJson(json, dataClass); }
+                }
+                class Builder {
+                    final Gson gson;
+                    final Class<?> type;
+                    Builder(Gson gson, Class<?> type) { this.gson = gson; this.type = type; }
+                    static Builder begin(Gson gson, Class<?> type) { return new Builder(gson, type); }
+                    Serializer build() { return new Serializer(gson, type); }
+                }
+                class UnusedBuilder {
+                    final Class<?> type;
+                    UnusedBuilder(Gson gson, Class<?> type) { this.type = type; }
+                    static UnusedBuilder begin(Gson gson, Class<?> type) { return new UnusedBuilder(gson, type); }
+                }
+                class Setup {
+                    static Serializer create(Gson gson) { return Builder.begin(gson, Data.class).build(); }
+                    static Object unrelated(Gson gson) { return UnusedBuilder.begin(gson, Other.class); }
+                }
+            """)
+            subprocess.run(["javac", "-d", str(root), str(gson), str(fixture)], check=True,
+                           capture_output=True, timeout=30)
+            memory = io.BytesIO()
+            with zipfile.ZipFile(memory, "w") as jar:
+                for file in (root / "fixture").glob("*.class"):
+                    jar.write(file, "fixture/" + file.name)
+            entries = {entry["name"]: entry for entry in reflection_from_jar(memory)}
+            self.assertEqual(set(entries), {"fixture.Base", "fixture.Data"})
+            for entry in entries.values():
+                self.assertTrue(entry["allDeclaredFields"])
+                self.assertTrue(entry["unsafeAllocated"])
+
     def test_parse_serializable_fields_and_generic_members(self):
         data = class_bytes("mod/config/Data", interfaces=["me/shedaniel/autoconfig/ConfigData"],
                            fields=[(0, "Ljava/util/List;", "Ljava/util/List<Lmod/config/Mode;>;"),

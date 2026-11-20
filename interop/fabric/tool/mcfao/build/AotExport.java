@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
@@ -40,6 +41,7 @@ import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.Type;
+import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.FieldInsnNode;
 import org.objectweb.asm.tree.FrameNode;
@@ -68,6 +70,11 @@ public final class AotExport implements Opcodes {
     private static final String VERSIONS = "META-INF/versions/";
     private static final String HOST_METADATA = "META-INF/native-image/";
     private static final int RUNTIME_FEATURE = 25;
+    private static final long MAX_LITERAL_RESOURCE_BYTES = 1024 * 1024;
+    private static final Pattern LITERAL_RESOURCE_PATH = Pattern.compile(
+            "(?:[A-Za-z0-9_$-][A-Za-z0-9_.$-]*/)*[A-Za-z0-9_$-][A-Za-z0-9_.$-]*"
+                    + "\\.(?:json|toml|properties|txt|xml|csv|png|jpg|jpeg|gif|webp|svg|ttf|otf|ogg|wav)",
+            Pattern.CASE_INSENSITIVE);
     private static final String REGISTRY_CONTAINER_DESC =
             "Lcom/mrcrayfish/framework/api/registry/RegistryContainer;";
     private static final String REGISTRATION_HELPER =
@@ -363,6 +370,7 @@ public final class AotExport implements Opcodes {
                 collectExtrasReferences(node, extrasTypes);
                 collectSyntheticClasses(node, syntheticClasses);
                 try {
+                    TextureImageLowering.lower(node, adaptations);
                     RuntimeLowering.lowerQueries(node, loadedIds, versions, adaptations, stubbed, protectedMethods);
                     RuntimeLowering.lowerGlitchCoreEvents(node, hash(before), adaptations);
                     RuntimeLowering.collectStageQueries(node, queriedStages);
@@ -523,6 +531,8 @@ public final class AotExport implements Opcodes {
                                 if (!name.equals(raw.name + ".class")) {
                                     throw new IllegalArgumentException("Invalid class path in " + id + ": " + name);
                                 }
+                                // An injected handler can carry a Mod's lookup into a game class.
+                                collectLiteralResources(raw, effective, literalResources);
                                 // Read the declared targets before the annotation is stripped: a
                                 // target outside the game jar is a library class, and Mixin would
                                 // have merged into it in the reference client.
@@ -566,6 +576,7 @@ public final class AotExport implements Opcodes {
                                     throw new IllegalArgumentException("Invalid class path in " + id + ": " + name);
                                 }
                                 String sourceHash = hash(Files.readAllBytes(path));
+                                TextureImageLowering.lower(node, adaptations);
                                 RuntimeLowering.lowerJadeMetadata(node, sourceHash,
                                         jadeFlags, jadeDisabledTooltips, adaptations);
                                 RuntimeLowering.lowerModFile(node, sourceHash, adaptations);
@@ -1463,36 +1474,69 @@ public final class AotExport implements Opcodes {
     }
 
     private static boolean eligibleLiteralResource(String path) {
-        // Retain bounded declarative files below a package. Host configuration, code and
-        // native binaries stay outside this rule. The allowed alphabet is literal in a glob.
+        // Classpath resources (including JAR-root icons) are independent of Minecraft packs.
+        // Keep discovery metadata, code and native libraries outside this rule. The allowed
+        // alphabet is literal in a Native Image resource glob.
         return !path.startsWith("META-INF/") && !path.startsWith("mcfao/mod-files/")
                 && !path.startsWith("assets/") && !path.startsWith("data/")
+                && !Set.of("fabric.mod.json", "quilt.mod.json").contains(path)
                 && !isMacMetadata(path)
-                && path.matches("(?:[A-Za-z0-9_$-][A-Za-z0-9_.$-]*/)+"
-                        + "[A-Za-z0-9_$-][A-Za-z0-9_.$-]*\\.(?:json|toml|properties|txt|xml|csv)");
+                && LITERAL_RESOURCE_PATH.matcher(path).matches();
     }
 
-    private static void collectLiteralResources(ClassNode node, Map<String, Path> effective,
+    static void collectLiteralResources(ClassNode node, Map<String, Path> effective,
             Map<String, Path> resources) throws IOException {
         for (MethodNode method : node.methods) {
             for (var insn = method.instructions.getFirst(); insn != null; insn = insn.getNext()) {
-                if (!(insn instanceof MethodInsnNode call) || call.getOpcode() != INVOKEVIRTUAL
-                        || !call.owner.equals("java/lang/Class")
-                        || !Set.of("getResource", "getResourceAsStream").contains(call.name)
-                        || !(call.getPrevious() instanceof LdcInsnNode pathConstant)
-                        || !(pathConstant.cst instanceof String literal)
-                        || !(pathConstant.getPrevious() instanceof LdcInsnNode classConstant)
-                        || !(classConstant.cst instanceof Type type) || type.getSort() != Type.OBJECT
-                        || !effective.containsKey(type.getInternalName() + ".class")) continue;
-                String declaring = type.getInternalName();
-                String path = literal.startsWith("/") ? literal.substring(1)
+                if (!(insn instanceof MethodInsnNode call)
+                        || !(previousCode(call) instanceof LdcInsnNode pathConstant)
+                        || !(pathConstant.cst instanceof String literal)) continue;
+                boolean classLookup = call.owner.equals("java/lang/Class") && call.getOpcode() == INVOKEVIRTUAL
+                        && resourceLookup(call, false);
+                boolean loaderLookup = call.owner.equals("java/lang/ClassLoader") && call.getOpcode() == INVOKEVIRTUAL
+                        && resourceLookup(call, false);
+                boolean systemLookup = call.owner.equals("java/lang/ClassLoader") && call.getOpcode() == INVOKESTATIC
+                        && resourceLookup(call, true);
+                if (!classLookup && !loaderLookup && !systemLookup) continue;
+                var receiver = previousCode(pathConstant);
+                if (loaderLookup) {
+                    if (!(receiver instanceof MethodInsnNode loader) || loader.getOpcode() != INVOKEVIRTUAL
+                            || !loader.owner.equals("java/lang/Class") || !loader.name.equals("getClassLoader")
+                            || !loader.desc.equals("()Ljava/lang/ClassLoader;")) continue;
+                    receiver = previousCode(loader);
+                }
+                String declaring = node.name;
+                if (!systemLookup) {
+                    if (!(receiver instanceof LdcInsnNode classConstant) || !(classConstant.cst instanceof Type type)
+                            || type.getSort() != Type.OBJECT) continue;
+                    declaring = type.getInternalName();
+                }
+                if (!effective.containsKey(declaring + ".class")) continue;
+                String path = !classLookup ? literal : literal.startsWith("/") ? literal.substring(1)
                         : declaring.substring(0, declaring.lastIndexOf('/') + 1) + literal;
                 Path source = effective.get(path);
-                if (source != null && eligibleLiteralResource(path) && Files.size(source) <= 1024 * 1024) {
+                if (source != null && eligibleLiteralResource(path) && Files.size(source) <= MAX_LITERAL_RESOURCE_BYTES) {
                     resources.putIfAbsent(path, source);
                 }
             }
         }
+    }
+
+    private static boolean resourceLookup(MethodInsnNode call, boolean system) {
+        String prefix = system ? "getSystemResource" : "getResource";
+        return (call.name.equals(prefix) && call.desc.equals("(Ljava/lang/String;)Ljava/net/URL;"))
+                || (call.name.equals(prefix + "AsStream")
+                    && call.desc.equals("(Ljava/lang/String;)Ljava/io/InputStream;"));
+    }
+
+    private static AbstractInsnNode previousCode(AbstractInsnNode instruction) {
+        var previous = instruction.getPrevious();
+        while (previous != null && previous.getOpcode() < 0) {
+            // Do not infer a stack value across a potential branch target.
+            if (previous instanceof LabelNode || previous instanceof FrameNode) return null;
+            previous = previous.getPrevious();
+        }
+        return previous;
     }
 
     private static byte[] classBytes(ClassNode node) {
