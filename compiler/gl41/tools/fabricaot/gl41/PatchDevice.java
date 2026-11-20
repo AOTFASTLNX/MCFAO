@@ -18,10 +18,12 @@ import java.io.ByteArrayOutputStream;
 import java.util.jar.Manifest;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.function.UnaryOperator;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
@@ -50,6 +52,18 @@ public final class PatchDevice {
     private static final String FRAME_LIMITER = "net/minecraft/client/FramerateLimiter";
     private static final String FRAME_PACING = "fabricaot/gl41/FramePacing";
 
+    // Every registered class patch must be applied and change its input bytes.
+    private static final Map<String, UnaryOperator<byte[]>> CLASS_PATCHES = Map.of(
+            TARGET, PatchDevice::transform,
+            MINECRAFT, PatchDevice::instrumentClientTick,
+            LISTENER, InjectBackend::avoidUnneededChatKeyWait,
+            TRACKER, InjectBackend::instrumentLevelLoadTracker,
+            PLAYER_CHUNK, InjectBackend::instrumentWaitingForPlayerChunk,
+            CHUNK_CACHE, InjectBackend::instrumentChunkCache,
+            CONNECTION, InjectBackend::instrumentConnection,
+            DYNAMIC_UNIFORMS, PatchDevice::presizeUniformBuffers,
+            InjectBackend.GLX, InjectBackend::useIosHardwareDiagnostics,
+            InjectBackend.SYSTEM_REPORT, InjectBackend::useIosHardwareDiagnostics);
 
     static byte[] transform(byte[] bytes) {
         ClassNode cls = new ClassNode();
@@ -135,31 +149,32 @@ public final class PatchDevice {
     public static void main(String[] args) throws IOException {
         Path input = Path.of(args[0]);
         Path output = Path.of(args[1]);
-        List<String> changed = new ArrayList<>();
+        Set<String> pending = new TreeSet<>(CLASS_PATCHES.keySet());
         try (ZipInputStream source = new ZipInputStream(Files.newInputStream(input));
              ZipOutputStream destination = new ZipOutputStream(Files.newOutputStream(output))) {
             ZipEntry entry;
             while ((entry = source.getNextEntry()) != null) {
                 byte[] data = source.readAllBytes();
-                byte[] patched = switch (entry.getName()) {
-                    case "META-INF/MANIFEST.MF" -> cleanManifest(data);
-                    case TARGET -> transform(data);
-                    case MINECRAFT -> instrumentClientTick(data);
-                    case LISTENER -> InjectBackend.avoidUnneededChatKeyWait(data);
-                    case TRACKER -> InjectBackend.instrumentLevelLoadTracker(data);
-                    case PLAYER_CHUNK -> InjectBackend.instrumentWaitingForPlayerChunk(data);
-                    case CHUNK_CACHE -> InjectBackend.instrumentChunkCache(data);
-                    case CONNECTION -> InjectBackend.instrumentConnection(data);
-                    case DYNAMIC_UNIFORMS -> presizeUniformBuffers(data);
-                    default -> data;
-                };
-                if (!Arrays.equals(data, patched)) changed.add(entry.getName());
-                data = patched;
-                ZipEntry copy = new ZipEntry(entry.getName());
+                String name = entry.getName();
+                var patch = CLASS_PATCHES.get(name);
+                if (patch != null) {
+                    byte[] patched = patch.apply(data);
+                    if (Arrays.equals(data, patched)) {
+                        throw new IllegalArgumentException("GL41 patch did not change " + name);
+                    }
+                    pending.remove(name);
+                    data = patched;
+                } else if (name.equals("META-INF/MANIFEST.MF")) {
+                    data = cleanManifest(data);
+                }
+                ZipEntry copy = new ZipEntry(name);
                 copy.setTime(entry.getTime());
                 destination.putNextEntry(copy);
                 destination.write(data);
                 destination.closeEntry();
+            }
+            if (!pending.isEmpty()) {
+                throw new IllegalArgumentException("Missing GL41 patch targets: " + pending);
             }
             for (String helperName : List.of(DIAGNOSTICS, FRAME_PACING)) {
                 ZipEntry helper = new ZipEntry(helperName + ".class");
@@ -168,15 +183,6 @@ public final class PatchDevice {
                 destination.write(Files.readAllBytes(Path.of(args[2]).resolve(helperName + ".class")));
                 destination.closeEntry();
             }
-        }
-        List<String> expected = new ArrayList<>(List.of(TARGET, MINECRAFT, LISTENER, TRACKER,
-                PLAYER_CHUNK, CHUNK_CACHE, CONNECTION, DYNAMIC_UNIFORMS));
-        List<String> actual = new ArrayList<>(changed);
-        actual.remove("META-INF/MANIFEST.MF");
-        Collections.sort(expected);
-        Collections.sort(actual);
-        if (!actual.equals(expected)) {
-            throw new IllegalArgumentException("Unexpected changed entries: " + changed);
         }
         System.out.println("GL41_DIRECT_STATE_DISABLED");
     }

@@ -38,13 +38,12 @@ class MdafMetadataTests(unittest.TestCase):
         again, _ = build_native_image_config(maintained, inferred, agent)
         self.assertEqual(canonical(merged), canonical(again))
 
-    def test_conflicting_scalar_keeps_maintained_value_and_reports_conflict(self):
+    def test_reflection_conditions_are_preserved_independently(self):
         merged, conflicts = merge_config_entries(
             [{"name": "mod.Test", "condition": {"typeReachable": "A"}}],
             [{"name": "mod.Test", "condition": {"typeReachable": "B"}}])
-        self.assertEqual(merged[0]["condition"]["typeReachable"], "A")
-        self.assertEqual(len(conflicts), 1)
-        self.assertEqual(conflicts[0]["path"], "mod.Test.condition.typeReachable")
+        self.assertEqual([item["condition"]["typeReachable"] for item in merged], ["A", "B"])
+        self.assertEqual(conflicts, [])
 
     def test_duplicate_metadata_directories_merge_and_retain_all_categories(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -56,15 +55,19 @@ class MdafMetadataTests(unittest.TestCase):
             (two / "reflect-config.json").write_text(json.dumps([
                 {"name": "mod.Test", "methods": [{"name": "b"}]}]))
             (one / "proxy-config.json").write_text(json.dumps([["mod.Proxy", "mod.Api"]]))
+            (one / "jni-config.json").write_text(json.dumps([{"name": "mod.NativeCallback"}]))
+            (two / "serialization-config.json").write_text(json.dumps([{"name": "mod.Dto"}]))
             (one / "._proxy-config.json").write_bytes(bytes.fromhex("00051607"))
             metadata, conflicts = merge_agent_metadata([one, two])
             self.assertEqual(conflicts, [])
             self.assertEqual([item["name"] for item in metadata["reflect-config.json"][0]["methods"]],
                              ["a", "b"])
             self.assertEqual(metadata["proxy-config.json"], [["mod.Proxy", "mod.Api"]])
+            self.assertEqual(metadata["jni-config.json"], [{"name": "mod.NativeCallback"}])
+            self.assertEqual(metadata["serialization-config.json"], [{"name": "mod.Dto"}])
             self.assertNotIn("._proxy-config.json", metadata)
-            (two / "broken-config.json").write_text("{")
-            with self.assertRaisesRegex(ValueError, "Invalid tracing-agent file broken-config.json"):
+            (two / "resource-config.json").write_text("{")
+            with self.assertRaisesRegex(ValueError, "Invalid tracing-agent file resource-config.json"):
                 merge_agent_metadata([one, two])
 
     def test_reflection_types_members_and_parameter_signatures_are_checked(self):
@@ -88,6 +91,15 @@ class MdafMetadataTests(unittest.TestCase):
             self.assertEqual(by_type["mod.Broken"]["status"], "INVALID_CLASSFILE")
             self.assertEqual(by_type["java.lang.String"]["status"], "PLATFORM_NOT_ARCHIVE_CHECKED")
             self.assertEqual(report["status"], "REPORT_ONLY_FINDINGS")
+
+    def test_absent_maintained_mod_config_is_skipped_but_observed_absence_warns(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            _, report = collect_mdaf_configuration(
+                [{"name": "optional.Config"}], [{"name": "observed.Missing"}], [], [],
+                Path(temporary))
+        statuses = {row["type"]: row["status"] for row in report["reflectionResolution"]["findings"]}
+        self.assertEqual(statuses["optional.Config"], "SKIPPED_ABSENT_MAINTAINED_TYPE")
+        self.assertEqual(statuses["observed.Missing"], "UNRESOLVED_TYPE")
 
     def test_invalid_entries_are_reported_and_non_reflection_agent_categories_survive(self):
         with self.assertRaisesRegex(ValueError, "must contain an array"):

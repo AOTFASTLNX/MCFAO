@@ -3063,6 +3063,25 @@ code {
   margin-top: 4px;
 }
 
+.compatibility-summary {
+  margin-bottom: var(--space-3);
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.compatibility-summary strong {
+  color: var(--text);
+}
+
+.compatibility-summary details {
+  margin-top: var(--space-2);
+}
+
+.compatibility-summary ul {
+  max-height: 12rem;
+  overflow: auto;
+}
+
 .job-error {
   display: flex;
   align-items: flex-start;
@@ -3714,6 +3733,50 @@ code {
   align-items: center;
   gap: var(--space-4);
   padding: 11px 0;
+}
+
+.setting-switch-row {
+  display: flex;
+  justify-content: space-between;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+/* Keep the switch geometry above the compact checkbox rule. Its selector has
+   the same specificity as input[type="checkbox"], so the later class rule
+   wins while ordinary checkboxes stay 14px square. */
+input.setting-switch {
+  appearance: none;
+  flex: none;
+  width: 36px;
+  height: 22px;
+  min-height: 22px;
+  margin: 0;
+  border: 1px solid var(--input-border);
+  border-radius: 999px;
+  background: var(--control-bg);
+  display: grid;
+  align-items: center;
+  padding: 2px;
+  cursor: pointer;
+}
+
+.setting-switch::before {
+  content: "";
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.setting-switch:checked {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.setting-switch:checked::before {
+  justify-self: end;
+  background: var(--on-accent);
 }
 
 .storage-choice {

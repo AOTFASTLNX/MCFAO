@@ -62,9 +62,14 @@ Tauri 打包前通过 tools/bundle_source.py 生成受控源码树，覆盖 tool
 
 ## 真实执行与持久任务
 
+构建记录读取当前构建的 Mod 数量、自动处理、静态诊断和分层状态。解析、转换、元数据与产物证据见 [Builder AOT 兼容性](AOT_COMPATIBILITY.md)。
+
+- Fabric 的 AOT 构建使用主机 JVM 的 G1 回收器，仍受原有堆和主机内存预检限制。构建输入记录回收器。Native Image 堆耗尽时，任务保留原始原因，并显示实际堆上限和最近完成的编译步骤。复现与对照见 [客户端编译诊断](CLIENT_GRAPH_DIAGNOSTICS.md)。
+- 「设置 → 构建 → 快速构建」默认关闭。关闭时，新建和重试从 Fabric 转换或原版处理开始，用 3 个 Native Image 构建线程重新编译。开启时使用 4 个构建线程，并可复用同一编译输入已通过 iPhoneOS 链接的 AOT 对象。两种方式都使用 `-O1`。图标、签名和仅用于封装的实例配置允许单独变更。源 JAR、编译元数据、工具链或选项变更会重新编译。
+- 快速缓存的索引在编译缓存目录的 `aot-objects/` 下，引用本机原构建中的对象与编译证据。命中时逐文件校验并复制到当前构建，随后正常链接、封装和验核 IPA。旧构建删除、移动或损坏时重新编译。已下载依赖可在两种模式下使用。
 - Rust 仅允许固定 workbench 操作，使用参数数组启动第一方 tools/desktop_workbench.py，无 shell 文本执行。桌面宿主可以是 Intel，但 macOS 构建服务显式使用 ARM64 Python，避免 Rosetta 继承。
 - supervisor 将 job.json、参数、输出与取消标记保存在所选任务记录目录的 <id>/ 下（源码开发默认 artifacts/desktop-jobs）。构建目录位于用户选择的产物根下。关闭 UI 后进程继续运行，重开工作台读取持久记录。
-- 每个项目同时只允许一个任务。取消会终止任务的子进程树，包括原 CLI 新建会话的编译子进程；中断和失败保留日志。重试复用原始请求、暂存文件与构建路径，CLI 仍核对输入、参数和产物指纹才复用检查点。
+- 每个项目同时只允许一个任务。取消会终止任务的子进程树，包括原 CLI 新建会话的编译子进程。中断和失败保留日志。重试保留原始来源和已校验的暂存文件，使用当前的快速构建设置。快速重试可恢复原快速任务的已校验检查点。
 - GUI 轮询阶段输出及嵌套编译日志，显示真实阶段，不伪造百分比。可导出当前日志快照，完整日志保留在任务目录；可分别在 Finder 定位 IPA 或任务文件夹。
 - 只有 export 的 DEVELOPMENT_IPA_VERIFIED 结果、IPA 路径和 SHA-256 再次匹配后才显示「IPA 已验证」。不会由退出码 0 单独推断成功。
 
@@ -168,7 +173,35 @@ macOS 使用 Overlay 标题栏并隐藏原生标题文字，保留系统红黄�
 - `apply` 会重新计算计划，只删除本次计划内的路径；不跟随符号链接，路径必须位于数据根目录内。
 - 实现：`desktop/src/StorageManager.tsx`、`tools/storage_inventory.py`、`tools/cleanup_storage.py`，工作台动作 `storage-plan` / `storage-clean`，原生 `reveal_path` 仅接收存在的绝对路径，通过固定参数调用 Finder。测试：`desktop/tests/storage-management.spec.ts`、`tests/test_storage_inventory.py`、`tests/test_cleanup_storage.py` 与工作台存储回归。
 
+## 存储统计性能与缓存（2026-11-20）
+
+存储管理不再每次进入都全量递归统计。现在由 `tools/storage_service.py` 统一提供缓存快照、后台扫描与增量刷新，`tools/storage_scan.py` 负责唯一的一次遍历，`tools/storage_index.py` 保存 SQLite 索引，`tools/storage_events.py` 读取 macOS FSEvents 日志。
+
+- **一次遍历**：`storage_scan.Scanner` 用显式栈迭代，目录只列一次；文件在列目录的循环里直接聚合，不产生逐文件对象。macOS 上使用 `getattrlistbulk`（每个目录一次 syscall 取回名称、inode、设备、时间戳、链接数和已分配大小），其他平台退回 `scandir` + `DirEntry.stat(follow_symlinks=False)`。字节语义仍是 `st_blocks * 512`；硬链接跨角色去重；符号链接只计数不跟随；嵌套根目录不重复计入。读取失败会记录错误并把该角色标为不完整，不会当作 0。
+- **持久化索引**：位于 `config_path().parent/storage-index.sqlite3`（即用户 Application Support，与 `storage.json` 同级），可用 `MCFAO_STORAGE_INDEX` 覆盖。只按目录存一行（inode、设备、mtime/ctime、自身与子树聚合），不存每个文件。模式版本不符、文件损坏或行数超过上限时直接丢弃重建，不做半信半疑的迁移。
+- **立即展示**：`storage-snapshot` 读取上次提交的完整报告，实测约 1 ms；页面标注「缓存统计 · 多久以前」，不会把缓存伪装成实时数据。
+- **增量更新**：每次完整扫描结束后记录 FSEvents 位置。再次进入时先回放日志，只重新列被报告变化的目录及其父目录。事件丢失（`UserDropped`/`KernelDropped`/`EventIdsWrapped`/`Unmount`/`RootChanged`）、日志位置落后或游标缺失时，`storage-refresh` 返回 `incremental: false`，前端退回完整后台扫描。
+- **可复用范围**：只跳过**叶子目录**。目录自身的 mtime 不会因为子目录内新增文件而变化，所以父目录的身份无法证明整棵子树未变；叶子目录的全部内容都在它自己的列表里，指纹才真正覆盖它。含硬链接的叶子一律重扫，避免破坏跨角色去重。
+- **后台任务**：`storage-scan-start` 启动独立进程（`start_new_session`，stdout/stderr 落到 `storage-scan/worker.log`），进度写 `storage-scan/<task>.json`，取消写 `<task>.cancel` 并发送 SIGTERM。重复点击复用正在运行的任务；取消或不完整的结果**从不**写入快照与索引。前端用代际号丢弃旧工作空间或已取消任务的迟到结果，切换页面不会终止扫描。
+- **主动失效**：构建结束（无论成功、失败或取消）与清理完成后，`storage_service.invalidate` 会删除相关目录的索引行，下一次刷新重新统计这些路径。它只删除缓存条目，不产生任何数字。
+- **清理安全不变**：`apply()` 不复用缓存，重新计算计划、重新验证每个目标仍在数据根内、不是受保护文件、不是符号链接，并对旧构建目录再做一次 IPA 检查；统计缓存只影响展示。
+
+实测（本机 macOS arm64、Python 3.11，`python3 -B tools/storage_benchmark.py --root artifacts`，3 次中位数；基准脚本不包裹 syscall，元数据调用单列统计）：
+
+| 场景 | 旧实现 | 新实现冷扫描 | 叶子缓存 | 峰值内存 | 字节一致 |
+| --- | --- | --- | --- | --- | --- |
+| 2 万个 512 B 文件 / 80 目录 | 0.051 s | 0.023 s（2.25×） | 0.001 s | 0.8 → 0.3 MB | 是 |
+| 仓库 `artifacts`，2.45 万文件 / 7078 目录 | 0.369 s | 0.268 s（1.38×） | 0.130 s（2.84×） | 1.1 → 4.0 MB | 是 |
+| 本机真实布局，37.6 GB / 24.5 万文件 / 2.7 万目录 | — | 7.5 s | 缓存读取 0.0005–0.0008 s | — | 是 |
+
+CPU 时间（`artifacts`）旧实现 0.394 s、新实现 0.238 s。元数据调用：旧实现每文件一次 `stat`；新实现每目录一次 `getattrlistbulk`，基准中 `os.stat/lstat/scandir` 计数为 1（仅为根目录指纹）。
+
+增量刷新由两段组成：FSEvents 回放需要等待日志安静（实测约 0.10 s），之后的重新遍历只覆盖被报告的目录。9000 文件、60 目录的合成场景里完整重扫仅 0.014 s，比回放等待还短，所以增量在此规模下并不更快；收益出现在扫描本身昂贵（外接盘、大量小文件）而改动集中的场景。缓存读取始终是最快路径。
+
+限制：FSEvents 只在 macOS 可用；在 Linux/Windows 或日志不可信时始终回退完整扫描。APFS 共享块、克隆与快照不会被计入「实际释放」，预计释放空间仍只是已分配字节的估计。索引不缓存文件级信息，因此首次统计或大规模外部改动后仍需完整扫描。
+
 历史占用快照不作为当前容量或清理依据，须以重新扫描的结果为准。
+
 
 ## 合并状态与回归（2026-11-18）
 

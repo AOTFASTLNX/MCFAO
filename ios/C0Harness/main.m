@@ -364,7 +364,32 @@ static void FAOTProbeReservations(FILE *logFile) {
         emit([NSString stringWithFormat:@"[FAOT] physicalMemory=%@ reserved=%llu MiB",
               FAOTPhysicalMemoryText(), reserved >> 20]);
 
-        if ([NSFileManager.defaultManager fileExistsAtPath:[frameworks stringByAppendingPathComponent:@"libOSMesa.8.dylib"]]) {
+        BOOL hasGL41 = [NSFileManager.defaultManager fileExistsAtPath:
+                        [frameworks stringByAppendingPathComponent:@"libOSMesa.8.dylib"]];
+        BOOL hasMetal = [NSFileManager.defaultManager fileExistsAtPath:
+                         [frameworks stringByAppendingPathComponent:@"libfaot_metal.dylib"]];
+        NSString *renderer = hasGL41 ? @"gl41" : hasMetal ? @"metal" : @"unconfigured";
+        NSURL *provenanceURL = [NSBundle.mainBundle URLForResource:@"FAOTBuildProvenance" withExtension:@"json"];
+        NSDictionary *provenance = nil;
+        if (provenanceURL) {
+            NSData *data = [NSData dataWithContentsOfURL:provenanceURL];
+            id value = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL] : nil;
+            if ([value isKindOfClass:NSDictionary.class]) provenance = value;
+        }
+        if ((hasGL41 && hasMetal) || (provenanceURL && ![renderer isEqual:provenance[@"renderer"]])) {
+            emit(@"[FAOT] renderer preflight failed: build profile and bundled libraries differ");
+            if (logFile) fclose(logFile);
+            [self finishWithStatus:@"图形运行库不匹配" logPath:logPath];
+            return;
+        }
+        emit([NSString stringWithFormat:@"[FAOT] renderer=%@ buildKey=%@ sourceCommit=%@",
+              renderer, provenance[@"buildKey"] ?: @"unavailable", provenance[@"sourceCommit"] ?: @"unavailable"]);
+        id packagedUUIDs = provenance[@"dylibUUIDs"];
+        NSDictionary *uuids = [packagedUUIDs isKindOfClass:NSDictionary.class] ? packagedUUIDs : nil;
+        for (NSString *name in [[uuids allKeys] sortedArrayUsingSelector:@selector(compare:)]) {
+            emit([NSString stringWithFormat:@"[FAOT] dylib=%@ packagedUUID=%@", name, uuids[name]]);
+        }
+        if (hasGL41) {
             char reason[1024] = {0};
             if (!FAOTRequireGL41Bridge(frameworks.fileSystemRepresentation, reason, sizeof reason)) {
                 emit([NSString stringWithFormat:@"[FAOT] renderer preflight failed: %s", reason]);
@@ -391,8 +416,16 @@ static void FAOTProbeReservations(FILE *logFile) {
             return;
         }
 
+        NSString *imageUUID = FAOTImageUUID((const void *)runMain);
+        if (provenance && ![imageUUID isEqual:uuids[@"client-graph.dylib"]]) {
+            emit([NSString stringWithFormat:@"[FAOT] Loaded image UUID differs: %@", imageUUID]);
+            dlclose(handle);
+            if (logFile) fclose(logFile);
+            [self finishWithStatus:@"游戏运行库不匹配" logPath:logPath];
+            return;
+        }
         emit([NSString stringWithFormat:@"[FAOT] imageUUID=%@ appVersion=%@ build=%@",
-              FAOTImageUUID((const void *)runMain),
+              imageUUID,
               [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"],
               [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleVersion"]]);
         if (logFile) FAOTProbeReservations(logFile);
@@ -446,21 +479,21 @@ static void FAOTProbeReservations(FILE *logFile) {
                fixed maximum, so without this the picker had no effect at all. */
             [NSString stringWithFormat:@"-Xmx%ldm", (long)(FAOTSelectedHeapGiB() * 1024)],
             [NSString stringWithFormat:@"-Dorg.lwjgl.librarypath=%@", frameworks],
-            /* LWJGL's platform defaults throw on iOS; point GL.create() at the generated shim. */
-            @"-Dorg.lwjgl.opengl.libname=liblwjgl_opengl.dylib",
             @"-Dorg.lwjgl.system.allocator=system",
             [NSString stringWithFormat:@"-Duser.language=%@", [language substringToIndex:2]],
             [NSString stringWithFormat:@"-Duser.country=%@", [language substringFromIndex:3].uppercaseString],
-#if TARGET_OS_SIMULATOR || defined(FAOT_DEVICE_WORLD)
-            // 26.1.2 allocates 416 MiB of terrain heaps before drawing the first chunk.
-            [NSString stringWithFormat:@"-Dfabricaot.metal.resourceBudgetMiB=%ld",
-                (long)FAOTMetalBudgetMiB()],
-#endif
             @"--username", [NSUserDefaults.standardUserDefaults stringForKey:@"FAOTPlayerName"] ?: @"Dev", @"--version", @"26.1.2",
             @"--gameDir", game, @"--assetsDir", assets, @"--assetIndex", @"30",
             @"--uuid", @"00000000000000000000000000000000",
             @"--accessToken", @"0", @"--userType", @"legacy", @"--versionType", @"release",
         ]];
+        if (hasGL41) {
+            [argvList insertObject:@"-Dorg.lwjgl.opengl.libname=liblwjgl_opengl.dylib" atIndex:4];
+        } else if (hasMetal) {
+            // 26.1.2 allocates 416 MiB of terrain heaps before drawing the first chunk.
+            [argvList insertObject:[NSString stringWithFormat:@"-Dfabricaot.metal.resourceBudgetMiB=%ld",
+                                    (long)FAOTMetalBudgetMiB()] atIndex:4];
+        }
 #if TARGET_OS_SIMULATOR
         // A dedicated server address lets XCUITest exercise the real multiplayer path without
         // typing into the UI or persisting a server entry in the simulator's save directory.
@@ -564,6 +597,19 @@ static void FAOTProbeReservations(FILE *logFile) {
     };
     self.window.rootViewController = launcher;
     [self.window makeKeyAndVisible];
+    [self requestLandscapeForScene:(UIWindowScene *)scene];
+}
+
+/* The app only supports landscape, but a session restored while the phone is held upright can
+   briefly attach with a portrait geometry. Ask once for landscape instead of presenting the
+   launcher sideways until the user rotates the device. */
+- (void)requestLandscapeForScene:(UIWindowScene *)scene {
+    UIInterfaceOrientation orientation = scene.interfaceOrientation;
+    if (orientation == UIInterfaceOrientationLandscapeLeft ||
+        orientation == UIInterfaceOrientationLandscapeRight) return;
+    UIWindowSceneGeometryPreferencesIOS *preferences =
+        [[UIWindowSceneGeometryPreferencesIOS alloc] initWithInterfaceOrientations:UIInterfaceOrientationMaskLandscapeRight];
+    [scene requestGeometryUpdateWithPreferences:preferences errorHandler:nil];
 }
 @end
 

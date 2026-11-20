@@ -52,7 +52,7 @@ python3 -B tools/build_metal_backend.py --output artifacts/graphics/metal-sim-ne
   --graphics-bridge artifacts/graphics/lwjgl-sim-new --glfw-library artifacts/graphics/glfw-sim-new/libglfw.dylib \
   --sdk iphonesimulator --test-host
 python3 -B tools/probe_client_graph.py --output artifacts/graphics/metal-aot-new \
-  --graphics-bridge artifacts/graphics/lwjgl-sim-new --metal-bootstrap artifacts/graphics/metal-sim-new \
+  --graphics-bridge artifacts/graphics/lwjgl-sim-new --renderer metal --metal-bootstrap artifacts/graphics/metal-sim-new \
   --metal-resource-probe --client-jar artifacts/c0/client-split-04/client-26.1.2-split.jar --full-build --relocatable
 python3 -B tools/link_c0_ios.py --image artifacts/graphics/metal-aot-new --runtime artifacts/a1/runtime-simulator \
   --output artifacts/graphics/metal-link-sim-new --sdk iphonesimulator --stub-unsupported-jni

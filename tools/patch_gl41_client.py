@@ -12,8 +12,21 @@ from pathlib import Path
 
 from bootstrap_toolchain import sha256
 from build_method_splitter import java_home
-from capture import ROOT, capture
+from capture import ROOT, capture, redact_log
 from graphics_common import register_tree
+
+
+def report_failure(label, log, result):
+    print(f"error: {label} (exit {result['exitCode']}, timeout={result['timedOut']}). Logs: {log}",
+          file=sys.stderr)
+    stderr = (log / "stderr.log").read_text(errors="replace").splitlines()
+    # Keep the Java exception visible even if the command emitted earlier warnings.
+    cause = next((line for line in stderr if line.startswith('Exception in thread ')), None)
+    if cause is None:
+        cause = "\n".join(line for line in stderr if line.strip()).strip()[-2000:]
+    if cause:
+        print(redact_log(cause[:2000]), file=sys.stderr)
+    return 1
 
 
 def main(argv=None):
@@ -38,13 +51,15 @@ def main(argv=None):
     classpath = os.pathsep.join(map(str, asm))
     compiled = capture([str(home / "bin/javac"), "--release", "25", "-proc:none", "-cp", classpath,
                         "-d", str(classes), *map(str, sources)], out / "compile", 120)
-    if compiled["exitCode"]:
-        raise RuntimeError("PatchDevice compilation failed")
+    if compiled["exitCode"] or compiled["timedOut"]:
+        return report_failure("GL41 patcher compilation failed", out / "compile", compiled)
     target = out / "client.jar"
     run = capture([str(home / "bin/java"), "-cp", str(classes) + os.pathsep + classpath,
                    "fabricaot.gl41.PatchDevice", str(client), str(target), str(classes)], out / "transform", 120)
-    if run["exitCode"] or "GL41_DIRECT_STATE_DISABLED" not in (out / "transform/stdout.log").read_text():
-        raise RuntimeError("GlDevice patch failed")
+    if run["exitCode"] or run["timedOut"]:
+        return report_failure("GL41 client patch failed", out / "transform", run)
+    if "GL41_DIRECT_STATE_DISABLED" not in (out / "transform/stdout.log").read_text().splitlines():
+        return report_failure("GL41 client patch did not report success", out / "transform", run)
     with zipfile.ZipFile(client) as before, zipfile.ZipFile(target) as after:
         names_before = before.namelist()
         names_after = after.namelist()
@@ -56,6 +71,8 @@ def main(argv=None):
         # a multi-megabyte signed manifest otherwise makes Native Image rescan it per resource.
         changed_classes = [name for name in changed if name != "META-INF/MANIFEST.MF"]
         expected = ["com/mojang/blaze3d/opengl/GlDevice.class",
+                    "com/mojang/blaze3d/platform/GLX.class",
+                    "net/minecraft/SystemReport.class",
                     "net/minecraft/client/multiplayer/LevelLoadTracker$WaitingForPlayerChunk.class",
                     "net/minecraft/client/Minecraft.class",
                     "net/minecraft/client/multiplayer/ClientPacketListener.class",

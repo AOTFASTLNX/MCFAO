@@ -17,7 +17,7 @@ import zipfile
 from pathlib import Path
 
 from bootstrap_toolchain import sha256
-from capture import ROOT
+from capture import ROOT, redact_log
 
 
 def sandbox_policy(work: Path, java_home: Path, readable_files: list[Path]) -> str:
@@ -81,6 +81,20 @@ def execute(argv: list[str], folder: Path, cwd: Path, *, timeout=120, cpu_second
         deadline = time.monotonic() + timeout
         remaining = 16 * 1024**2
         killed = False
+        pending = {process.stdout: b"", process.stderr: b""}
+
+        def log_chunk(fileobj, log, chunk, *, final=False):
+            chunk = pending[fileobj] + chunk
+            if not final:
+                end = chunk.rfind(b"\n") + 1
+                chunk, pending[fileobj] = chunk[:end], chunk[end:]
+            if chunk:
+                text = redact_log(chunk.decode("utf-8", errors="replace"))
+                log.write(text.encode())
+                log.flush()
+                if os.environ.get("MCFAO_STREAM_LOGS") == "1":
+                    print(text, end="", flush=True)
+
         with selectors.DefaultSelector() as selector:
             selector.register(process.stdout, selectors.EVENT_READ, out)
             selector.register(process.stderr, selectors.EVENT_READ, err)
@@ -97,12 +111,11 @@ def execute(argv: list[str], folder: Path, cwd: Path, *, timeout=120, cpu_second
                 for key, _ in selector.select(0.2):
                     data = os.read(key.fileobj.fileno(), 65536)
                     if not data:
+                        log_chunk(key.fileobj, key.data, b"", final=True)
                         selector.unregister(key.fileobj)
                         key.fileobj.close()
                         continue
-                    key.data.write(data[:remaining])
-                    if os.environ.get("MCFAO_STREAM_LOGS") == "1":
-                        print(data[:remaining].decode("utf-8", errors="replace"), end="", flush=True)
+                    log_chunk(key.fileobj, key.data, data[:remaining])
                     remaining = max(0, remaining - len(data))
                     if remaining == 0:
                         output_limit = True

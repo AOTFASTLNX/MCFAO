@@ -1,7 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 
-async function desktop(page: Page) {
-  await page.addInitScript(() => {
+async function desktop(page: Page, options: { slow?: boolean } = {}) {
+  await page.addInitScript((slow) => {
     const GiB = 1024 ** 3;
     const state = {
       calls: [] as Record<string, unknown>[],
@@ -10,6 +10,9 @@ async function desktop(page: Page) {
       cleaned: false,
       directory: "/fixture/Unified Storage",
       saveFail: false,
+      slow,
+      scanPolls: 0,
+      cancelled: false,
     };
     const roots = {
       cache: "/Volumes/Build/cache",
@@ -130,6 +133,42 @@ async function desktop(page: Page) {
           if (command !== "workbench_action") return null;
           if (args.action === "bootstrap")
             return { ...form, configFields: {}, jobs: [], storage: roots };
+          if (args.action === "storage-snapshot") {
+            if (state.fail) throw new Error("磁盘已断开，请重新连接");
+            return {
+              cached: !state.slow,
+              plan: state.slow ? null : { ...plan(), cached: true, scanState: "cached", ageSeconds: 42 },
+              task: null,
+            };
+          }
+          if (args.action === "storage-scan-start") {
+            state.scanPolls = 0;
+            return { state: "running", task: "fixture-task" };
+          }
+          if (args.action === "storage-scan-status") {
+            if (state.cancelled)
+              return { task: "fixture-task", state: "cancelled", phase: "cancelled", files: 1024, dirs: 64, bytes: 0, current: "" };
+            state.scanPolls = (state.scanPolls || 0) + 1;
+            if (state.slow && state.scanPolls < 3)
+              return {
+                task: "fixture-task",
+                state: "running",
+                phase: "scanning",
+                files: 1024,
+                dirs: 64,
+                bytes: 0,
+                current: "/fixture/builds/aot/objects",
+              };
+            return { task: "fixture-task", state: "complete", files: 2048, dirs: 128, bytes: 0, current: "" };
+          }
+          if (args.action === "storage-scan-cancel") {
+            state.cancelled = true;
+            return { task: "fixture-task", state: "cancelled", phase: "cancelled", files: 0, dirs: 0, bytes: 0, current: "" };
+          }
+          if (args.action === "storage-refresh") {
+            if (state.slow) return { incremental: false, plan: null };
+            return { incremental: true, plan: { ...plan(), scanState: "incremental", incremental: true } };
+          }
           if (args.action === "storage-plan") {
             if (state.fail) throw new Error("磁盘已断开，请重新连接");
             return plan();
@@ -167,12 +206,14 @@ async function desktop(page: Page) {
         },
       },
     });
-  });
+  }, options.slow ?? false);
   await page.goto("/");
   await page.getByRole("button", { name: "存储管理", exact: true }).click();
-  await expect(
-    page.getByText("Builder 文件占用", { exact: true }),
-  ).toBeVisible();
+  if (!options.slow) {
+    await expect(
+      page.getByText("Builder 文件占用", { exact: true }),
+    ).toBeVisible();
+  }
 }
 
 test("sidebar page shows storage distribution, disk filters, largest directories and Finder action", async ({
@@ -296,10 +337,46 @@ test("read-only directories and failed rescans show specific reasons", async ({
     (window as any).__storageTest.fail = true;
   });
   await page.getByRole("button", { name: "重新扫描", exact: true }).click();
-  await expect(page.getByRole("alert")).toContainText("磁盘已断开");
+  await expect(
+    page.getByRole("region", { name: "存储管理" }).getByRole("alert"),
+  ).toContainText("磁盘已断开");
   await expect(
     page.getByRole("button", { name: "重新扫描", exact: true }),
   ).toBeEnabled();
+});
+
+test("cached numbers render first and a background scan can be cancelled", async ({
+  page,
+}) => {
+  await desktop(page, { slow: true });
+  await expect(page.locator(".sm-progress")).toContainText("/fixture/builds/aot/objects");
+  await expect(page.locator(".sm-progress")).toContainText("1,024");
+  await page.getByRole("button", { name: "取消扫描", exact: true }).click();
+  await expect(
+    page.getByText("已取消扫描，未完成的统计没有写入缓存。", { exact: false }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "取消扫描", exact: true }),
+  ).toHaveCount(0);
+});
+
+test("a cached snapshot is shown immediately and then refreshed in place", async ({
+  page,
+}) => {
+  await desktop(page);
+  // The incremental pass re-walks only changed directories; the result is
+  // labelled as an incremental update, never as a full rescan.
+  await expect(page.locator(".sm-stats")).toContainText("增量更新于");
+  await expect(
+    page.getByRole("button", { name: "重新扫描", exact: true }),
+  ).toBeVisible();
+  const calls = await page.evaluate(() =>
+    (window as any).__storageTest.calls
+      .filter((c: any) => c.command === "workbench_action")
+      .map((c: any) => c.action),
+  );
+  expect(calls).toContain("storage-refresh");
+  expect(calls).not.toContain("storage-scan-start");
 });
 
 test("quick directory confirms before picker, saves all roles and updates output", async ({

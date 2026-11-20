@@ -20,6 +20,11 @@ export interface StorageUsage {
   error?: string;
   itemCount?: number;
   items?: StorageItem[];
+  files?: number;
+  dirs?: number;
+  /** False when this role could not be read completely. */
+  complete?: boolean;
+  elapsedMs?: number;
 }
 export interface StorageVolume {
   id: string;
@@ -43,6 +48,19 @@ export interface StoragePlan {
   managedBytes?: number;
   scannedAt?: string;
   warnings?: string[];
+  /** "complete" for a fresh scan, "incremental" after a journal replay, or
+   * "cached" when these numbers came from the persistent index. */
+  scanState?: "complete" | "incremental" | "cached";
+  cached?: boolean;
+  stale?: boolean;
+  ageSeconds?: number | null;
+  incremental?: boolean;
+  eventNotes?: string[];
+  files?: number;
+  dirs?: number;
+  complete?: boolean;
+  walked?: number;
+  reused?: number;
 }
 export const storageRoles: Record<string, string> = {
   cache: "编译缓存",
@@ -72,6 +90,14 @@ export function formatBytes(bytes: number): string {
 export function percent(value: number, total: number): number {
   return total > 0 ? Math.min(100, Math.max(0, (value / total) * 100)) : 0;
 }
+/** Roles whose last measurement was incomplete or unavailable. */
+export function problemRoles(plan: StoragePlan | null): StorageUsage[] {
+  if (!plan?.usage) return [];
+  return plan.usage.filter(
+    (row) => row.available === false || !!row.error || row.complete === false,
+  );
+}
+
 export function selectedBytes(plan: StoragePlan, choices: string[]): number {
   return plan.groups
     .filter((g) => choices.includes(g.id))

@@ -137,6 +137,14 @@ NSString *FAOTPojavDefaultLayoutJSON(void) {
     [self reloadSettings];
 }
 
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations {
+    return UIInterfaceOrientationMaskLandscape;
+}
+
+- (UIInterfaceOrientation)preferredInterfaceOrientationForPresentation {
+    return UIInterfaceOrientationLandscapeRight;
+}
+
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
     BOOL landscape = self.view.bounds.size.width > self.view.bounds.size.height;

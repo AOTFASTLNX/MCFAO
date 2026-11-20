@@ -71,6 +71,7 @@ import {
   restoreForm,
   stageName,
   stages,
+  type AotCompatibility,
   type Bootstrap,
   type BuildForm,
   type BuildJob,
@@ -111,6 +112,7 @@ import {
 import { NativeDependencies, DependencyTask } from "./NativeDependencies";
 import { jobStateName, type DependencyInventory } from "./workflow";
 import { StorageManager } from "./StorageManager";
+import { useStorageScan } from "./useStorageScan";
 import {
   StorageChangeDialog,
   type StorageChangePlan,
@@ -208,6 +210,109 @@ function Note({
       <CircleAlert size={17} aria-hidden="true" />
       <div>{children}</div>
     </div>
+  );
+}
+
+const compatibilityStages = [
+  ["static", "静态检查"],
+  ["transform", "Fabric 转换"],
+  ["aot", "AOT 产物"],
+  ["startup", "启动"],
+  ["device", "真机"],
+] as const;
+const compatibilityStatus = {
+  PASS: "通过",
+  FAIL: "失败",
+  SKIPPED: "未执行",
+  UNVERIFIED: "待验证",
+} as const;
+const compatibilitySeverity = {
+  blocker: "阻塞",
+  warning: "警告",
+  fix: "自动修复",
+};
+const compatibilityReasons: Record<string, string> = {
+  FABRIC_DEPENDENCIES: "Fabric 依赖未满足",
+  FABRIC_TRANSFORMATION: "Fabric 转换失败",
+  MIXIN_TARGET_UNAVAILABLE: "Mixin 目标不可用",
+  MIXIN_ACCESSOR_UNVERIFIED: "Mixin 访问器未验证",
+  MIXIN_HELPER_UNAVAILABLE: "Mixin 辅助类型不可用",
+  GENERATED_CLASS_UNAVAILABLE: "生成类不可用",
+  FABRIC_RUNTIME_RESIDUE: "Fabric 运行时行为待验证",
+  BYTECODE_ADAPTATION: "静态字节码转换",
+  CONFIG_NO_PUBLIC_NOARG: "配置类型缺少公开无参构造器",
+  TYPED_GSON_CONFIG: "已注册配置构造器和字段",
+  METAL_REFERENCE_ON_GL41: "GL41 引用了原生 Metal 类型",
+  METAL_CLASS_ON_GL41: "GL41 类路径包含原生 Metal 类型",
+  MISSING_REQUIRED_TYPE: "缺少必需类型",
+  MISSING_TYPE: "符号引用的类型缺失",
+  MISSING_METHOD: "符号引用的方法缺失",
+  MISSING_FIELD: "符号引用的字段缺失",
+  INCOMPATIBLE_MEMBER_KIND: "成员的静态或实例类型不匹配",
+  INCOMPATIBLE_MEMBER_OWNER: "接口与类的引用不匹配",
+  ILLEGAL_PRIVATE_ACCESS: "无权访问私有成员",
+  OSHI_IOS_UNSUPPORTED: "OSHI 硬件查询不支持 iOS",
+  SERVICE_PROVIDER_MISSING: "服务声明的提供者缺失",
+  SERVICE_LOADER_CALL: "服务加载待验证",
+  LWJGL_MEMBER_MISSING: "LWJGL 方法或字段缺失",
+  OPENGL_AFTER_41: "调用超出 GL 4.1 的 API",
+  RESOURCE_METADATA: "已注册静态资源",
+  RESOURCE_RETAINED: "已保留静态资源",
+  RESOURCE_AMBIGUOUS: "资源路径冲突",
+  RESOURCE_NOT_ON_CLASSPATH: "资源缺失",
+  DYNAMIC_RESOURCE: "动态资源路径待验证",
+  MOD_NATIVE_METHOD: "Mod 包含原生方法",
+  NATIVE_LINK_UNSUPPORTED: "原生运行库入口尚未实现",
+  NATIVE_LIBRARY_LOAD: "动态原生库加载待验证",
+  RUNTIME_CLASS_DEFINITION: "运行时定义类待验证",
+  REFLECTION_CALL: "反射调用待验证",
+  REFLECTION_METADATA_UNRESOLVED: "反射元数据目标未解析",
+  PROXY_CALL: "动态代理待验证",
+  SERIALIZATION_CALL: "Java 序列化待验证",
+};
+
+function CompatibilitySummary({ report }: { report: AotCompatibility }) {
+  return (
+    <section className="compatibility-summary" aria-label="AOT 兼容性">
+      <div role="status">
+        <strong>AOT 兼容性</strong>
+        <p>
+          {report.modCount} 个 Mod · {report.fixes} 项自动修复 ·{" "}
+          {report.warnings} 条警告 · {report.blockers} 个阻塞
+        </p>
+        <p>
+          {compatibilityStages
+            .map(
+              ([key, label]) =>
+                `${label} ${compatibilityStatus[report.stages[key]]}`,
+            )
+            .join(" · ")}
+        </p>
+      </div>
+      {!!report.findings.length && (
+        <details open={report.blockers ? true : undefined}>
+          <summary>查看兼容性诊断</summary>
+          <ul>
+            {report.findings.map((finding, index) => (
+              <li key={finding.code + index}>
+                {compatibilitySeverity[finding.severity]} ·{" "}
+                {compatibilityReasons[finding.code] ?? finding.code} ·{" "}
+                {finding.target}
+                {finding.location && ` · ${finding.location}`}
+                {(finding.mod || finding.archive) &&
+                  ` · ${finding.mod || finding.archive}`}
+                {finding.renderer && ` · ${finding.renderer}`}
+                {finding.count > 1 && ` · ${finding.count} 处`}
+                {finding.suggestion && ` · ${finding.suggestion}`}
+              </li>
+            ))}
+          </ul>
+          {report.findingGroups > report.findings.length && (
+            <p>更多条目见构建报告与日志。</p>
+          )}
+        </details>
+      )}
+    </section>
   );
 }
 
@@ -894,16 +999,18 @@ export default function App() {
     setError("");
   }
   useSetupProgress(formRef, setup, setSetup);
-  async function loadStorage() {
-    await attempt("正在统计磁盘占用", async () => {
-      const plan = await workbench<StoragePlan>(
-        formRef.current,
-        "storage-plan",
-      );
-      setStorage(plan);
-      setStorageDone("");
-    });
-  }
+  // The scan is owned here, above the page, so switching pages does not cancel
+  // it and every answer is tied to the workspace that requested it.
+  const storageScan = useStorageScan({
+    enabled: native,
+    workspace: form.workspace,
+    load: (action, fields) =>
+      workbench(formRef.current, action, undefined, fields),
+  });
+  useEffect(() => {
+    if (!storageScan.plan) return;
+    setStorage(storageScan.plan);
+  }, [storageScan.plan]);
   async function resetStorageDirectories() {
     await attempt("正在重置目录设置", async () => {
       const result = await workbench<{
@@ -997,8 +1104,9 @@ export default function App() {
       );
       setStorageDone("已释放 " + size(result.freedBytes));
       setNotice("已释放 " + size(result.freedBytes));
-      setStorage(null);
-      setStorage(await workbench<StoragePlan>(formRef.current, "storage-plan"));
+      // The deletion invalidates every cached size; read the committed snapshot
+      // and let the next visit trigger its own refresh.
+      await storageScan.reload();
     });
   }
   async function attempt<T>(
@@ -1378,7 +1486,7 @@ export default function App() {
       }));
     }
     setPage(p);
-    if (p === "storage" && !storage && native && !busy) void loadStorage();
+    if (p === "storage" && native && !busy) void storageScan.open();
     setError("");
     setNotice("");
   }
@@ -2578,6 +2686,9 @@ export default function App() {
                             {jobStateName(job)}
                           </Pill>
                         </div>
+                        {job.compatibility && (
+                          <CompatibilitySummary report={job.compatibility} />
+                        )}
                         {job.request.forceCompile &&
                           !job.request.existingBuild && (
                             <Note>
@@ -2910,11 +3021,9 @@ export default function App() {
                                 disabled={!native || !!busy || !!active}
                                 onClick={() =>
                                   void attempt("正在恢复构建", async () => {
-                                    // Retry reuses the recorded request: the
-                                    // builder no longer remembers a pack, and
-                                    // the supervisor rejects a changed request.
+                                    // Retry keeps the recorded pack and uses the current build preference.
                                     const next = await workbench<BuildJob>(
-                                      job.request,
+                                      { ...job.request, quickBuild: form.quickBuild },
                                       "retry",
                                       job.id,
                                     );
@@ -3012,7 +3121,11 @@ export default function App() {
                   !!active || ["queued", "running"].includes(setup?.state || "")
                 }
                 done={storageDone}
-                onScan={() => void loadStorage()}
+                scan={storageScan.scanning ? storageScan.progress : null}
+                scanError={storageScan.error}
+                scanMessage={storageScan.message}
+                onScan={storageScan.rescan}
+                onCancelScan={() => void storageScan.cancel()}
                 onClean={(groups) => void cleanStorage(groups)}
                 onReveal={(path) =>
                   void attempt("正在打开 Finder", async () => {
@@ -3086,6 +3199,26 @@ export default function App() {
                   ) : (
                     <AccountPanel disabled={!!active || !!busy} />
                   )}
+                </div>
+                <div className="settings-group">
+                  <h2>构建</h2>
+                  <label className="setting-row setting-switch-row">
+                    <span className="setting-label">
+                      <strong id="quick-build-label">快速构建</strong>
+                      <small id="quick-build-description">
+                        开启时复用匹配的编译产物，或快速编译。关闭时从头编译。适用于新建和重试。
+                      </small>
+                    </span>
+                    <input
+                      className="setting-switch"
+                      type="checkbox"
+                      role="switch"
+                      aria-labelledby="quick-build-label"
+                      aria-describedby="quick-build-description"
+                      checked={form.quickBuild === true}
+                      onChange={(event) => update({ quickBuild: event.target.checked })}
+                    />
+                  </label>
                 </div>
                 <div className="settings-group">
                   <h2>外观</h2>

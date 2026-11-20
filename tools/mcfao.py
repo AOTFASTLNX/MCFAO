@@ -17,8 +17,10 @@ import subprocess
 import sys
 from uuid import uuid4
 import zipfile
-from renderer_profile import DEFAULT_RENDERER, RENDERERS, config_names, libraries as renderer_libraries, validate_runtime
+from renderer_profile import (BUILD_PROVENANCE, DEFAULT_RENDERER, RENDERERS, config_names,
+                              dylib_uuid, libraries as renderer_libraries, validate_runtime)
 from external_storage import ExternalStorageUnavailable, require_mount
+import aot_cache
 
 from bootstrap_toolchain import sha256
 from build_c0_harness import binary_platform, validate_dylib, validate_shader_bundle
@@ -30,6 +32,8 @@ from native_game_checks import verify_game_image
 from build_glfw_lite import exported_symbols, validate_input_exports
 from glfw_runtime_contract import validate_glfw_renderer
 from prepare_fabric_aot import TOOL as FABRIC_TOOL, mod_files
+from aot_compatibility import add_bytecode_results, issue, publish, transform_report
+from mdaf import AGENT_FILES
 from stage_game_assets import verified_assets
 from mod_file_policy import content_paths, copy_ignore, is_metadata
 
@@ -61,7 +65,7 @@ BACKEND_TOOLS = (
     "config_reflection", "mdaf", "verify_aot_classpath", "patch_gl41_client", "renderer_profile",
     "cleanup_storage",
     "storage_config", "bundle_source", "host_tools", "verified_download", "glfw_runtime_contract",
-    "native_game_checks", "app_icon", "test_version",
+    "native_game_checks", "app_icon", "aot_cache", "test_version",
 )
 
 
@@ -114,7 +118,7 @@ def load_config(path: Path, renderer: str = DEFAULT_RENDERER) -> dict:
     if not required <= config.keys() or config.keys() - allowed:
         raise ValueError("Config requires " + ", ".join(CONFIG_PATHS) + ". Optional paths are openjdkSource and graalSource.")
     return {name: (path.parent / Path(value).expanduser()).resolve(strict=True)
-            for name, value in config.items()}
+            for name, value in config.items() if name in required or name in OPTIONAL_CONFIG_PATHS}
 
 
 def runtime_sources(config):
@@ -168,6 +172,9 @@ def inputs(config: dict, renderer: str = DEFAULT_RENDERER) -> tuple[dict, Path, 
         add(file)
     for file in sorted(content_paths(home / "lib/svm")):
         if file.is_file():
+            add(file)
+    for file in sorted((home / "jmods").glob("*.jmod")):
+        if not is_metadata(file.name):
             add(file)
     for file in sorted(content_paths(home / "include")):
         if file.suffix == ".h":
@@ -305,6 +312,22 @@ def failure_summary(log: Path, limit=14):
     return picked or lines[-8:]
 
 
+def aot_failure_summary(product: Path):
+    """Read the current probe's structured failure if it reached Native Image."""
+    try:
+        image = read_json(product / "result.json")
+        failure = image["analysisFailure"]
+        details = [
+            f"Native Image builder: {image['builderGC']} GC, -Xmx{image['heapGiB']}g",
+        ]
+        phase = failure.get("lastCompletedPhase")
+        if phase is not None:
+            details.append(f"Native Image last completed phase: {phase}/8")
+        return details + failure["lines"]
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return []
+
+
 class Build:
     def __init__(self, root: Path, key: str):
         self.root = root
@@ -330,7 +353,7 @@ class Build:
         log = attempt / "command"
         result = capture(cmd, log, timeout)
         if result["exitCode"] != 0 or result["timedOut"]:
-            tail = failure_summary(log)
+            tail = (aot_failure_summary(product) if name == "aot" else []) or failure_summary(log)
             raise RuntimeError(f"{name} failed (exit {result['exitCode']}, timeout={result['timedOut']}). "
                                f"Logs: {log}\n" + "\n".join(tail))
         if not product.is_dir():
@@ -365,6 +388,8 @@ def loader_client(pipeline, args, config, client, inputs):
     # final client.jar; the budget now covers two Knot passes with headroom.
     prepare_args = ["--prepared", config["prepared"], "--client", client,
                     "--mods", args.mods.resolve(), "--output", "{product}",
+                    "--renderer", args.renderer,
+                    "--compatibility-report", pipeline.root / "compatibility.json",
                     "--audited-mods" if args.audited_mods else "--inspect"]
     if args.trace_agent:
         prepare_args.append("--trace-agent")
@@ -372,6 +397,7 @@ def loader_client(pipeline, args, config, client, inputs):
         "prepare_fabric_aot", *prepare_args), timeout=1800)
     report = prepared / "result.json"
     facts = read_json(report)
+    publish(pipeline.root / "compatibility.json", transform_report(facts))
     if facts["modSHA256"] != inputs["modsSHA256"]:
         raise ValueError(f"Mod JARs changed after input resolution: {report}")
     if args.prepare_only:
@@ -379,7 +405,8 @@ def loader_client(pipeline, args, config, client, inputs):
     if facts.get("excludedMods") or facts.get("retiredJars"):
         raise ValueError(f"Requested Fabric instance contains excluded Mods; review {report}. Build an explicitly selected subset separately.")
     jar = prepared / "client.jar"
-    if facts["status"] != "FABRIC_AOT_INPUT_PREPARED" or sha256(jar) != facts["outputJarSHA256"]:
+    if (facts["status"] != "FABRIC_AOT_INPUT_PREPARED" or facts.get("renderer") != args.renderer
+            or sha256(jar) != facts["outputJarSHA256"]):
         raise ValueError(f"Fabric preparation did not yield a verified AOT input: {report}")
     return jar, report
 
@@ -455,10 +482,20 @@ def validate_package(app, staged, asset_hashes, renderer=DEFAULT_RENDERER):
         if is_metadata(library.name):
             continue
         packaged = frameworks / library.name
-        before = command("/usr/bin/xcrun", "dwarfdump", "--uuid", library).split()[:3]
-        after = command("/usr/bin/xcrun", "dwarfdump", "--uuid", packaged).split()[:3]
-        if len(before) != 3 or before != after:
+        if dylib_uuid(library) != dylib_uuid(packaged):
             raise ValueError(f"Embedded image UUID differs: {library.name}")
+    if (staged / BUILD_PROVENANCE).is_file():
+        if sha256(app / BUILD_PROVENANCE) != sha256(staged / BUILD_PROVENANCE):
+            raise ValueError("Packaged build provenance differs from the staged file")
+
+
+def validate_build_provenance(app, build_key, commit, renderer):
+    report = read_json(app / BUILD_PROVENANCE)
+    expected = {name: dylib_uuid(app / "Frameworks" / name) for name in renderer_libraries(renderer)}
+    if report != dict(schemaVersion=1, buildKey=build_key, sourceCommit=commit,
+                      renderer=renderer, dylibUUIDs=expected):
+        raise ValueError("Packaged build provenance does not match the build or its dylibs")
+    return report
 
 
 def write_payload_ipa(app: Path, ipa: Path):
@@ -585,7 +622,10 @@ def verify(output: Path, device: str | None) -> dict:
         raise ValueError("No completed iPhoneOS app manifest")
     if sha256(output / "inputs.json") != report["inputsSHA256"]:
         raise ValueError("Build input manifest changed")
-    for key in ("aotCommand", "linkReport"):
+    evidence_keys = ["aotCommand", "linkReport"]
+    if report.get("compatibilityReport"):
+        evidence_keys.append("compatibilityReport")
+    for key in evidence_keys:
         path = Path(report[key]).resolve(strict=True)
         if not path.is_relative_to(output) or (report.get(key + "SHA256") and sha256(path) != report[key + "SHA256"]):
             raise ValueError(f"Build evidence changed: {key}")
@@ -602,6 +642,10 @@ def verify(output: Path, device: str | None) -> dict:
         verify_icon(app, icon["assetName"])
     if test_version(plistlib.loads((app / "Info.plist").read_bytes()).get("FAOTTestVersion", "")) != test_version(report.get("testVersion", "")):
         raise ValueError("Packaged test version differs from recorded build")
+    if report.get("buildProvenance") is not None:
+        provenance = validate_build_provenance(app, report["buildKey"], report["sourceCommit"], report["renderer"])
+        if provenance != report["buildProvenance"]:
+            raise ValueError("Build provenance differs from the recorded result")
     logs = output / "verify" / uuid4().hex
     if report.get("ipa") and (sha256(Path(report["ipa"])) != report["sha256"] or Path(report["ipa"]).stat().st_size != report["bytes"]):
         raise ValueError("IPA changed since packaging")
@@ -674,6 +718,9 @@ def export_ipa(args) -> dict:
     if len(apps) != 1:
         raise ValueError("Expected one exported iPhoneOS app")
     validate_package(apps[0], staged, evidence["assetsSHA256"], renderer)
+    provenance = None
+    if manifest.get("buildProvenance") is not None:
+        provenance = validate_build_provenance(apps[0], manifest["buildKey"], manifest["sourceCommit"], renderer)
     if icon and icon.get("assetName"):
         verify_icon(apps[0], icon["assetName"])
     if test_version(plistlib.loads((apps[0] / "Info.plist").read_bytes()).get("FAOTTestVersion", "")) != label:
@@ -682,6 +729,7 @@ def export_ipa(args) -> dict:
               "sha256": sha256(ipa), "bytes": ipa.stat().st_size, "build": str(build),
               "exportOptionsSHA256": sha256(options), "testVersion": label,
               "renderer": renderer, "sourceCommit": manifest.get("sourceCommit"),
+              "buildProvenance": provenance,
               "verification": app_facts(apps[0], args.device, output / "verify", renderer)}
     write_json(output / "result.json", result)
     return result
@@ -705,6 +753,54 @@ def instance_files(root):
     return files
 
 
+def compile_client_image(pipeline, manifest, config, client, libraries, loader_report, trace_paths):
+    renderer = manifest["renderer"]
+    gl41 = renderer == "gl41"
+    home = Path(read_json(config["prepared"] / "result.json")["javaHome"])
+    split = pipeline.step("split", script(
+        "split_methods", "--jar", client, "--output-jar", "{product}/client.jar",
+        "--report", "{product}/split-report.json", "--tool", config["splitter"],
+        "--classpath", *libraries))
+    asm = [row["path"] for row in read_json(config["splitter"] / "result.json")["asmJars"]
+           if row["name"] in {"asm-9.9.jar", "asm-tree-9.9.jar"}]
+    injected = pipeline.step("gl41-patch" if gl41 else "metal-injection", script(
+        "patch_gl41_client" if gl41 else "inject_metal_backend", "--client", split / "client.jar", "--output", "{product}",
+        "--graalvm-home", home, "--asm-jars", *asm))
+    tracing_path = None
+    if loader_report:
+        tracing = read_json(loader_report).get("tracingAgent", {})
+        candidate = Path(tracing["path"]) if tracing.get("path") else None
+        if candidate and candidate.is_dir() and any(not is_metadata(p.name) for p in candidate.glob("*.json")):
+            tracing_path = candidate
+    # 9 GiB is the largest setting the 50%-of-physical-memory ceiling allows on this 18 GiB
+    # host; probe_client_graph.py checks current headroom before analysis starts.
+    aot_args = ["--prepared", config["prepared"], "--runtime", config["bootstrapRuntime"],
+        "--caps", config["caps"], "--b1-evidence", config["b1Evidence"],
+        "--client-jar", injected / ("client.jar" if gl41 else "client-26.1.2-metal.jar"), "--graphics-bridge", config["lwjgl"],
+        "--renderer", renderer, "--compatibility-report", pipeline.root / "compatibility.json",
+        "--preflight-cache", cache_path("aot-preflight"),
+        *([] if gl41 else ["--metal-bootstrap", config["metal"]]), "--full-build", "--relocatable",
+        "--include-game-resources", "--heap-gib", str(manifest["heapGiB"]),
+        "--builder-gc", manifest["builderGC"], f'--optimization={manifest["optimizationLevel"]}',
+        "--parallelism", str(manifest["parallelism"]), "--simulator-thread-dumps",
+        "--output", "{product}"]
+    if loader_report:
+        aot_args.extend(["--fabric-report", loader_report])
+    for path in [*trace_paths, *([tracing_path] if tracing_path else [])]:
+        aot_args.extend(["--tracing-config", path])
+    try:
+        aot = pipeline.step("aot", script("probe_client_graph", *aot_args), timeout=3800)
+    except (ValueError, RuntimeError):
+        summary_path = pipeline.root / "compatibility.json"
+        if summary_path.is_file():
+            summary = read_json(summary_path)
+            if summary["stages"]["aot"] == "UNVERIFIED":
+                summary["stages"]["aot"] = "FAIL"
+                publish(summary_path, summary)
+        raise
+    return aot
+
+
 def build(args, config):
     output = args.output.resolve()
     if output.is_dir() and any(output.iterdir()) and not (
@@ -717,9 +813,29 @@ def build(args, config):
             raise ValueError("Completed build is immutable. Use verify or select a new output.")
         renderer = getattr(args, "renderer", DEFAULT_RENDERER)
         manifest, client, libraries = inputs(config, renderer)
-        manifest.update({"testVersion": test_version(getattr(args, "test_version", "")), "unsigned": getattr(args, "unsigned", False), "bundleID": getattr(args, "bundle_id", BUNDLE_IDENTIFIER),
-                         "heapGiB": getattr(args, "heap_gib", 9), "parallelism": getattr(args, "parallelism", 4)})
+        # Large Fabric graphs can fill Parallel GC's old generation during method layout,
+        # even at the configured heap limit. G1 assigns heap regions to generations as needed.
+        builder_gc = getattr(args, "builder_gc", None) or ("g1" if args.loader == "fabric" else "parallel")
+        quick_build = getattr(args, "quick_build", False)
+        manifest.update({"testVersion": test_version(getattr(args, "test_version", "")),
+                         "unsigned": getattr(args, "unsigned", False), "bundleID": getattr(args, "bundle_id", BUNDLE_IDENTIFIER),
+                         "heapGiB": getattr(args, "heap_gib", 9), "parallelism": getattr(args, "parallelism", 4),
+                         "builderGC": builder_gc, "quickBuild": quick_build,
+                         "optimizationLevel": os.environ.get("MCFAO_OPT_LEVEL", "-O1")})
         manifest["loader"] = args.loader
+        trace_paths = [path.resolve(strict=True) for path in getattr(args, "tracing_config", ())]
+        for path in trace_paths:
+            if not path.is_dir() or not any((path / name).is_file() for name in AGENT_FILES):
+                raise ValueError(f"Tracing metadata directory contains no supported files: {path}")
+        if trace_paths:
+            manifest["tracingDirectories"] = list(map(str, trace_paths))
+            manifest["tracingSHA256"] = {str(path / name): sha256(path / name)
+                                         for path in trace_paths for name in sorted(AGENT_FILES)
+                                         if (path / name).is_file()}
+        for name in ("probe_client_graph.py", "config_reflection.py", "mdaf.py", "aot_compatibility.py",
+                     "capture.py", "run_b0_reference.py"):
+            source = ROOT / "tools" / name
+            manifest["filesSHA256"][str(source)] = sha256(source)
         icon = getattr(args, "icon", None)
         icon_name = None
         if icon:
@@ -742,8 +858,7 @@ def build(args, config):
             manifest["traceAgent"] = args.trace_agent
             manifest["filesSHA256"].update({str(p): sha256(p) for p in (
                 ROOT / "tools/prepare_fabric_aot.py", ROOT / "tools/prepare_b0.py",
-                ROOT / "tools/probe_client_graph.py", ROOT / "tools/config_reflection.py",
-                ROOT / "tools/mdaf.py", ROOT / "tools/verify_aot_classpath.py",
+                ROOT / "tools/verify_aot_classpath.py",
                 *(p for p in content_paths(FABRIC_TOOL) if p.suffix == ".java"),
             )})
         manifest["requestedDevice"] = args.device
@@ -754,45 +869,23 @@ def build(args, config):
         if not saved.exists():
             write_json(saved, manifest)
         pipeline = Build(output, key)
-        client, loader_report = loader_client(pipeline, args, config, client, manifest)
         if args.prepare_only:
+            _, loader_report = loader_client(pipeline, args, config, client, manifest)
             return loader_report
-        split = pipeline.step("split", script(
-            "split_methods", "--jar", client, "--output-jar", "{product}/client.jar",
-            "--report", "{product}/split-report.json", "--tool", config["splitter"],
-            "--classpath", *libraries))
-        home = Path(read_json(config["prepared"] / "result.json")["javaHome"])
-        asm = [row["path"] for row in read_json(config["splitter"] / "result.json")["asmJars"]
-               if row["name"] in {"asm-9.9.jar", "asm-tree-9.9.jar"}]
+        cache = cache_path("aot-objects") if quick_build else None
+        image_key = aot_cache.cache_key(manifest) if cache is not None else None
+        restored = aot_cache.restore(cache, image_key, output, manifest) if cache is not None else None
+        if restored is None:
+            client, loader_report = loader_client(pipeline, args, config, client, manifest)
+            aot = compile_client_image(pipeline, manifest, config, client, libraries, loader_report, trace_paths)
+        else:
+            aot, loader_report = restored
+            if loader_report:
+                print(f"fabric: reused verified AOT input report {loader_report}", flush=True)
+            print(f"aot: reused verified native object {aot}", flush=True)
+            publish(output / "compatibility.json", read_json(aot / "compatibility.json"))
         gl41 = renderer == "gl41"
-        injected = pipeline.step("gl41-patch" if gl41 else "metal-injection", script(
-            "patch_gl41_client" if gl41 else "inject_metal_backend", "--client", split / "client.jar", "--output", "{product}",
-            "--graalvm-home", home, "--asm-jars", *asm))
-        tracing_path = None
-        if loader_report:
-            tracing = read_json(loader_report).get("tracingAgent", {})
-            candidate = Path(tracing["path"]) if tracing.get("path") else None
-            if candidate and candidate.is_dir() and any(not is_metadata(p.name) for p in candidate.glob("*.json")):
-                tracing_path = candidate
-        # 9 GiB is the largest setting the 50%-of-physical-memory ceiling allows on this 18 GiB
-        # host; probe_client_graph.py checks current headroom before analysis starts.
-        aot_args = ["--prepared", config["prepared"], "--runtime", config["bootstrapRuntime"],
-            "--caps", config["caps"], "--b1-evidence", config["b1Evidence"],
-            "--client-jar", injected / ("client.jar" if gl41 else "client-26.1.2-metal.jar"), "--graphics-bridge", config["lwjgl"],
-            *([] if gl41 else ["--metal-bootstrap", config["metal"]]), "--full-build", "--relocatable",
-            # pack-60 restored Sodium's real config registration path (9 previously stubbed
-            # methods became reachable) and the 7 GiB image builder heap OOMed with 5117M live
-            # old-gen against a 5438M old-gen capacity. 8 GiB carried packs 61-68 (live set
-            # ~4.96 GB after a full GC). pack-69, the first pack without Iris, reached 7087M
-            # live against a 7337M capacity and sat in full-GC thrash (->7087M, nothing
-            # reclaimed), so the reachable image heap is now above what 8 GiB can hold.
-            # 9 GiB is the largest setting the 50%-of-physical-memory ceiling allows on this
-            # 18 GiB host; probe_client_graph.py rejects anything larger before analysis starts.
-            "--include-game-resources", "--heap-gib", str(manifest["heapGiB"]), "--parallelism", str(manifest["parallelism"]), "--simulator-thread-dumps",
-            "--output", "{product}"]
-        if tracing_path:
-            aot_args.extend(["--tracing-config", tracing_path])
-        aot = pipeline.step("aot", script("probe_client_graph", *aot_args), timeout=3800)
+        home = Path(read_json(config["prepared"] / "result.json")["javaHome"])
         image = read_json(aot / "result.json")
         if image.get("analysisFailure"):
             failure = image["analysisFailure"]
@@ -802,6 +895,7 @@ def build(args, config):
         image_object = Path(image["imageObject"]["path"])
         flags = read_json(aot / "analysis/command.json")["argv"]
         if (image["targetCodeGeneration"] != "RELOCATABLE_OBJECT"
+                or not image_object.resolve(strict=True).is_relative_to(aot.resolve())
                 or sha256(image_object) != image["imageObject"]["sha256"]
                 or "--no-fallback" not in flags or "-H:+ExitAfterRelocatableImageWrite" not in flags):
             raise ValueError(f"Invalid AOT object or arguments. Logs: {aot / 'analysis'}")
@@ -818,11 +912,26 @@ def build(args, config):
         validate_dylib(linked / "client-graph.dylib")
         if gl41:
             verify_game_image(linked / "client-graph.dylib")
+        if cache is not None and restored is None:
+            try:
+                aot_cache.record(cache, image_key, aot, image_object, loader_report)
+            except OSError as error:
+                print(f"Could not save the AOT cache reference: {error}", file=sys.stderr)
+        compatibility = read_json(aot / "compatibility.json")
+        unsupported_jni = read_json(linked / "result.json").get("unsupportedEntrypoints", [])
+        if unsupported_jni:
+            compatibility = add_bytecode_results(
+                compatibility, [issue("NATIVE_LINK_UNSUPPORTED", "warning", name)
+                                for name in unsupported_jni],
+                compatibility["graph"], compatibility["metadataFiles"])
+        compatibility["stages"]["aot"] = "PASS"
+        publish(output / "compatibility.json", compatibility)
         staged = pipeline.step("stage", script(
             "stage_device_xcode", "--client", linked,
             *(argument for name in config_names(renderer)
               for argument in ("--lwjgl-opengl" if name == "lwjglOpengl" else f"--{name}", config[name])),
             "--renderer", renderer,
+            "--build-key", key, "--source-commit", manifest["sourceCommit"],
             "--output", "{product}"))
         seed = None
         if instance:
@@ -848,6 +957,7 @@ def build(args, config):
             *([f"FAOT_INSTANCE_DATA_DIR={seed}"] if seed else []), "-derivedDataPath", "{product}", "build"],
             outputs=lambda attempt: attempt / "product/Build/Products/World Device-iphoneos/C0Harness.app")
         validate_package(app, staged, manifest["assetsSHA256"], renderer)
+        provenance = validate_build_provenance(app, key, manifest["sourceCommit"], renderer)
         if icon_name:
             verify_icon(app, icon_name)
         if seed and tree_files(seed) != tree_files(app / "instance-seed"):
@@ -860,11 +970,15 @@ def build(args, config):
         write_json(output / "result.json", {
             "status": "UNSIGNED_DEVICE_APP" if manifest["unsigned"] else "SIGNED_DEVICE_APP", "target": TARGET, "buildKey": key,
             "renderer": renderer, "sourceCommit": manifest["sourceCommit"],
+            "buildProvenance": provenance,
+            "quickBuild": quick_build, "aotReused": restored is not None,
             "ipa": str(ipa), "bytes": ipa.stat().st_size, "sha256": sha256(ipa),
             "signature": "UNSIGNED" if manifest["unsigned"] else "DEVELOPMENT_SIGNED",
             "testVersion": manifest["testVersion"],
             "appIcon": ({"assetName": icon_name, **manifest["appIcon"]} if icon_name else None),
             "loader": args.loader, "loaderReport": str(loader_report) if loader_report else None,
+            "compatibilityReport": str(output / "compatibility.json"),
+            "compatibilityReportSHA256": sha256(output / "compatibility.json"),
             "inputsSHA256": sha256(saved), "aotCommand": str(aot / "analysis/command.json"),
             "linkReport": str(linked / "result.json"), "app": str(app.relative_to(output)),
             "aotCommandSHA256": sha256(aot / "analysis/command.json"),
@@ -899,13 +1013,19 @@ def main(argv=None):
     compile_command.add_argument("--icon-padding", type=int, default=0,
                                  help="Percentage of transparent margin around the artwork (0-30)")
     compile_command.add_argument("--heap-gib", type=int, choices=(6,7,8,9), default=9)
-    compile_command.add_argument("--parallelism", type=int, choices=range(1,9), default=4)
+    compile_command.add_argument("--builder-gc", choices=("parallel", "g1"),
+                                 help="Host Native Image JVM collector (default: G1 for Fabric, Parallel for vanilla)")
+    compile_command.add_argument("--quick-build", action="store_true",
+                                 help="Reuse matching, verified local AOT objects")
+    compile_command.add_argument("--parallelism", type=int, choices=range(1,5), default=4)
     compile_command.add_argument("--prepare-only", action="store_true",
                                  help="Stop after Fabric metadata inspection or audited transformation")
     compile_command.add_argument("--audited-mods", action="store_true",
                                  help="Confirm these mod JARs have been audited for host build execution")
     compile_command.add_argument("--trace-agent", action="store_true",
                                  help="Collect GraalVM tracing metadata during the sandboxed audited Fabric rehearsal")
+    compile_command.add_argument("--tracing-config", type=Path, action="append", default=[],
+                                 help="Merge metadata from a local, audited tracing-agent rehearsal")
     exporter = commands.add_parser("export", help="Archive, export and verify a development IPA")
     exporter.add_argument("--build", type=Path, required=True)
     exporter.add_argument("--export-options", type=Path, required=True)

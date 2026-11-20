@@ -6,6 +6,7 @@ import {
   LoaderCircle,
   RefreshCw,
   ShieldCheck,
+  Square,
   Trash2,
 } from "lucide-react";
 import {
@@ -20,14 +21,53 @@ import "./storage-management.css";
 
 const name = (path: string) => path.split("/").filter(Boolean).pop() || path;
 
+/** Say plainly whether these numbers are live or came from the cache. */
+function describeAge(plan: StoragePlan): string {
+  if (!plan.scannedAt) return "磁盘容量按卷统计";
+  const seconds = plan.ageSeconds;
+  const clock = new Date(plan.scannedAt).toLocaleTimeString("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  if (plan.cached) {
+    const ago =
+      typeof seconds === "number"
+        ? seconds < 60
+          ? "刚刚"
+          : seconds < 3600
+            ? `${Math.round(seconds / 60)} 分钟前`
+            : `${Math.round(seconds / 3600)} 小时前`
+        : "上次";
+    return `缓存统计 · ${ago}（${clock}）`;
+  }
+  if (plan.scanState === "incremental") return `增量更新于 ${clock}`;
+  return `扫描于 ${clock}`;
+}
+
+export interface ScanProgressView {
+  state: string;
+  phase?: string;
+  files: number;
+  dirs: number;
+  bytes: number;
+  current: string;
+  error?: string;
+  completedRoles?: string[];
+  totalRoles?: number;
+}
+
 export function StorageManager({
   plan,
   busy,
   available,
   active,
   done,
+  scan,
+  scanError,
+  scanMessage,
   locations,
   onScan,
+  onCancelScan,
   onClean,
   onReveal,
 }: {
@@ -36,8 +76,12 @@ export function StorageManager({
   available: boolean;
   active: boolean;
   done: string;
+  scan: ScanProgressView | null;
+  scanError: string;
+  scanMessage: string;
   locations: ReactNode;
   onScan: () => void;
+  onCancelScan: () => void;
   onClean: (groups: string[]) => void;
   onReveal: (path: string) => void;
 }) {
@@ -65,7 +109,7 @@ export function StorageManager({
   const current = filtered.find((row) => row.role === role) || filtered[0];
   const total = filtered.reduce((sum, row) => sum + row.bytes, 0);
   const selected = plan ? selectedBytes(plan, choices) : 0;
-  const scanning = busy === "正在统计磁盘占用";
+  const scanning = !!scan;
   const disabled = !available || !!busy;
 
   return (
@@ -75,18 +119,56 @@ export function StorageManager({
           <h1>存储管理</h1>
           <p>查看空间分布，管理构建文件与缓存。</p>
         </div>
-        <button className="secondary" disabled={disabled} onClick={onScan}>
-          {scanning ? (
-            <LoaderCircle size={16} className="spin" aria-hidden="true" />
-          ) : (
-            <RefreshCw size={16} aria-hidden="true" />
+        <div className="sm-heading-actions">
+          {scanning && (
+            <button className="secondary" onClick={onCancelScan}>
+              <Square size={14} aria-hidden="true" />
+              取消扫描
+            </button>
           )}
-          {scanning ? "正在扫描…" : plan ? "重新扫描" : "扫描存储空间"}
-        </button>
+          <button className="secondary" disabled={disabled} onClick={onScan}>
+            {scanning ? (
+              <LoaderCircle size={16} className="spin" aria-hidden="true" />
+            ) : (
+              <RefreshCw size={16} aria-hidden="true" />
+            )}
+            {scanning ? "正在扫描…" : plan ? "重新扫描" : "扫描存储空间"}
+          </button>
+        </div>
       </div>
       {busy && (
         <p className="sm-feedback" role="status">
-          {busy}…{scanning && " 大目录可能需要几分钟，可切换页面等待。"}
+          {busy}…
+        </p>
+      )}
+      {scan && (
+        <div className="sm-progress" role="status" aria-live="polite">
+          <div className="sm-progress-title">
+            <LoaderCircle size={15} className="spin" aria-hidden="true" />
+            <strong>{scan.phase === "queued" ? "等待扫描进程" : "正在扫描"}</strong>
+            <span>
+              已读取 {scan.files.toLocaleString("zh-CN")} 个文件 ·{" "}
+              {scan.dirs.toLocaleString("zh-CN")} 个目录
+            </span>
+          </div>
+          {scan.current && (
+            <p className="sm-path" title={scan.current}>
+              {scan.current}
+            </p>
+          )}
+          <p className="sm-help">
+            可切换到其他页面，扫描会在后台继续；已显示的数字来自上次完成的扫描。
+          </p>
+        </div>
+      )}
+      {scanError && (
+        <p className="sm-feedback" role="alert">
+          {scanError}
+        </p>
+      )}
+      {scanMessage && (
+        <p className="sm-feedback" role="status">
+          {scanMessage}
         </p>
       )}
       {done && (
@@ -124,15 +206,7 @@ export function StorageManager({
                 <AnimatedNumber value={volumes.length} />
                 <em> 个</em>
               </strong>
-              <small>
-                {plan.scannedAt
-                  ? "扫描于 " +
-                    new Date(plan.scannedAt).toLocaleTimeString("zh-CN", {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })
-                  : "磁盘容量按卷统计"}
-              </small>
+              <small>{describeAge(plan)}</small>
             </div>
           </div>
           {!!plan.warnings?.length && (

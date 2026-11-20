@@ -25,11 +25,13 @@ import zipfile
 from preflight import scan_pack, validate_zip_members, read_json_limited, MAX_MANIFEST, resource_unit, tls_context
 from mcfao import instance_files
 from bootstrap_toolchain import sha256
+from capture import redact_log
 from mod_file_policy import is_metadata, content_paths, mod_candidates, copy_ignore, clean_staged_metadata
 from external_storage import ExternalStorageUnavailable, require_mount
 import cleanup_storage
 import storage_change
 from storage_inventory import inventory as storage_inventory
+import storage_service
 from storage_config import storage_paths, job_roots, require_space, save_paths, reset_paths, space_report, control_lock
 import native_dependencies
 import app_icon
@@ -41,7 +43,8 @@ KEYS = ('prepared', 'caps', 'bootstrapRuntime', 'splitter', 'versionMetadata', '
 OPTIONAL_KEYS = {'openjdkSource', 'graalSource', 'metal', 'shaders'}
 PUBLIC_ACTIONS = ('bootstrap', 'check', 'dependencies', 'start', 'status', 'cancel', 'history', 'retry',
                   'resolve-exclusions', 'save-config', 'icon-preview', 'storage-plan',
-                  'storage-clean', 'storage-settings', 'storage-change-plan', 'storage-change-apply', 'reset-storage', 'save-storage', 'setup-start', 'setup-status')
+                  'storage-clean', 'storage-settings', 'storage-change-plan', 'storage-change-apply', 'reset-storage', 'save-storage', 'setup-start', 'setup-status',
+                  'storage-snapshot', 'storage-scan-start', 'storage-scan-status', 'storage-scan-cancel', 'storage-refresh')
 ACTIVE = {'queued', 'running', 'cancelling', 'awaiting-exclusions'}
 STAGES = ['validate', 'source', 'doctor', 'fabric', 'split', 'gl41-patch', 'aot',
           'runtime', 'link', 'stage', 'package', 'archive', 'export-log', 'verify']
@@ -95,18 +98,28 @@ def snapshot(path, logs=True):
     elif job['state'] in ACTIVE and (path.parent / 'cancel').exists():
         job['state'] = 'cancelling'
     if logs:
+        compatibility = Path(job['build']) / 'compatibility.json'
+        if not job.get('kind') and compatibility.is_file() and not compatibility.is_symlink():
+            try:
+                report = read_json(compatibility)
+                if report.get('schemaVersion') == 1:
+                    job['compatibility'] = report
+            except (OSError, ValueError):
+                pass
         files = [p for pattern in ('*stdout.log', '*stderr.log', 'worker.log') for p in path.parent.rglob(pattern)]
         files += list(Path(job["build"]).glob("*/*/command/*.log"))
         files += list(Path(job["build"]).glob("aot/*/product/analysis/*.log"))
         files = sorted((p for p in files if not is_metadata(p) and p.is_file()),
                        key=lambda p: p.stat().st_mtime)[-6:]
-        job['log'] = '\n'.join('[' + str(p) + ']\n' + tail(p) for p in files)
+        job['log'] = redact_log('\n'.join('[' + str(p) + ']\n' + tail(p) for p in files))
         if job['stage'] not in ('archive', 'export-log', 'verify'):
             for line in tail(path.parent / 'build.stdout.log', 64000).splitlines():
                 if line.split(':', 1)[0] in STAGES: job['stage'] = line.split(':', 1)[0]
         for line in tail(path.parent / 'export.stdout.log').splitlines():
             stage = line.split(':', 1)[0]
             if stage in ('archive', 'export-log', 'unpack'): job['stage'] = 'verify' if stage == 'unpack' else stage
+    if job.get('error'):
+        job['error'] = redact_log(job['error'])
     return job
 
 def history(workspace):
@@ -261,8 +274,12 @@ def storage(action, request):
         if action != 'storage-plan':
             raise ValueError('自定义存储目录需单独确认逐文件清理计划；当前只提供只读统计')
         paths = storage_paths()
-        report = storage_inventory(paths)
-        return dict(status='STORAGE_PLAN', dataRoot='configured directories', freeBytes=min((v['freeBytes'] for v in report['volumes']), default=0),
+        # One traversal for both the cleanup preview and the per-role usage.
+        measured = cleanup_storage._Measured()
+        plan = cleanup_storage.plan(data_root=ROOT, measured=measured)
+        report = storage_service.inventory(paths, store=True)
+        return dict(status='STORAGE_PLAN', dataRoot='configured directories',
+                    freeBytes=min((v['freeBytes'] for v in report['volumes']), default=0),
                     reclaimBytes=0, groups=[], activeJobs=[], blocked=True,
                     reason='自定义目录支持占用统计与 Finder 管理，暂不提供自动清理。', **report)
     data_root = cleanup_storage.default_data_root()
@@ -271,16 +288,51 @@ def storage(action, request):
                                       keep_builds=int(request.get('keepBuilds', 2)))
         # Legacy layouts keep CLI builds and evidence under artifacts; the nested
         # jobs directory is excluded from builds by the read-only inventory.
-        cache = data_root / 'cache'
-        if not cache.exists(): cache = data_root / '.cache'
-        result.update(storage_inventory(dict(cache=cache, builds=data_root / 'artifacts',
-            jobs=data_root / 'artifacts/desktop-jobs', rust=data_root / 'desktop/src-tauri/target')))
+        paths = dict(cache=data_root / 'cache', builds=data_root / 'artifacts',
+                     jobs=data_root / 'artifacts/desktop-jobs',
+                     rust=data_root / 'desktop/src-tauri/target')
+        if not paths['cache'].exists():
+            paths['cache'] = data_root / '.cache'
+        result.update(storage_service.inventory(paths, store=True))
         return result
     groups = request.get('groups')
     if not isinstance(groups, list) or not groups or not all(isinstance(g, str) for g in groups):
         raise ValueError('请选择要清理的内容')
-    return cleanup_storage.apply(data_root=data_root, groups=groups,
-                                 keep_builds=int(request.get('keepBuilds', 2)))
+    result = cleanup_storage.apply(data_root=data_root, groups=groups,
+                                   keep_builds=int(request.get('keepBuilds', 2)))
+    # Deleted trees must not be counted from the index; recompute on next visit.
+    try:
+        removed = [Path(item['path']) for item in result.get('removed', [])]
+        storage_service.invalidate(storage_service.paths_for(data_root), removed)
+    except Exception:
+        pass
+    return result
+
+def storage_scan(action, request):
+    """Cached, background and incremental storage scans (read-only)."""
+    data_root = cleanup_storage.default_data_root()
+    paths = storage_service.paths_for(data_root)
+    if action == 'storage-snapshot':
+        cached = storage_service.snapshot(paths)
+        return dict(status='STORAGE_SNAPSHOT', cached=bool(cached), plan=cached,
+                    task=storage_service.status())
+    if action == 'storage-scan-start':
+        # Repeated clicks and page switches reuse the worker that is already
+        # running instead of spawning a competing traversal of the same disks.
+        return dict(status='STORAGE_SCAN', **storage_service.start(paths))
+    if action == 'storage-scan-status':
+        task = request.get('task')
+        state = storage_service.status(task if isinstance(task, str) else None)
+        return dict(status='STORAGE_SCAN_STATUS', **state)
+    if action == 'storage-scan-cancel':
+        task = request.get('task')
+        state = storage_service.cancel(task if isinstance(task, str) else None)
+        return dict(status='STORAGE_SCAN_CANCELLED', **state)
+    # storage-refresh: replay the journal and re-walk only what changed.
+    updated = storage_service.refresh(paths)
+    return dict(status='STORAGE_REFRESH', incremental=bool(updated),
+                plan=updated, task=storage_service.status())
+
 
 def source_overrides(report, build_loader, force_compile=False):
     if report['fatal']:
@@ -310,6 +362,7 @@ def validate_request(request):
     if not request.get('existingBuild'): test_version(request.get('testVersion', ''))
     if not isinstance(request.get('unsigned', False), bool): raise ValueError('未签名选项必须为布尔值')
     if not isinstance(request.get('forceCompile', False), bool): raise ValueError('强制编译选项必须为布尔值')
+    if not isinstance(request.get('quickBuild', False), bool): raise ValueError('快速构建选项必须为布尔值')
     if request.get('icon') and not isinstance(request.get('icon'), str): raise ValueError('图标路径必须是文本')
     if request.get('icon'):
         app_icon.icon_path(request['icon'])
@@ -663,17 +716,19 @@ def aot_heap_gib(physical_bytes=None):
 def compile_build(command, folder, request, build, mods, game, update, env, previous=None):
     """Run the compiler, moving to a fresh directory when a reused one is stale.
 
-    A retry keeps the previous build directory so already verified stages stay
-    cached. The compiler writes its input fingerprint once, so a directory whose
-    inputs changed can never be reused; report the failure with that directory
-    preserved and let the caller decide what to do next.
+    Quick retries may resume the previous directory. If the inputs changed,
+    keep that directory for diagnostics and switch to a new one.
     """
     build = Path(build)
     previous = list(previous or [])
+    quick_build = request.get('quickBuild', False)
+    parallelism = '4' if quick_build else '3'
     for _ in range(3):
         args = [*command, 'build', '--version', '26.1.2', '--loader', request['loader'], '--renderer', 'gl41',
-                '--heap-gib', str(aot_heap_gib()), '--parallelism', '3', '--target', 'ios-arm64',
+                '--heap-gib', str(aot_heap_gib()), '--parallelism', parallelism, '--target', 'ios-arm64',
                 '--config', resolve(request['config']), '--output', build]
+        if quick_build:
+            args += ['--quick-build']
         if request['loader'] == 'fabric':
             # This flag selects the sandboxed Fabric transform path; the build
             # no longer asks for a separate audit acknowledgement in the UI.
@@ -727,7 +782,7 @@ def execute(argv, folder, name, update, stage, env):
     if CANCELLED or (folder / 'cancel').exists(): raise InterruptedError('构建已取消')
     if child.returncode:
         reason = attempt_output(stderr_path, started_at, 5000) or attempt_output(stdout_path, started_out, 5000)
-        raise ValueError(f'{name} 失败（退出码 {child.returncode}）\n' + reason)
+        raise ValueError(f'{name} 失败（退出码 {child.returncode}）\n' + redact_log(reason))
 
 def attempt_output(path, offset, limit):
     """Return only the text this attempt appended, capped to the last `limit` bytes."""
@@ -802,7 +857,8 @@ def run_job(path):
         write_json(folder / 'checks.json', checked)
         if not checked['ready']: raise ValueError('构建检查未通过：\n' + '\n'.join(c['name'] + '：' + c['detail'] for c in checked['checks'] if c['status'] == 'missing'))
         env = dict(os.environ, PYTHONUNBUFFERED='1')
-        for key in ('JAVA_TOOL_OPTIONS', 'JDK_JAVA_OPTIONS', '_JAVA_OPTIONS', 'CLASSPATH'): env.pop(key, None)
+        for key in ('JAVA_TOOL_OPTIONS', 'JDK_JAVA_OPTIONS', '_JAVA_OPTIONS', 'CLASSPATH', 'MCFAO_OPT_LEVEL'):
+            env.pop(key, None)
         if request.get('team') and not request.get('unsigned'): env['MCFAO_DEVELOPMENT_TEAM'] = request['team']
         for role, directory in storage_paths().items(): env['MCFAO_' + role.upper() + '_DIR'] = str(directory)
         env['CARGO_TARGET_DIR'] = str(storage_paths()['rust'])
@@ -881,9 +937,24 @@ def run_job(path):
         update(state='succeeded', stage='verify', ipa=str(ipa), sha256=digest, bytes=result['bytes'], finishedAt=now())
     except InterruptedError as e: update(state='cancelled', error=str(e), finishedAt=now())
     except Exception as e: update(state='failed', error=str(e), finishedAt=now())
+    finally:
+        # A build writes many gigabytes into its output and cache trees. Drop the
+        # cached directories for those paths so the storage page never shows the
+        # pre-build totals; the next refresh re-walks only what changed.
+        try:
+            request = job.get('request') or {}
+            touched = [Path(job['build'])] if job.get('build') else []
+            if request.get('output'):
+                touched.append(resolve(request['output']))
+            storage_service.invalidate(storage_service.paths_for(
+                cleanup_storage.default_data_root()), touched)
+        except Exception:
+            pass
 
-def retry_request(job, workspace):
-    request = job['request']
+def retry_request(job, workspace, quick_build=None):
+    request = dict(job['request'])
+    if quick_build is not None and not request.get('existingBuild'):
+        request['quickBuild'] = quick_build
     if not request.get('workspace') or not (workspace / 'bundle-manifest.json').is_file():
         return request
     previous = Path(request['workspace'])
@@ -926,8 +997,11 @@ def _start(request, retry=None):
             job['name'] = 'IPA 导出 · 26.1.2'
         if retry:
             old = read_json(job_path(workspace, retry))
-            if old['state'] in ACTIVE or old['state'] == 'succeeded' or retry_request(old, workspace) != request: raise ValueError('此任务不能重试')
-            job['build'] = old['build']
+            if (old['state'] in ACTIVE or old['state'] == 'succeeded'
+                    or retry_request(old, workspace, request.get('quickBuild')) != request):
+                raise ValueError('此任务不能重试')
+            if request.get('quickBuild') and old['request'].get('quickBuild'):
+                job['build'] = old['build']
             if old.get('sourceFolder'): job['sourceFolder'] = old['sourceFolder']
         path = folder / 'job.json'
         write_json(path, job)
@@ -1024,9 +1098,15 @@ def main():
             result = setup_status()
         elif args.action == 'start': result = start(request)
         elif args.action == 'retry':
-            result = start(retry_request(read_json(job_path(workspace, args.id)), workspace), args.id)
+            if 'quickBuild' in request and not isinstance(request['quickBuild'], bool):
+                raise ValueError('快速构建选项必须为布尔值')
+            result = start(retry_request(read_json(job_path(workspace, args.id)), workspace,
+                                         request.get('quickBuild')), args.id)
         elif args.action == 'resolve-exclusions': result = resolve_exclusions(workspace, args.id, request.get('fields', {}))
         elif args.action in ('storage-plan', 'storage-clean'): result = storage(args.action, request.get('fields', request))
+        elif args.action in ('storage-snapshot', 'storage-scan-start', 'storage-scan-status',
+                             'storage-scan-cancel', 'storage-refresh'):
+            result = storage_scan(args.action, request.get('fields', request))
         elif args.action == 'status': result = snapshot(job_path(workspace, args.id))
         elif args.action == 'cancel': result = cancel(workspace, args.id)
         else: result = history(workspace)

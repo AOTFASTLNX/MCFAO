@@ -20,15 +20,19 @@ from client_graph_diagnostics import audit_metadata, parse_time_rss, read_analys
 from graphics_common import bridge_overlays
 from lwjgl_codegen import CALLBACKS
 from config_reflection import reflection_from_jar
+from aot_compatibility import (RENDER_PIPELINES, add_bytecode_results, cached_bytecode_report, issue,
+                               publish, transform_report)
 from mod_file_policy import content_paths, copy_content_file, copy_ignore, is_metadata
 from native_image_home import native_image_home
 from mdaf import (build_native_image_config, merge_agent_metadata,
                   validate_reflection_entries)
 from verify_aot_classpath import verify_entries
+from renderer_profile import DEFAULT_RENDERER, RENDERERS
 
 NATIVE_FAILURE = re.compile(
     r"OutOfMemoryError|ran out of memory|NativeImage\$NativeImageError|"
     r"UnsatisfiedLinkError|NoClassDefFoundError|Exception in thread|^Error:")
+NATIVE_COMPLETED_PHASE = re.compile(r"^\[([1-8])/8\].*\(\d+(?:\.\d+)?s @ [\d.]+GB\)\s*$")
 
 
 def native_failure_reason(folder: Path, run: dict, limit=6):
@@ -39,10 +43,16 @@ def native_failure_reason(folder: Path, run: dict, limit=6):
     failure instead of reporting a bare exit code.
     """
     lines = []
+    last_completed_phase = None
     for name in ("stderr.log", "stdout.log"):
         path = folder / name
         if path.is_file():
-            lines.extend(path.read_text(errors="replace").splitlines())
+            output = path.read_text(errors="replace").splitlines()
+            lines.extend(output)
+            if name == "stdout.log":
+                for line in output:
+                    if match := NATIVE_COMPLETED_PHASE.match(line):
+                        last_completed_phase = int(match[1])
     picked = []
     for line in lines:
         if NATIVE_FAILURE.search(line):
@@ -51,7 +61,8 @@ def native_failure_reason(folder: Path, run: dict, limit=6):
             if len(picked) == limit: break
     if not picked:
         picked = [line.strip() for line in lines if line.strip()][-4:]
-    return {"exitCode": run["exitCode"], "timedOut": run["timedOut"], "lines": picked}
+    return {"exitCode": run["exitCode"], "timedOut": run["timedOut"], "lines": picked,
+            "lastCompletedPhase": last_completed_phase}
 
 def verify_split_runtime_input(candidate: Path)->dict|None:
     manifest=candidate.parent/'result.json'
@@ -79,9 +90,26 @@ def verify_split_runtime_input(candidate: Path)->dict|None:
     return {'manifestSHA256':sha256(manifest),'finalFieldsUnfinalised':sum(row['finalFieldsUnfinalised'] for row in changed)}
 
 
-def collect_mdaf_configuration(maintained, inferred, tracing_directories, classpath, output):
+def verify_fabric_source(candidate, split_input, record):
+    """Bind the entrypoint and Mod report to the bytes entering the verified split chain."""
+    source = candidate
+    if split_input:
+        stage = json.loads((source.parent / "result.json").read_text())
+        if stage["status"] in ("GL41_CLIENT_PATCHED", "BACKEND_INJECTED"):
+            source = Path(stage["client"])
+            stage = json.loads((source.parent / "result.json").read_text())
+        source = Path(stage["jar"])
+        if stage["jarSHA256"] != record["outputJarSHA256"]:
+            raise ValueError("Fabric report and split input hashes differ")
+    if sha256(source) != record["outputJarSHA256"]:
+        raise ValueError("Fabric export differs from the original transformation report")
+
+
+def collect_mdaf_configuration(maintained, inferred, tracing_directories, classpath, output,
+                               static_metadata=None):
     agent_metadata, agent_file_conflicts = merge_agent_metadata(tracing_directories)
-    documents, merge_conflicts = build_native_image_config(maintained, inferred, agent_metadata)
+    documents, merge_conflicts = build_native_image_config(maintained, inferred, agent_metadata,
+                                                          static_metadata)
     config_dir = output / "mdaf-native-image-config"
     config_dir.mkdir(parents=True, exist_ok=True)
     for name, document in documents.items():
@@ -94,9 +122,19 @@ def collect_mdaf_configuration(maintained, inferred, tracing_directories, classp
     unified_validation = [
         ({**entry, "name": entry["type"]} if isinstance(entry, dict)
          and isinstance(entry.get("type"), str) else entry)
-        for entry in unified_reflection
+        for entry in unified_reflection if not (isinstance(entry, dict) and isinstance(entry.get("type"), dict))
     ]
     resolution = validate_reflection_entries([*reflection, *unified_validation], classpath)
+    maintained_names = {entry["name"] for entry in maintained}
+    observed_names = {entry.get("name") for entry in [*inferred, *unified_validation,
+                                                      *agent_metadata.get("reflect-config.json", [])]
+                      if isinstance(entry, dict)}
+    for row in resolution["findings"]:
+        if row["status"] == "UNRESOLVED_TYPE" and row["type"] in maintained_names - observed_names:
+            row["status"] = "SKIPPED_ABSENT_MAINTAINED_TYPE"
+            resolution["unresolvedTypesOrMembers"] -= 1
+    if not resolution["unresolvedTypesOrMembers"]:
+        resolution["status"] = "RESOLVED_IN_SHIPPED_ARCHIVES"
     report = {
         "schemaVersion": 1,
         "policy": "REPORT_ONLY",
@@ -143,6 +181,8 @@ def run(argv, resources):
     parser.add_argument("--b1-evidence", type=Path, default=ROOT / "artifacts/evidence/b1-user-device-run-01/result.json")
     parser.add_argument("--heap-gib", type=int, choices=(6, 7, 8, 9), default=6)
     parser.add_argument("--builder-gc", choices=("parallel", "g1"), default="parallel")
+    parser.add_argument("--optimization", choices=("-O0", "-O1", "-O2", "-O3", "-Ob", "-Os"),
+                        default=os.environ.get("MCFAO_OPT_LEVEL", "-O1"))
     parser.add_argument("--oom-stack", action="store_true", help="Let the build JVM report the first OOM instead of immediately exiting")
     parser.add_argument("--census-agent",type=Path,help="Sandbox-verified first-party Mac JVMTI agent directory")
     parser.add_argument("--census-at",default=None,
@@ -174,6 +214,11 @@ def run(argv, resources):
                         help="Free-form provenance note recorded next to the client jar override")
     parser.add_argument("--tracing-config",type=Path,action="append",default=[],
                         help="GraalVM tracing-agent output directory; repeat to merge several rehearsals")
+    parser.add_argument("--renderer", choices=RENDERERS,
+                        help="Validate the final client classpath against this renderer")
+    parser.add_argument("--preflight-cache", type=Path, help="Local content-addressed bytecode reports")
+    parser.add_argument("--fabric-report", type=Path, help="Verified Fabric transform report")
+    parser.add_argument("--compatibility-report", type=Path, help="Publish a live compatibility summary")
     parser.add_argument("--include-game-resources",action="store_true",help="Embed owned vanilla assets/data and pack/version metadata for the actual Main entry")
     parser.add_argument("--initialize-at-build-time",default="",
                         help="Comma separated classes initialized on the build host instead of at run time")
@@ -185,6 +230,12 @@ def run(argv, resources):
     parser.add_argument("--metal-resource-probe",action="store_true",help="Actual blaze3d resource transfers, GPU readback and precompiled presentation; requires graphics and Metal inputs")
     parser.add_argument("--metal-draw-probe",action="store_true",help="Actual vanilla shaders, PSO creation and GPU pixel assertions; requires graphics and Metal inputs")
     args = parser.parse_args(argv)
+    if args.client_jar and args.renderer is None:
+        args.renderer = os.environ.get("FAOT_RENDERER", DEFAULT_RENDERER)
+    if args.renderer is not None and args.renderer not in RENDERERS:
+        parser.error("Unsupported renderer: " + args.renderer)
+    if args.renderer and (args.renderer == "metal") != bool(args.metal_bootstrap):
+        parser.error("--renderer and --metal-bootstrap select different native backends")
     if args.window_probe and not args.graphics_bridge:parser.error("--window-probe requires --graphics-bridge")
     if args.openal_probe and not args.graphics_bridge:parser.error('--openal-probe requires --graphics-bridge')
     if args.metal_probe and (not args.graphics_bridge or not args.metal_bootstrap):parser.error("--metal-probe requires graphics bridge and Metal bootstrap")
@@ -246,6 +297,15 @@ def run(argv, resources):
         candidate = args.client_jar.resolve(strict=True)
         try:split_input=verify_split_runtime_input(candidate)
         except ValueError as error:parser.error(str(error))
+        if split_input and ((args.renderer == "gl41" and "injectionManifestSHA256" in split_input)
+                            or (args.renderer == "metal" and "gl41ManifestSHA256" in split_input)):
+            parser.error("Patched client and selected renderer differ")
+        if args.fabric_report:
+            fabric_record = json.loads(args.fabric_report.read_text())
+            if (fabric_record.get("status") != "FABRIC_AOT_INPUT_PREPARED"
+                    or fabric_record.get("renderer") != args.renderer):
+                parser.error("Fabric export and selected renderer differ or the export was incomplete")
+            verify_fabric_source(candidate, split_input, fabric_record)
         replaced = 0
         for index, path in enumerate(libraries):
             # The client jar is the only library that lives in versions/<version>/.
@@ -273,7 +333,7 @@ def run(argv, resources):
     output = output.resolve(strict=True)
     sources=output/"source"
     for name in ["probe_client_graph.py","client_graph_diagnostics.py","run_b0_reference.py",
-                 "config_reflection.py", "mdaf.py", "mod_file_policy.py", "verify_aot_classpath.py"]:
+                 "config_reflection.py", "aot_compatibility.py", "mdaf.py", "mod_file_policy.py", "verify_aot_classpath.py"]:
         sources.mkdir(exist_ok=True)
         shutil.copy2(ROOT/"tools"/name,sources/name)
     work = output / "work"
@@ -364,6 +424,7 @@ def run(argv, resources):
     result = {"status":"BLOCKED", "gateC0":"BLOCKED", "mode":"client-graph-diagnostic",
               "scope":"real net.minecraft.client.main.Main reachability only; no game execution, auth arguments or rendering",
               "classpathSHA256":{str(p):sha256(p) for p in libraries if p.is_file()},
+              "renderer":args.renderer,
               "gateC1":"NOT RUN", "gateC2":"NOT RUN", "heapGiB":args.heap_gib,
               "targetCodeGeneration":"NOT RUN", "targetExecution":"NOT RUN",
               "fullClientFabricTransformation":"NOT RUN",
@@ -428,7 +489,46 @@ def run(argv, resources):
         # The sandbox only opens the work directory for reads, so the reflection config is copied in
         # rather than referenced from compiler/ where it is maintained.
         reflection_entries = json.loads((ROOT / "compiler/reflection-config.json").read_text())
-        inferred = reflection_from_jar(args.client_jar) if args.client_jar else []
+        findings, graph, static_metadata = [], {}, {}
+        compatibility = None
+        if args.renderer and args.client_jar:
+            prepared_fabric = json.loads(args.fabric_report.read_text()) if args.fabric_report else {
+                "renderer": args.renderer,
+            }
+            compatibility = transform_report(prepared_fabric)
+            required = {entry_class.replace(".", "/"), RENDER_PIPELINES}
+            if args.renderer == "metal":
+                required.add("fabricaot/metal/MetalBackend")
+            fabric_entries = prepared_fabric.get("transform", {}).get("entrypoints", ())
+            if args.fabric_report:
+                required.add("mcfao/aot/Entrypoints")
+                required.update(row["definition"].split("::", 1)[0].replace(".", "/")
+                                for row in fabric_entries if row["stage"] in ("main", "client"))
+            inferred, resources_config, findings, graph, scan = cached_bytecode_report(
+                args.preflight_cache, candidate, libraries, args.renderer, java_home=source_home,
+                required=required, entrypoint=entry_class.replace(".", "/"), fabric_entries=fabric_entries)
+            result["bytecodePreflight"] = scan
+            graph.update(scan)
+            print(f"Preflight {args.renderer}: {graph.get('classes', 0)} classes, "
+                  f"{scan['seconds']:.2f}s, cache={'hit' if scan['cacheHit'] else 'miss'}", flush=True)
+            owners = prepared_fabric.get("transform", {}).get("classModOwners", {})
+            for finding in findings:
+                caller = (finding.get("location") or "").split("#", 1)[0]
+                if caller in owners:
+                    finding["mod"] = owners[caller]
+            if resources_config["resources"]["includes"]:
+                static_metadata["resource-config.json"] = resources_config
+            if any(row["severity"] == "blocker" for row in findings):
+                compatibility = add_bytecode_results(compatibility, findings, graph, static_metadata)
+                publish(output / "bytecode-findings.json", {"findings": findings, "graph": graph})
+                publish(output / "compatibility.json", compatibility)
+                publish(args.compatibility_report, compatibility)
+                blocker = next(row for row in findings if row["severity"] == "blocker")
+                raise ValueError(f"Final {args.renderer} classpath rejected: {blocker['code']} "
+                                 f"{blocker['target']} ({blocker['location']}). "
+                                 + blocker.get("suggestion", "Check the final classpath report."))
+        else:
+            inferred = reflection_from_jar(args.client_jar) if args.client_jar else []
         tracing_directories = [path.resolve(strict=True) for path in args.tracing_config]
         if not tracing_directories and args.client_jar:
             discovered = args.client_jar.resolve().parent / "tracing-agent"
@@ -438,7 +538,26 @@ def run(argv, resources):
             if not directory.is_dir():
                 parser.error("--tracing-config must point to a directory: " + str(directory))
         native_config_dir, mdaf_report = collect_mdaf_configuration(
-            reflection_entries, inferred, tracing_directories, libraries, work)
+            reflection_entries, inferred, tracing_directories, libraries, work, static_metadata)
+        result["compiledMetadataSHA256"] = {
+            path.name: sha256(path) for path in sorted(native_config_dir.glob("*.json"))
+            if not is_metadata(path.name)
+        }
+        if compatibility is not None:
+            # Static checks have run. The image is still being generated and verified.
+            findings.extend(issue("REFLECTION_METADATA_UNRESOLVED", "warning", row["type"] or "<entry>",
+                                  ", ".join(f"{member['name']}({', '.join(member['parameterTypes'])})"
+                                            if "parameterTypes" in member else str(member["name"])
+                                            for member in row.get("members", ())) or None,
+                                  renderer=args.renderer, stage="metadata")
+                            for row in mdaf_report["reflectionResolution"]["findings"]
+                            if row["status"].startswith(("UNRESOLVED", "INVALID")))
+            compatibility = add_bytecode_results(compatibility, findings, graph,
+                                                 mdaf_report["reflectionCollection"]["agentCategoriesIncluded"])
+            compatibility["stages"]["aot"] = "UNVERIFIED"
+            publish(output / "bytecode-findings.json", {"findings": findings, "graph": graph})
+            publish(output / "compatibility.json", compatibility)
+            publish(args.compatibility_report, compatibility)
         try:
             member_resolution = verify_entries(libraries, home / "bin", verify_members=True)
         except (OSError, RuntimeError, subprocess.SubprocessError, zipfile.BadZipFile,
@@ -459,7 +578,7 @@ def run(argv, resources):
             entry["name"]: sorted([item["name"] for item in entry.get("methods", ())] +
                                   [item["name"] for item in entry.get("fields", ())])
             for entry in inferred if entry.get("methods") or entry.get("fields")}
-        cmd=[*base,str(executable),"--no-fallback","-H:+SharedArenaSupport",os.environ.get("MCFAO_OPT_LEVEL","-O1"),f"--parallelism={args.parallelism}",f"-J-Xmx{args.heap_gib}g","-J-XX:-UsePerfData",
+        cmd=[*base,str(executable),"--no-fallback","-H:+SharedArenaSupport",args.optimization,f"--parallelism={args.parallelism}",f"-J-Xmx{args.heap_gib}g","-J-XX:-UsePerfData",
              "-J-Duser.home="+str(work/"home"),"-J-Djava.io.tmpdir="+str(work/"tmp"),"-H:+UnlockExperimentalVMOptions",
              "--shared","--verbose","--diagnostics-mode","-H:+PrintAnalysisStatistics",
              "-H:BuildOutputJSONFile="+str(work/"build-output.json"),
@@ -491,6 +610,7 @@ def run(argv, resources):
                 config.append({"name":"org.lwjgl.stb.STBIWriteCallbackI" if name=="STBIWrite" else "org.lwjgl.glfw.GLFW"+name+"CallbackI",
                                "methods":[{"name":"invoke","parameterTypes":[types[t] for t in signature]}]})
             jni_config=work/"graphics-jni.json";jni_config.write_text(json.dumps(config,indent=2)+"\n")
+            result["compiledMetadataSHA256"][jni_config.name] = sha256(jni_config)
             cmd.insert(cmd.index("-cp"),"-H:JNIConfigurationFiles="+str(jni_config))
         if args.include_game_resources:
             resource_config=work/'game-resources.json'
@@ -505,6 +625,7 @@ def run(argv, resources):
                  r'[^/]+\.toml')]}} ,indent=2)+'\n')
             cmd.insert(cmd.index('-cp'),'-H:ResourceConfigurationFiles='+str(resource_config))
             result['gameResourceConfigurationSHA256']=sha256(resource_config)
+            result["compiledMetadataSHA256"][resource_config.name] = result["gameResourceConfigurationSHA256"]
         if args.builder_gc=="g1":
             # These flags affect the Mac build JVM, not the target iOS collector.
             cmd[cmd.index("-J-XX:-UsePerfData"):cmd.index("-J-XX:-UsePerfData")]=[
@@ -596,7 +717,9 @@ def run(argv, resources):
                                            "platformLoadCommand":platform or ["none"],
                                            "note":"linked separately for arm64-apple-ios; see tools/link_c0_ios.py"}
         result["status"]="ANALYZED" if result["analysisCompleted"] else "BLOCKED"
-    except Exception as error:result["error"]=str(error)
+    except Exception as error:
+        result["error"] = str(error)
+        print(str(error), file=sys.stderr)
     result["filesSHA256"]={str(p.relative_to(output)):sha256(p) for p in content_paths(output) if p.is_file() and not p.is_symlink() and p.name!="result.json"}
     (output/"result.json").write_text(json.dumps(result,indent=2)+"\n")
     print(json.dumps({k:v for k,v in result.items() if k not in ['filesSHA256','classpathSHA256']},indent=2))

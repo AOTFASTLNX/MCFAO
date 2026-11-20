@@ -448,7 +448,8 @@ async fn save_document(
 fn workbench_action_allowed(action: &str) -> bool {
     ["bootstrap", "check", "dependencies", "start", "status", "cancel", "history", "retry",
      "resolve-exclusions", "save-config", "icon-preview", "reveal", "reveal-folder", "storage-plan", "storage-clean",
-     "storage-settings", "storage-change-plan", "storage-change-apply", "reset-storage", "save-storage", "setup-start", "setup-status"].contains(&action)
+     "storage-settings", "storage-change-plan", "storage-change-apply", "reset-storage", "save-storage", "setup-start", "setup-status",
+     "storage-snapshot", "storage-scan-start", "storage-scan-status", "storage-scan-cancel", "storage-refresh"].contains(&action)
 }
 
 // Account state is never supplied by the webview or a build request. Read it
@@ -587,6 +588,13 @@ async fn workbench_action(
             Duration::from_secs(21600)
         } else if action == "storage-plan" || action == "storage-clean" || action == "storage-change-plan" {
             Duration::from_secs(900)
+        } else if action == "storage-snapshot" || action == "storage-scan-start"
+            || action == "storage-scan-status" || action == "storage-scan-cancel" {
+            // These only read a small status file or spawn a detached worker.
+            Duration::from_secs(60)
+        } else if action == "storage-refresh" {
+            // A journal replay plus a bounded re-walk of changed subtrees.
+            Duration::from_secs(300)
         } else if action == "icon-preview" {
             // actool for an .icon document takes several seconds on a cold cache.
             Duration::from_secs(300)

@@ -9,6 +9,10 @@ from pathlib import Path
 from mod_file_policy import is_metadata
 
 PLATFORM_PREFIXES = ("java.", "javax.", "jdk.", "sun.", "com.sun.", "org.graalvm.")
+AGENT_FILES = frozenset({
+    "reflect-config.json", "jni-config.json", "resource-config.json",
+    "proxy-config.json", "serialization-config.json", "reachability-metadata.json",
+})
 
 
 def canonical(value) -> str:
@@ -17,7 +21,8 @@ def canonical(value) -> str:
 
 def _list_identity(value):
     if isinstance(value, dict) and "name" in value:
-        return (str(value["name"]), tuple(value.get("parameterTypes", ())))
+        return (str(value["name"]), tuple(value.get("parameterTypes", ())),
+                canonical(value.get("condition")))
     return canonical(value)
 
 
@@ -33,7 +38,8 @@ def _merge_tree(left, right, path, conflicts):
         for value in right:
             key = _list_identity(value)
             if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
-                merged[key] = _merge_tree(merged[key], value, f"{path}[{key[0]}]", conflicts)
+                label = key[0] if isinstance(key, tuple) else key
+                merged[key] = _merge_tree(merged[key], value, f"{path}[{label}]", conflicts)
             else:
                 merged.setdefault(key, value)
         return [merged[key] for key in sorted(merged, key=str)]
@@ -62,11 +68,12 @@ def merge_config_entries(*sources):
                                   "reason": "entry has no string type name"})
                 continue
             name = entry["name"]
-            if name in merged:
-                merged[name] = _merge_tree(merged[name], entry, name, conflicts)
+            key = (name, canonical(entry.get("condition")))
+            if key in merged:
+                merged[key] = _merge_tree(merged[key], entry, name, conflicts)
             else:
-                merged[name] = entry
-    return ([merged[name] for name in sorted(merged)], conflicts)
+                merged[key] = entry
+    return ([merged[key] for key in sorted(merged)], conflicts)
 
 
 def merge_json_documents(*documents):
@@ -84,9 +91,11 @@ def load_agent_metadata(directory: Path):
     """Read the files emitted by GraalVM's tracing agent without executing them."""
     files = {}
     for path in sorted(directory.glob("*.json")):
-        if is_metadata(path.name):
+        if is_metadata(path.name) or path.name not in AGENT_FILES:
             continue
         try:
+            if path.stat().st_size > 32 * 1024**2:
+                raise ValueError(f"Tracing-agent file exceeds size limit: {path.name}")
             files[path.name] = json.loads(path.read_text())
         except (OSError, json.JSONDecodeError) as error:
             raise ValueError(f"Invalid tracing-agent file {path.name}: {error}") from error
@@ -106,7 +115,8 @@ def merge_agent_metadata(directories):
     return {name: by_name[name] for name in sorted(by_name)}, conflicts
 
 
-def build_native_image_config(maintained_reflection, inferred_reflection, agent_metadata):
+def build_native_image_config(maintained_reflection, inferred_reflection, agent_metadata,
+                              static_metadata=None):
     """Combine reflection roots and retain every other supported agent category.
 
     Maintained entries are authoritative for conflicting scalar options. Agent metadata is
@@ -120,7 +130,13 @@ def build_native_image_config(maintained_reflection, inferred_reflection, agent_
         raise ValueError("Tracing agent reflect-config.json must contain an array")
     reflection, conflicts = merge_config_entries(
         maintained_reflection, inferred_reflection, traced_reflection)
-    documents = dict(agent_metadata)
+    documents = dict(static_metadata or {})
+    for name, document in agent_metadata.items():
+        if name in documents:
+            documents[name], found = merge_json_documents(documents[name], document)
+            conflicts.extend({"file": name, **item} for item in found)
+        else:
+            documents[name] = document
     if reflection or "reflect-config.json" in documents:
         documents["reflect-config.json"] = reflection
     return {name: documents[name] for name in sorted(documents)}, conflicts

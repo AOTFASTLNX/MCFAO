@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -14,6 +15,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+
+TOKEN_VALUE = re.compile(
+    r"""(?ix)(["']?(?:access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|
+    password|session[_-]?token)["']?\s*[:=]\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;&]+)""")
+AUTH_VALUE = re.compile(
+    r"""(?ix)(\bauthorization["']?\s*[:=]\s*["']?basic\s+)[A-Za-z0-9+/=]+
+    |\bbearer\s+[A-Za-z0-9._~+/=-]+|\bxbl3\.0\s+x=[^\s]+""")
+
+
+def redact_log(value: str) -> str:
+    return TOKEN_VALUE.sub(r"\1[REDACTED]", AUTH_VALUE.sub(r"\1[REDACTED]", value))
 
 
 def capture(argv: list[str], directory: Path, timeout: int = 180, cwd: Path = ROOT) -> dict:

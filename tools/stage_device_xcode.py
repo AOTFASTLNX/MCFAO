@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shutil
 import sys
@@ -12,7 +13,7 @@ from build_c0_harness import sha256, validate_dylib, validate_shader_bundle
 from capture import ROOT
 from graphics_common import register_tree
 from glfw_runtime_contract import validate_glfw_renderer
-from renderer_profile import DEFAULT_RENDERER, RENDERERS
+from renderer_profile import BUILD_PROVENANCE, DEFAULT_RENDERER, RENDERERS, dylib_uuid, libraries
 from mod_file_policy import is_metadata
 
 
@@ -25,6 +26,8 @@ def main(argv=None):
         parser.add_argument(f"--{name}", type=Path, help="Native Metal build report directory")
     parser.add_argument("--gl41", type=Path, help="Verified GL41 runtime (OSMesa/MoltenVK) report directory")
     parser.add_argument("--lwjgl-opengl", type=Path, help="Verified liblwjgl_opengl shim report directory")
+    parser.add_argument("--build-key", help="NCL build input fingerprint")
+    parser.add_argument("--source-commit", help="Source revision to embed in the app")
     parser.add_argument("--output", type=Path, default=ROOT / "artifacts/graphics/world-device-input-01")
     args = parser.parse_args(argv)
     required = ("metal", "shaders") if args.renderer == "metal" else ("gl41", "lwjgl_opengl")
@@ -51,6 +54,8 @@ def main(argv=None):
         files[path.name] = path, actual
 
     client = read_report(args.client, {"LINKED", "LINKED_WITH_UNSUPPORTED_ENTRYPOINTS"})
+    if client.get("renderer") and client["renderer"] != args.renderer:
+        parser.error("Native Image was compiled for another renderer")
     add(args.client / "client-graph.dylib", client["binary"]["sha256"], dylib=True)
     for directory, name, status in (
         (args.glfw, "libglfw.dylib", "NATIVE_SUBSET_BUILT"),
@@ -81,6 +86,9 @@ def main(argv=None):
     if args.lwjgl_opengl:
         shim = read_report(args.lwjgl_opengl, {"LWJGL_OPENGL_SHIM_BUILT"})
         add(args.lwjgl_opengl / "liblwjgl_opengl.dylib", shim["binarySHA256"], dylib=True)
+    expected_libraries = set(libraries(args.renderer))
+    if {name for name in files if name.endswith(".dylib")} != expected_libraries:
+        parser.error(f"Unexpected staged library list for {args.renderer}")
 
     out = args.output.resolve()
     out.mkdir(parents=True, exist_ok=False)
@@ -92,6 +100,15 @@ def main(argv=None):
             raise ValueError(f"Staged copy fingerprint changed: {name}")
     result = {"status": "WORLD_DEVICE_XCODE_INPUT_STAGED", "renderer": args.renderer, "reportsSHA256": reports,
               "filesSHA256": {name: item[1] for name, item in files.items()}}
+    if args.source_commit:
+        provenance = dict(schemaVersion=1, sourceCommit=args.source_commit, renderer=args.renderer,
+                          dylibUUIDs={name: dylib_uuid(out / name) for name in sorted(expected_libraries)})
+        fingerprint_inputs = {**provenance, "filesSHA256": result["filesSHA256"]}
+        provenance["buildKey"] = args.build_key or hashlib.sha256(
+            json.dumps(fingerprint_inputs, sort_keys=True).encode()).hexdigest()
+        embedded = out / BUILD_PROVENANCE
+        embedded.write_text(json.dumps(provenance, sort_keys=True) + "\n")
+        result["filesSHA256"][BUILD_PROVENANCE] = sha256(embedded)
     (out / "result.json").write_text(json.dumps(result, indent=2) + "\n")
     register_tree(out, [sys.executable, "-B", str(Path(__file__).resolve()),
                         *(sys.argv[1:] if argv is None else argv)])

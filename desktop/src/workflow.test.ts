@@ -219,25 +219,29 @@ describe("executable workflow", () => {
   it("explains an AOT heap exhaustion instead of echoing the raw error", () => {
     const error = [
       "aot 失败（退出码 2）",
+      "Native Image builder: g1 GC, -Xmx9g",
+      "Native Image last completed phase: 6/8",
       "Terminating due to java.lang.OutOfMemoryError: Java heap space",
-      " - 6.68GB of memory (34.6% of system memory, set via '-Xmx7g')",
     ].join("\n");
     const explained = explainError(error, "aot");
-    expect(explained?.title).toBe("Java 25 原生编译内存不足");
-    expect(explained?.cause).toContain("7 GiB");
-    expect(explained?.next.length).toBeGreaterThan(1);
+    expect(explained?.title).toBe("Java 25 原生编译堆耗尽");
+    expect(explained?.cause).toContain("9 GiB");
+    expect(explained?.cause).toContain("最后完成的步骤为编译方法");
     expect(explained?.retryHelps).toBe(false);
   });
 
-  it("explains the native-image failure the compiler now reports", () => {
+  it("recognises a historical AOT heap failure even if the job still says fabric", () => {
     const error = [
-      "aot 失败（退出码 2）",
-      "Native Image stopped before producing an image (exit 2). Logs: /x/analysis",
+      "build 失败（退出码 2）",
+      "mcfao build: aot failed (exit 2, timeout=False). Logs: /x/analysis",
       "com.oracle.svm.driver.NativeImage$NativeImageError",
       "Terminating due to java.lang.OutOfMemoryError: Java heap space",
       "The Native Image build process ran out of memory.",
     ].join("\n");
-    expect(explainError(error, "aot")?.title).toBe("Java 25 原生编译内存不足");
+    const explained = explainError(error, "fabric");
+    expect(explained?.title).toBe("Java 25 原生编译堆耗尽");
+    expect(explained?.cause).not.toContain("分析");
+    expect(explainError("OutOfMemoryError: Java heap space", "fabric")).toBeNull();
   });
 
   it("marks input fingerprint conflicts as retryable", () => {
