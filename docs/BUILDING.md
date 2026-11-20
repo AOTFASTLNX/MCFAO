@@ -365,3 +365,9 @@ python3 -B tools/probe_appleskin_config.py --build artifacts/mcfao/fabric-pack-5
 ```
 
 该回归检查默认值、修改后的布尔值及浮点值在序列化/反序列化后保持；JVM/桌面 AOT 通过不代替 iOS 启动验证。
+
+## 可选测试版本标识
+
+CLI 使用 `tools/mcfao.py build ... --test-version LAN-r5-20261117`；GUI 在「开发签名」步骤填写「测试版本（可选）」。测试标识为 1–64 位英文字母、数字、点、下划线或短横线，首字符须为字母或数字。构建参数写入 Info.plist 的 FAOTTestVersion，启动页、日志首行及文件名统一读取此值；IPA 命名为 NCL-game-LAN-r5-20261117.ipa。Bundle ID、应用版本/build 与测试标识独立。
+
+省略参数或 GUI 留空时，启动页不显示「测试版本」行，日志不显示 testBuild 字段，日志文件保持 run-<时间戳>.log，默认 IPA 名保持 NCL-game.ipa。重新导出已有构建使用原构建记录的标识，不使用当前 GUI 输入覆盖。更换测试标识属于新的构建输入，不修改已有不可变构建。Agent 测试阶段交付必须提供对应标识，规则见 AGENTS.md。

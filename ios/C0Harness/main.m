@@ -282,7 +282,8 @@ static void FAOTInstallCrashHandlers(int fd) {
 
     unsigned long long reserved = [self reservedBytes];
     NSTimeInterval stamp = NSDate.date.timeIntervalSince1970;
-    NSString *name = [NSString stringWithFormat:@"run-%.0f-%@.log", stamp * 1000, FAOTTestBuildMarker];
+    NSString *testVersion = FAOTCurrentTestVersion();
+    NSString *name = FAOTTestVersionLogName(testVersion, stamp * 1000);
     NSString *logPath = [FAOTLogDirectory() stringByAppendingPathComponent:name];
 
     // Java's tmpdir and HOME are read from the environment by the image's runtime.
@@ -303,7 +304,8 @@ static void FAOTInstallCrashHandlers(int fd) {
     setvbuf(stdout, NULL, _IONBF, 0);
     setvbuf(stderr, NULL, _IONBF, 0);
     FAOTInstallCrashHandlers(fd);
-    fprintf(stdout, "[FAOT] testBuild=%s log=%s\n", FAOTTestBuildMarker.UTF8String, name.UTF8String);
+    if (testVersion.length) fprintf(stdout, "[FAOT] testBuild=%s log=%s\n", testVersion.UTF8String, name.UTF8String);
+    else fprintf(stdout, "[FAOT] log=%s\n", name.UTF8String);
 
     self.status.text = [NSString stringWithFormat:@"启动中 · 预留 %llu GiB · 日志 %@",
                         reserved >> 30, name];

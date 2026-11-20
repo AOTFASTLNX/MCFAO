@@ -1,5 +1,6 @@
 # Native Craft Launcher — 编码 Agent 根指令
 
+> 2026-11-20 渲染统一：GL41/Zink 是所有入口的默认渲染路线（CLI、构建输入、打包校验、设备暂存、CI 与 Xcode 嵌入脚本共用 tools/renderer_profile.py 的 DEFAULT_RENDERER）。compiler/metal-backend 仅在显式 --renderer metal 或 FAOT_RENDERER=metal 时使用，作为对比与回归路径，不得成为默认值。
 > 2026-11-15 集成决策：本次主要渲染路线按 docs/evidence/ADR-009.md：Blaze3D OpenGL → LWJGL JNI → OSMesa/Zink → MoltenVK → Metal/CAMetalLayer；保留 compiler/metal-backend 为可选 Metal 构建。所有开发位于 integration/gl41-gui-ipa-20261115 或子分支，禁止推送/合并 main 或删除备份分支。桌面构建器继续 desktop/ 的 Tauri 2 + React + TypeScript + Rust，仅验收 Apple Silicon macOS。
 > 2026-11-17 存储：仓库对磁盘布局没有硬性要求，默认使用项目内目录；构建前只需满足 tools/storage_config.py 的空间预检。维护者本机可选用外接盘，通过未跟踪的 external-storage.json 声明符号链接映射（说明见 docs/EXTERNAL_STORAGE.md）。仅当仓库根存在这份个人清单时，tools/external_storage.py 才会在卷未挂载或链接损坏时暂停构建（退出码 3）；此时 Agent 不得绕过、跳过或伪造该检查，也不要在断盘时删除或重建链接。
 
@@ -14,6 +15,13 @@
 4. 用户仅构建其合法拥有的 Minecraft 客户端，游戏本体、授权资源、第三方未授权 Mod 和专有库不可提交仓库或塞进预编译公开 IPA。采取用户本地获取/导入模式。
 5. 支持 `.mrpack` 和 Prism Launcher 实例导入；按兼容性报告处理 Mod，不要宣传无条件支持所有 Fabric Mod。
 6. 做到可玩版本的定义以 docs/ACCEPTANCE.md 为准，不准用“构建成功”代替真机可玩证据。
+
+## 测试阶段版本标记
+
+- Agent 为测试阶段构建或交付 IPA 时，必须在构建命令中传入 `--test-version <当前测试阶段标识>`（例如 `--test-version LAN-r5-20261117`）；GUI 构建填写相同的「测试版本」字段。标识须能区分本轮测试阶段，不能沿用不匹配的旧标识。
+- 标识统一由构建参数写入包内配置，驱动 iOS 启动页「测试版本」、日志首行/文件名及 IPA 文件名。禁止通过修改源码常量硬编码阶段名称；不得把测试标识当作 Bundle ID，以免影响存档延续。
+- 交付前核对构建记录、包内 `FAOTTestVersion` 与 IPA 文件名一致，并在交付说明中写明测试标识；设备回传日志时据此关联测试包。重新导出已有构建沿用原构建标识，不能只改文件名冒充新的测试阶段。
+- 常规、未标记为测试阶段的构建可省略此参数；此时启动页不显示「测试版本」文字，日志不含测试版本字段或后缀。应用自身版本号和 build 号独立保留。
 
 ## 开发行为
 
