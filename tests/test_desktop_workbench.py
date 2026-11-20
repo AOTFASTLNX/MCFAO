@@ -136,6 +136,9 @@ class WorkbenchTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
+        cache = patch('mod_download_cache.cache_path', return_value=self.root / 'compiler-cache')
+        cache.start()
+        self.addCleanup(cache.stop)
         w.CANCELLED = False
 
     def prism(self):

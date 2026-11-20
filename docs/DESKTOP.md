@@ -79,6 +79,10 @@ Prism 从 .minecraft、minecraft 或实例根选择真实 mods 目录；复制 m
 
 .mrpack 先检查清单、路径、解压总量、碰撞等，再获取客户端 required 文件。server-only 与 optional 文件跳过并记日志。自动下载仅允许 HTTPS cdn.modrinth.com，使用 macOS 系统代理与 `*_proxy` 环境变量，TLS 证书和主机名继续校验；代理的 fake-IP 或本机解析结果不再被当作攻击拒绝。每次重定向重新校验域名。下载大小、SHA-1 / SHA-512 与清单逐个匹配。其他下载源或不支持的必要路径明确失败，建议通过 Prism 完成下载后导入本地实例。单文件上限 256 MiB，总暂存预算 4 GiB，最多 128 个根 Mod JAR。
 
+**复用已有 Mod：** 在「存储管理」查看当前编译缓存目录，把已有的 Mod JAR 直接放入它的 `mods/` 子目录（没有就新建）。分发版默认是 `~/Library/Caches/NCL Builder/compiler/mods/`，源码默认是 `.cache/mods/`。导入 .mrpack 时，构建器先在该目录查找清单所需的 JAR；大小、SHA-1 和 SHA-512 都匹配才把文件复制到当前实例，文件名可以不同。命中时构建日志显示「复用本地 Mod（已校验）」。
+
+未命中的 Mod 正常下载并存入 `mods/objects/`，以便后续整合包复用。在相同编译缓存路径下，桌面构建器和 `tools/import_instance.py` 共用该目录。只有清单选中的 Mod JAR 走这个缓存；原始整合包和目录里手动放入的 JAR 不会被修改，暂存后的 ZIP 与 Fabric 元数据检查照常进行。
+
 覆盖文件依次应用 overrides、client-overrides，保存最终树 SHA-256。实际 JAR 再次静态检查，之后才交给原 CLI 的隔离转换流程。包配置和资源通过 --instance-data 进入输入指纹、Xcode instance-seed 资源及导出后校验。iOS 启动时仅补入不存在的包文件，保留已有用户配置；升级已有配置的迁移不在此实现。
 
 Fabric 构建期转换发现静态 AOT 排除项时，任务会暂停并弹出确认：列明受影响的根 Mod 文件、不能转换的原因，以及依赖这些 Mod 的连带排除项。确认后从已校验暂存内容创建新副本，移除整份受影响根 JAR 和依赖项，再用新的构建目录重新运行转换；原始整合包、先前暂存与失败诊断都保留。取消会停止当前任务。若新一轮仍发现排除项，会再次征求确认，最多五轮。

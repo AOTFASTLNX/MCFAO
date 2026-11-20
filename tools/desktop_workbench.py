@@ -26,6 +26,7 @@ from preflight import scan_pack, validate_zip_members, read_json_limited, MAX_MA
 from mcfao import instance_files
 from bootstrap_toolchain import sha256
 from capture import redact_log
+from mod_download_cache import ModDownloadCache, is_mod_jar
 from mod_file_policy import is_metadata, content_paths, mod_candidates, copy_ignore, clean_staged_metadata
 from external_storage import ExternalStorageUnavailable, require_mount
 import cleanup_storage
@@ -391,7 +392,7 @@ def download(entry, target):
                 data = response.read(expected + 1)
             if len(data) != expected: raise ValueError('下载大小与清单不符')
             for algo, digest in entry['hashes'].items():
-                if algo in ('sha1', 'sha512') and hashlib.new(algo, data).hexdigest() != digest: raise ValueError('下载哈希校验失败')
+                if algo in ('sha1', 'sha512') and hashlib.new(algo, data).hexdigest() != digest.lower(): raise ValueError('下载哈希校验失败')
             target.write_bytes(data)
             return
         except (OSError, ValueError, http.client.HTTPException) as e: last = e
@@ -451,6 +452,7 @@ def stage_source(source, destination, progress=lambda _: None, cancelled=lambda:
         with zipfile.ZipFile(source) as archive:
             if not validate_zip_members(archive, [], str(source)): raise ValueError('归档路径检查失败')
             manifest = read_json_limited(archive, 'modrinth.index.json', MAX_MANIFEST)
+            mod_cache = None
             for entry in manifest['files']:
                 side = entry.get('env', {}).get('client')
                 if side == 'unsupported' or (included is None and side == 'optional'):
@@ -458,8 +460,20 @@ def stage_source(source, destination, progress=lambda _: None, cancelled=lambda:
                     continue
                 if not keep(entry['path'], 'manifest'): continue
                 budget(entry['fileSize'])
+                target = target_for(entry['path'], 0)
+                cacheable = is_mod_jar(entry['path'])
+                if cacheable:
+                    if mod_cache is None:
+                        mod_cache = ModDownloadCache()
+                    data = mod_cache.find(entry, LIMIT)
+                    if data is not None:
+                        progress('复用本地 Mod（已校验）：' + entry['path'])
+                        target.write_bytes(data)
+                        continue
                 progress('下载并校验：' + entry['path'])
-                download(entry, target_for(entry['path'], 0))
+                download(entry, target)
+                if cacheable:
+                    mod_cache.store_file(entry, target, LIMIT)
             for layer, prefix in enumerate(('overrides/', 'client-overrides/'), 1):
                 for item in archive.infolist():
                     if item.is_dir() or is_metadata(item.filename) or not item.filename.startswith(prefix): continue

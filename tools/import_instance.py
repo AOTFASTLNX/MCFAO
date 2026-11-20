@@ -9,6 +9,8 @@ import urllib.parse
 import urllib.request
 from urllib.parse import urljoin, urlsplit
 from zipfile import ZipFile
+from external_storage import ExternalStorageUnavailable
+from mod_download_cache import ModDownloadCache, is_mod_jar
 from preflight import scan_pack, scan_mod_bytes, read_json_limited, validate_zip_members, safe_archive_path, tls_context
 from mod_file_policy import is_metadata, content_paths, clean_staged_metadata
 
@@ -72,6 +74,7 @@ def import_instance(source: Path, output: Path, fetch=download):
                 findings=[]
                 if not validate_zip_members(archive,findings,str(source)): raise ValueError("Unsafe archive")
                 manifest=read_json_limited(archive,"modrinth.index.json",2*1024**2)
+                mod_cache = None
                 for row in manifest["files"]:
                     name=row["path"]
                     if is_metadata(name): continue
@@ -79,8 +82,19 @@ def import_instance(source: Path, output: Path, fetch=download):
                         skipped.append({"path":name,"reason":"server-only as declared by manifest"});continue
                     if not allowed_file(name):
                         raise ValueError("Unsupported declared client file; no silent omission: "+name)
-                    data=fetch(row["downloads"][0],min(MAX_FILE,MAX_TOTAL-total))
+                    limit = min(MAX_FILE, MAX_TOTAL - total)
+                    data = None
+                    cacheable = is_mod_jar(name)
+                    if cacheable:
+                        if mod_cache is None:
+                            mod_cache = ModDownloadCache()
+                        data = mod_cache.find(row, limit)
+                    downloaded = data is None
+                    if downloaded:
+                        data = fetch(row["downloads"][0], limit)
                     save(name,data,row["hashes"],row.get("fileSize"))
+                    if downloaded and cacheable:
+                        mod_cache.store(row, data, limit)
                 for info in archive.infolist():
                     if info.is_dir() or is_metadata(info.filename):continue
                     for prefix in ("overrides/","client-overrides/"):
@@ -116,4 +130,7 @@ def import_instance(source: Path, output: Path, fetch=download):
 
 if __name__=="__main__":
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument("--source",required=True,type=Path);parser.add_argument("--output",required=True,type=Path);args=parser.parse_args()
-    print(json.dumps(import_instance(args.source,args.output),ensure_ascii=False))
+    try:
+        print(json.dumps(import_instance(args.source,args.output),ensure_ascii=False))
+    except ExternalStorageUnavailable as error:
+        parser.exit(3, str(error) + '\n')
