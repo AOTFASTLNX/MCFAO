@@ -551,8 +551,8 @@ class RuntimeOverlayTests(unittest.TestCase):
     def test_overlay_is_skipped_when_its_mod_is_absent(self):
         roots = [self.jar("other.jar", "othermod")]
         compiled, skipped = runtime_overlay_sources(roots)
-        # ModFiles has no Mod dependency, so it compiles for every pack.
-        self.assertEqual([p.name for p in compiled], ["ModCatalog.java", "ModFiles.java"])
+        self.assertEqual([p.name for p in compiled],
+                         ["ClasspathPackResources.java", "ModCatalog.java", "ModFiles.java", "TextureImage.java"])
         self.assertEqual(skipped, [{"source": "mcfao/aot/GenericVertexSerializer.java",
                                     "requiresMod": "sodium"}])
 
@@ -560,7 +560,8 @@ class RuntimeOverlayTests(unittest.TestCase):
         roots = [self.jar("sodium.jar", "sodium")]
         compiled, skipped = runtime_overlay_sources(roots)
         self.assertEqual([p.name for p in compiled],
-                         ["GenericVertexSerializer.java", "ModCatalog.java", "ModFiles.java"])
+                         ["ClasspathPackResources.java", "GenericVertexSerializer.java", "ModCatalog.java",
+                          "ModFiles.java", "TextureImage.java"])
         self.assertEqual(skipped, [])
 
     def test_root_mod_ids_reads_every_root_jar(self):

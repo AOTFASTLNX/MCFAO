@@ -139,6 +139,23 @@ final class RuntimeLowering implements Opcodes {
     static final String CONFIG_TYPE = "com/mrcrayfish/framework/api/config/ConfigType";
     private static final String CONFIG_ANNOTATION_DESC = "(Ljava/lang/String;Ljava/lang/String;Z"
             + "L" + CONFIG_TYPE + ";C)V";
+    static final String TOOLTIP_ORDER = "net/fabricmc/fabric/impl/item/VanillaTooltipProviderOrder";
+    private static final String TOOLTIP_ORDER_SHA256 =
+            "4d66bf904f77e8deb84e129d9ea4fafa7c8d472a5dc925f142918a3ae7d72bf7";
+    static final String ITEM_STACK = "net/minecraft/world/item/ItemStack";
+    private static final String DATA_COMPONENTS = "net/minecraft/core/component/DataComponents";
+    private static final String DATA_COMPONENT_TYPE = "net/minecraft/core/component/DataComponentType";
+    private static final String DATA_COMPONENT_DESC = "L" + DATA_COMPONENT_TYPE + ";";
+    private static final String ADD_TOOLTIP_DESC = "(Lnet/minecraft/world/item/Item$TooltipContext;"
+            + "Lnet/minecraft/world/item/component/TooltipDisplay;Lnet/minecraft/world/entity/player/Player;"
+            + "Lnet/minecraft/world/item/TooltipFlag;Ljava/util/function/Consumer;)V";
+    private static final String ATTRIBUTE_TOOLTIP_DESC = "(Ljava/util/function/Consumer;"
+            + "Lnet/minecraft/world/item/component/TooltipDisplay;Lnet/minecraft/world/entity/player/Player;)V";
+    static final String MOD_PACK_UTIL = "net/fabricmc/fabric/impl/resource/pack/ModPackResourcesUtil";
+    static final String MOD_PACK_CREATOR = "net/fabricmc/fabric/impl/resource/pack/ModResourcePackCreator";
+    private static final String PACKS_DESC =
+            "(Lnet/minecraft/server/packs/PackType;Ljava/lang/String;)Ljava/util/List;";
+    private static final String LOADER_PACKS_DESC = "(L" + LOADER + ";" + PACKS_DESC.substring(1);
     private static final String VANILLA_BUILD_DESC =
             "(Lnet/minecraft/server/packs/PackLocationInfo;)"
                     + "Lnet/minecraft/server/packs/VanillaPackResources;";
@@ -161,10 +178,6 @@ final class RuntimeLowering implements Opcodes {
             "net/caffeinemc/mods/sodium/client/render/vertex/serializers/generated/VertexSerializerFactory";
     static final Set<String> GENERATOR_CLASSES = Set.of(SODIUM_FACTORY,
             SODIUM_FACTORY + "$Bytecode", SODIUM_FACTORY + "$MemoryTransfer");
-    private static final Set<String> CONSUMERS = Set.of("forEach", "ifPresent");
-    // Optional.map/filter/flatMap return Optional, so deleting them leaves the stack unchanged.
-    private static final Set<String> MAPPERS = Set.of("map", "filter", "flatMap");
-
     private RuntimeLowering() {}
 
     static boolean isValueCall(MethodInsnNode call) {
@@ -201,6 +214,110 @@ final class RuntimeLowering implements Opcodes {
             MethodNode method = method(node, "getModFile", "(Ljava/lang/String;)Ljava/nio/file/Path;");
             replaceWithModFile(method, new VarInsnNode(ALOAD, 1));
             adaptations.add(node.name + "#getModFile(String) = ModFiles.modFile(id)");
+        }
+    }
+
+    static List<String> tooltipComponents(ClassNode itemStack, ClassNode dataComponents) {
+        var order = new ArrayList<String>();
+        var seen = new java.util.HashSet<String>();
+        for (var instruction : method(itemStack, "addDetailsToTooltip", ADD_TOOLTIP_DESC).instructions) {
+            if (instruction instanceof FieldInsnNode field && field.getOpcode() == GETSTATIC
+                    && field.owner.equals(DATA_COMPONENTS) && field.desc.equals(DATA_COMPONENT_DESC)
+                    && seen.add(field.name)) {
+                order.add(field.name);
+            } else if (instruction instanceof MethodInsnNode call && call.owner.equals(ITEM_STACK)
+                    && call.name.equals("addAttributeTooltips") && call.desc.equals(ATTRIBUTE_TOOLTIP_DESC)) {
+                order.add("ATTRIBUTE_MODIFIERS");
+            }
+        }
+        if (order.isEmpty() || order.stream().anyMatch(name -> dataComponents.fields.stream().noneMatch(
+                field -> field.name.equals(name) && field.desc.equals(DATA_COMPONENT_DESC)
+                        && (field.access & (ACC_PUBLIC | ACC_STATIC)) == (ACC_PUBLIC | ACC_STATIC)))) {
+            throw new IllegalArgumentException("Unable to resolve the Fabric vanilla tooltip component order");
+        }
+        return List.copyOf(order);
+    }
+
+    static void freezeTooltipOrder(ClassNode node, String sourceHash, List<String> order, List<String> adaptations) {
+        if (!sourceHash.equals(TOOLTIP_ORDER_SHA256) || order.isEmpty()) {
+            throw new IllegalArgumentException("Unaudited Fabric tooltip order implementation: " + sourceHash);
+        }
+        MethodNode scrape = method(node, "scrapeVanillaOrder", "()Ljava/util/List;");
+        scrape.instructions.clear();
+        scrape.tryCatchBlocks.clear();
+        scrape.localVariables = null;
+        scrape.instructions.add(new LdcInsnNode(order.size()));
+        scrape.instructions.add(new TypeInsnNode(ANEWARRAY, DATA_COMPONENT_TYPE));
+        for (int index = 0; index < order.size(); index++) {
+            scrape.instructions.add(new InsnNode(DUP));
+            scrape.instructions.add(new LdcInsnNode(index));
+            scrape.instructions.add(new FieldInsnNode(GETSTATIC, DATA_COMPONENTS, order.get(index), DATA_COMPONENT_DESC));
+            scrape.instructions.add(new InsnNode(AASTORE));
+        }
+        scrape.instructions.add(new MethodInsnNode(INVOKESTATIC, "java/util/List", "of",
+                "([Ljava/lang/Object;)Ljava/util/List;", true));
+        scrape.instructions.add(new InsnNode(ARETURN));
+        scrape.maxStack = 4;
+        // In the pinned class these helpers are private and only called by the old bytecode scan.
+        node.methods.removeIf(method -> (method.access & ACC_PRIVATE) != 0
+                && Set.of("remapMethodDesc", "unmapObjectOrArrayDesc", "lambda$scrapeVanillaOrder$0",
+                          "lambda$scrapeVanillaOrder$1").contains(method.name));
+        adaptations.add(node.name + "#scrapeVanillaOrder fabric.item.tooltip-order.v1 " + order);
+    }
+
+    /**
+     * Retain Fabric's pack construction and sorting, with the snapshot replacing the Loader
+     * parameter on the pinned implementation's two ends.
+     */
+    static void lowerResourcePackEnumeration(ClassNode node, String sourceHash, List<String> adaptations) {
+        if (node.name.equals(MOD_PACK_UTIL)) {
+            if (!sourceHash.equals("f588c34df4c21807f83729c2af0d2cc588b6e8d0f489ee2914702bdf2ca93a79")) {
+                throw new IllegalArgumentException("Unaudited Fabric pack utility: " + sourceHash);
+            }
+            var entry = method(node, "getModResourcePacks", LOADER_PACKS_DESC);
+            entry.desc = "(Ljava/lang/Object;" + PACKS_DESC.substring(1);
+            entry.signature = null;
+            for (var instruction : entry.instructions.toArray()) {
+                if (!isQuery(instruction, "getAllMods", "()Ljava/util/Collection;")) continue;
+                if (!(previousReal(instruction) instanceof VarInsnNode receiver)
+                        || receiver.getOpcode() != ALOAD || receiver.var != 0) {
+                    throw new IllegalArgumentException("Unexpected Fabric pack loader receiver");
+                }
+                entry.instructions.remove(receiver);
+                entry.instructions.set(instruction, new MethodInsnNode(INVOKESTATIC,
+                        "mcfao/aot/ModCatalog", "all", "()Ljava/util/Collection;", false));
+            }
+            for (var instruction : entry.instructions) {
+                if (instruction instanceof org.objectweb.asm.tree.FrameNode frame && frame.local != null) {
+                    frame.local.replaceAll(value -> LOADER.equals(value) ? "java/lang/Object" : value);
+                }
+            }
+            if (entry.localVariables != null) {
+                entry.localVariables.removeIf(local -> local.index == 0);
+            }
+            adaptations.add(node.name + "#getModResourcePacks fabric.resource.mod-pack-enumeration.v1");
+        } else if (node.name.equals(MOD_PACK_CREATOR)) {
+            if (!sourceHash.equals("f09c62cfa4511f637445e6e1fa8b569dbec81cdf5936c1b99270e7be0dba3686")) {
+                throw new IllegalArgumentException("Unaudited Fabric pack provider: " + sourceHash);
+            }
+            var register = method(node, "registerModPack",
+                    "(Ljava/util/function/Consumer;Ljava/lang/String;Ljava/util/function/Predicate;)V");
+            int factories = 0;
+            int calls = 0;
+            for (var instruction : register.instructions.toArray()) {
+                if (!(instruction instanceof MethodInsnNode call)) continue;
+                if (call.owner.equals(LOADER) && call.name.equals("getInstance")
+                        && call.desc.equals("()L" + LOADER + ";") && call.getOpcode() == INVOKESTATIC) {
+                    register.instructions.set(call, new InsnNode(ACONST_NULL));
+                    factories++;
+                } else if (call.owner.equals(MOD_PACK_UTIL) && call.name.equals("getModResourcePacks")
+                        && call.desc.equals(LOADER_PACKS_DESC) && call.getOpcode() == INVOKESTATIC) {
+                    call.desc = "(Ljava/lang/Object;" + PACKS_DESC.substring(1);
+                    calls++;
+                }
+            }
+            if (factories != 1 || calls != 1) throw new IllegalArgumentException("Unexpected Fabric pack call chain");
+            adaptations.add(node.name + "#registerModPack fabric.resource.mod-pack-enumeration.v1");
         }
     }
 
@@ -368,6 +485,10 @@ final class RuntimeLowering implements Opcodes {
             }
 
             @Override public String id() { return "fabric.resource.merged-namespace-index.v1"; }
+            @Override public int version() { return 1; }
+            @Override public AdaptationRuleEngine.Mode mode() { return AdaptationRuleEngine.Mode.VERIFIED; }
+            @Override public String scope() { return "26.1.2 official VanillaPackResourcesBuilder#build"; }
+            @Override public String evidence() { return "tests/test_runtime_lowering.py::test_mod_resource_namespaces_reach_the_builtin_pack"; }
             @Override public String mechanism() {
                 return "Vanilla built-in pack namespace index over merged Mod resources";
             }
@@ -375,7 +496,9 @@ final class RuntimeLowering implements Opcodes {
                 return target.name + "#build" + VANILLA_BUILD_DESC;
             }
             @Override public boolean matches(ClassNode target) {
-                return target.name.equals(VANILLA_PACK_BUILDER);
+                return target.name.equals(VANILLA_PACK_BUILDER)
+                        && target.methods.stream().anyMatch(method ->
+                                method.name.equals("build") && method.desc.equals(VANILLA_BUILD_DESC));
             }
             @Override public boolean alreadyApplied(ClassNode target) {
                 MethodNode method = build(target);
@@ -874,7 +997,6 @@ final class RuntimeLowering implements Opcodes {
 
     static void lowerQueries(ClassNode node, Set<String> loadedIds, java.util.Map<String, String> versions,
             List<String> adaptations, Set<String> stubbed, Set<String> protectedMethods) {
-        var deadLambdas = new java.util.TreeSet<String>();
         for (var method : node.methods) {
             for (var instruction : method.instructions.toArray()) {
                 if (!(instruction instanceof MethodInsnNode provider) || !provider.owner.equals(
@@ -967,53 +1089,7 @@ final class RuntimeLowering implements Opcodes {
                     adaptations.add(location + "isModLoaded(" + id + ")=" + loaded);
                 }
             }
-            // Locate the receiver from stack provenance rather than adjacent instructions:
-            // IDs may come from fields, method calls, or multi-instruction expressions.
-            boolean hasContainerQuery = method.instructions.iterator().hasNext() &&
-                    java.util.Arrays.stream(method.instructions.toArray()).anyMatch(insn ->
-                        insn instanceof MethodInsnNode call && isQuery(call, "getModContainer",
-                                "(Ljava/lang/String;)Ljava/util/Optional;"));
-            if (hasContainerQuery) {
-                try {
-                    var analyzer = new org.objectweb.asm.tree.analysis.Analyzer<>(
-                            new org.objectweb.asm.tree.analysis.SourceInterpreter());
-                    var frames = analyzer.analyzeAndComputeMaxs(node.name, method);
-                    var instructions = method.instructions.toArray();
-                    for (int index = 0; index < instructions.length; index++) {
-                        if (!(instructions[index] instanceof MethodInsnNode call)
-                                || !isQuery(call, "getModContainer", "(Ljava/lang/String;)Ljava/util/Optional;")) continue;
-                        var frame = frames[index];
-                        if (frame == null || frame.getStackSize() < 2) continue;
-                        var sources = frame.getStack(frame.getStackSize()-2).insns;
-                        if (sources.isEmpty() || !sources.stream().allMatch(source ->
-                                source instanceof MethodInsnNode factory && factory.owner.equals(LOADER)
-                                && factory.name.equals("getInstance") && factory.getOpcode()==INVOKESTATIC)) continue;
-                        for (var source : sources) if (method.instructions.indexOf(source)>=0)
-                            method.instructions.set(source, new InsnNode(ACONST_NULL));
-                        method.instructions.set(call, new MethodInsnNode(INVOKESTATIC,
-                                "mcfao/aot/ModCatalog", "lookup",
-                                "(Ljava/lang/Object;Ljava/lang/String;)Ljava/util/Optional;", false));
-                        adaptations.add(node.name + "#" + method.name + " getModContainer(expression)=build snapshot");
-                    }
-                } catch (org.objectweb.asm.tree.analysis.AnalyzerException error) {
-                    throw new IllegalArgumentException("Cannot analyze Loader query in " + node.name + "#" + method.name, error);
-                }
-            }
-            // A query whose id is not a literal cannot be folded. Route it to the generated
-            // membership test so the image never reaches the build-time Loader instance.
-            for (var instruction : method.instructions.toArray()) {
-                if (!(instruction instanceof MethodInsnNode call) || !call.owner.equals(LOADER)
-                        || !call.name.equals("isModLoaded") || !call.desc.equals("(Ljava/lang/String;)Z")
-                        || call.getOpcode() != INVOKEINTERFACE) continue;
-                var argument = previousReal(call);
-                var receiver = argument == null ? null : previousReal(argument);
-                if (!(receiver instanceof MethodInsnNode source) || !source.owner.equals(LOADER)
-                        || !source.name.equals("getInstance") || source.getOpcode() != INVOKESTATIC) continue;
-                method.instructions.set(call, new MethodInsnNode(INVOKESTATIC, HOOKS,
-                        "isModLoaded", "(Ljava/lang/String;)Z", false));
-                method.instructions.remove(source);
-                adaptations.add(node.name + "#" + method.name + " isModLoaded(query)=generated membership test");
-            }
+            lowerComputedModQueries(node, method, adaptations);
             // MappingResolver: the whole `getInstance().getMappingResolver().mapXxx(...)` chain is
             // routed to a generated identity hook, so no Loader type reaches the image and the
             // caller keeps the name it would have resolved in an official-name runtime. The
@@ -1043,20 +1119,8 @@ final class RuntimeLowering implements Opcodes {
                 adaptations.add(node.name + "#" + method.name + " MappingResolver." + query.name + "=identity");
             }
         }
-        // Lambdas whose only caller was an emptied entrypoint stage become unreachable before
-        // the residue check runs, so no Loader type reaches the image through them.
-        for (var method : node.methods) {
-            if (deadLambdas.contains(method.name + method.desc)) stub(method);
-        }
-        // A query that survived both passes belongs to code the closed world cannot answer:
-        // ModContainer metadata, entrypoint definitions, Loader update checks. The method keeps
-        // its signature and answers with the type's empty value, which is what a build-time-only
-        // helper would return anyway. Entrypoints are excluded: silently emptying one would
-        // disable a Mod instead of reporting it.
-        // A Mixin that patches a diagnostic class lands in the same class the report walks, and
-        // its body reaches into the patching Mod. The report must still be able to describe a
-        // failure even when that Mod is absent from the image, so injected members are emptied
-        // unconditionally rather than only when they happen to call the Loader.
+        // Report-only builds keep unsupported methods linkable, while executing one fails
+        // with its original location and API signature. Crash-report decoration may degrade.
         if (DIAGNOSTIC_CLASSES.contains(node.name)) {
             for (var method : node.methods) {
                 if (method.name.startsWith("<") || !method.name.startsWith("handler$")) continue;
@@ -1083,8 +1147,10 @@ final class RuntimeLowering implements Opcodes {
                         + " reports mod metadata only");
                 continue;
             }
-            stub(method);
-            stubbed.add(where + " -> " + offender.owner + "." + offender.name);
+            String unsupported = where + method.desc + " -> " + offender.owner + "."
+                    + offender.name + offender.desc;
+            failUnsupported(method, unsupported);
+            stubbed.add(unsupported);
         }
     }
 
@@ -1106,28 +1172,54 @@ final class RuntimeLowering implements Opcodes {
         return previous;
     }
 
-    /**
-     * Removes the callbacks that consumed a value which is now a constant empty collection, and
-     * marks their lambda bodies as dead so the residue check never sees the Loader types inside
-     * them. A mapping callback is deleted outright because an empty Optional maps to itself.
-     */
-    private static void dropConsumers(org.objectweb.asm.tree.InsnList instructions,
-            org.objectweb.asm.tree.AbstractInsnNode value, String owner, Set<String> dead) {
-        while (true) {
-            var consumer = nextReal(value);
-            var call = consumer == null ? null : nextReal(consumer);
-            if (!(consumer instanceof InvokeDynamicInsnNode factory)
-                    || !(call instanceof MethodInsnNode iteration)) return;
-            if (!CONSUMERS.contains(iteration.name) && !MAPPERS.contains(iteration.name)) return;
-            for (var argument : factory.bsmArgs) {
-                if (argument instanceof Handle handle && handle.getOwner().equals(owner)) {
-                    dead.add(handle.getName() + handle.getDesc());
-                }
+    private static void lowerComputedModQueries(ClassNode node, MethodNode method, List<String> adaptations) {
+        var instructions = method.instructions.toArray();
+        if (java.util.Arrays.stream(instructions).noneMatch(RuntimeLowering::isModQuery)) return;
+        try {
+            var analyzer = new org.objectweb.asm.tree.analysis.Analyzer<>(
+                    new org.objectweb.asm.tree.analysis.SourceInterpreter());
+            var frames = analyzer.analyzeAndComputeMaxs(node.name, method);
+            for (int index = 0; index < instructions.length; index++) {
+                if (!isModQuery(instructions[index])) continue;
+                var call = (MethodInsnNode) instructions[index];
+                var frame = frames[index];
+                if (frame == null || frame.getStackSize() < 2) continue;
+                var sources = frame.getStack(frame.getStackSize() - 2).insns;
+                if (sources.isEmpty() || !sources.stream().allMatch(source ->
+                        method.instructions.indexOf(source) >= 0 && source instanceof MethodInsnNode factory
+                        && factory.owner.equals(LOADER) && factory.name.equals("getInstance")
+                        && factory.desc.equals("()L" + LOADER + ";") && factory.getOpcode() == INVOKESTATIC)) continue;
+                for (var source : sources) method.instructions.set(source, new InsnNode(ACONST_NULL));
+                boolean membership = call.name.equals("isModLoaded");
+                String hook = membership ? "isLoaded" : "lookup";
+                String result = membership ? "Z" : "Ljava/util/Optional;";
+                method.instructions.set(call, new MethodInsnNode(INVOKESTATIC, "mcfao/aot/ModCatalog",
+                        hook, "(Ljava/lang/Object;Ljava/lang/String;)" + result, false));
+                adaptations.add(node.name + "#" + method.name + " " + call.name + "(expression)=build snapshot");
             }
-            instructions.remove(consumer);
-            if (CONSUMERS.contains(iteration.name)) instructions.set(call, new InsnNode(POP));
-            else instructions.remove(call);
+        } catch (org.objectweb.asm.tree.analysis.AnalyzerException error) {
+            throw new IllegalArgumentException("Cannot analyze Loader query in " + node.name + "#" + method.name, error);
         }
+    }
+
+    private static boolean isModQuery(AbstractInsnNode instruction) {
+        return isQuery(instruction, "getModContainer", "(Ljava/lang/String;)Ljava/util/Optional;")
+                || isQuery(instruction, "isModLoaded", "(Ljava/lang/String;)Z");
+    }
+
+    private static void failUnsupported(MethodNode method, String reason) {
+        method.instructions.clear();
+        method.tryCatchBlocks.clear();
+        method.localVariables = null;
+        method.visibleLocalVariableAnnotations = null;
+        method.invisibleLocalVariableAnnotations = null;
+        method.instructions.add(new TypeInsnNode(NEW, "java/lang/UnsupportedOperationException"));
+        method.instructions.add(new InsnNode(DUP));
+        method.instructions.add(new LdcInsnNode("Unsupported closed-world Fabric API: " + reason));
+        method.instructions.add(new MethodInsnNode(INVOKESPECIAL, "java/lang/UnsupportedOperationException",
+                "<init>", "(Ljava/lang/String;)V", false));
+        method.instructions.add(new InsnNode(ATHROW));
+        method.maxStack = Math.max(method.maxStack, 3);
     }
 
     private static MethodInsnNode firstLoaderCall(org.objectweb.asm.tree.MethodNode method) {

@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -8,9 +9,11 @@ sys.path.insert(0, str(ROOT / 'tools'))
 from prepare_fabric_aot import compile_java, load_reference
 from capture import capture
 
+PREPARED = Path(os.environ.get('MCFAO_TEST_FABRIC_PREPARED', ROOT / 'artifacts/b0/prepared-04'))
+
 class ModCatalogTests(unittest.TestCase):
     def test_snapshot_lookup_metadata_builtin_paths_and_lowering(self):
-        home, libraries, engine, _ = load_reference(ROOT / 'artifacts/b0/prepared-04')
+        home, libraries, engine, _ = load_reference(PREPARED)
         with tempfile.TemporaryDirectory() as work:
             output = Path(work)
             classes = output / 'classes'
@@ -21,16 +24,23 @@ class ModCatalogTests(unittest.TestCase):
             resource = classes / 'mcfao/mod-files/fixture/resourcepacks/dark/pack.mcmeta'
             resource.parent.mkdir(parents=True)
             resource.write_text('fixture')
-            (classes / 'mcfao/mod-catalog.json').write_text(json.dumps({'fixture': {
+            catalog = {'fixture': {
                 'id': 'fixture', 'name': 'Fixture', 'version': '1.2.3', 'description': '',
-                'files': ['resourcepacks/dark/pack.mcmeta'], 'type':'fabric', 'environment':'UNIVERSAL', 'provides':['fixture_alias'], 'license':['MIT'], 'contact':{'homepage':'https://example.org'}, 'authors':[{'name':'Author','contact':{}}], 'contributors':[], 'dependencies':[{'id':'minecraft','kind':'DEPENDS','requirements':['>=26.1']}], 'custom':{'flag':True,'object':{'array':[1,None,'text']}}, 'icons':{'0':'icon.png'}, 'parent':'', 'children':[], 'originKind':'PATH'}}))
-            run = capture([str(home / 'bin/java'), '-cp', ':'.join(map(str,[classes,*cp])),
+                'files': ['resourcepacks/dark/pack.mcmeta'], 'type':'fabric', 'environment':'UNIVERSAL', 'provides':['fixture_alias'], 'license':['MIT'], 'contact':{'homepage':'https://example.org'}, 'authors':[{'name':'Author','contact':{}}], 'contributors':[], 'dependencies':[{'id':'minecraft','kind':'DEPENDS','requirements':['>=26.1']}], 'custom':{'flag':True,'object':{'array':[1,None,'text']}}, 'icons':{'0':'icon.png'}, 'parent':'', 'children':[], 'originKind':'PATH'}}
+            catalog['fixture']['children'] = ['nested']
+            catalog['nested'] = {**catalog['fixture'], 'id': 'nested', 'provides': ['nested_alias'],
+                                 'files': [], 'parent': 'fixture', 'children': [], 'originKind': 'NESTED',
+                                 'originParent': 'fixture', 'originLocation': 'META-INF/jars/nested.jar'}
+            catalog['broken'] = {**catalog['fixture'], 'id': 'broken', 'provides': [],
+                                 'files': ['nonexistent.txt']}
+            (classes / 'mcfao/mod-catalog.json').write_text(json.dumps(catalog))
+            run = capture([str(home / 'bin/java'), '-Djava.io.tmpdir=' + str(output), '-cp', ':'.join(map(str,[classes,*cp])),
                            'mcfao.build.ModCatalogProbe'], output / 'run', 30)
             self.assertEqual(run['exitCode'], 0, (output / 'run/stderr.log').read_text())
             self.assertIn('MOD_CATALOG_PASS', (output / 'run/stdout.log').read_text())
 
     def test_snapshot_matches_pinned_loader_metadata(self):
-        home, libraries, engine, _ = load_reference(ROOT / 'artifacts/b0/prepared-04')
+        home, libraries, engine, _ = load_reference(PREPARED)
         with tempfile.TemporaryDirectory() as work:
             output = Path(work)
             classes = output / 'classes'

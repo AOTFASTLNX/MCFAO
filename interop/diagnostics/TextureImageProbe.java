@@ -117,6 +117,14 @@ public final class TextureImageProbe {
         }
         check(sample.invoke(null, resource(new byte[] {1, 2}), 0, 0).equals(-1), "non-PNG fallback");
         byte[] truncated = Arrays.copyOf(png(gray), 29);
+        byte[] oversized = truncated.clone();
+        java.nio.ByteBuffer.wrap(oversized).putInt(16, Integer.MAX_VALUE);
+        try (var huge = new ByteArrayInputStream(oversized)) {
+            TextureImage.read(huge);
+            throw new AssertionError("Oversized PNG accepted");
+        } catch (IOException expected) {
+            check(expected.getMessage().contains("pixel limit"), "Unexpected PNG size error: " + expected);
+        }
         boolean[] closed = {false};
         var invalid = new ByteArrayInputStream(truncated) {
             @Override public void close() { closed[0] = true; }

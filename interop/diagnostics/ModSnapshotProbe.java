@@ -39,7 +39,25 @@ public final class ModSnapshotProbe {
 
         Path file=Path.of(args[0],"mcfao/mod-catalog.json");Files.createDirectories(file.getParent());
         Files.writeString(file,ModSnapshot.json(Map.of("parity",snapshot)));
-        var actual=ModCatalog.required("parity").getMetadata();
+        var actualContainer = ModCatalog.required("parity");
+        var loader = net.fabricmc.loader.impl.FabricLoaderImpl.INSTANCE;
+        var lookup = loader.getClass().getDeclaredField("modMap");
+        lookup.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        var referenceIndex = (Map<String, ModContainer>) lookup.get(loader);
+        referenceIndex.put("parity", source);
+        referenceIndex.put("alias", source);
+        for (String id : Arrays.asList("parity", new String("alias"), "absent", null)) {
+            var expected = loader.getModContainer(id).orElse(null);
+            var resolved = ModCatalog.lookup(null, id).orElse(null);
+            if (resolved != (expected == null ? null : actualContainer)) {
+                throw new AssertionError("container query differs from pinned Loader: " + id);
+            }
+        }
+        if (!List.copyOf(ModCatalog.all()).equals(List.of(actualContainer))) {
+            throw new AssertionError("aliases must not be enumerated");
+        }
+        var actual=actualContainer.getMetadata();
         if(!Set.copyOf(actual.getProvides()).equals(Set.copyOf(meta.getProvides())) || actual.getEnvironment()!=meta.getEnvironment()
                 || !Set.copyOf(actual.getLicense()).equals(Set.copyOf(meta.getLicense())) || !actual.getContact().asMap().equals(meta.getContact().asMap())) throw new AssertionError("metadata parity");
         if(actual.getCustomValue("null-value")==null || actual.getCustomValue("null-value").getType()!=CustomValue.CvType.NULL) throw new AssertionError("null custom");

@@ -1,7 +1,5 @@
 package mcfao.build;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -33,6 +31,7 @@ public final class ExportGenerationProbe {
         static void lookups(String dynamic) {
             LiteralResourceCalls.class.getResourceAsStream("/fixture-root.png");
             LiteralResourceCalls.class.getResource("fixture-relative.ogg");
+            LiteralResourceCalls.class.getResourceAsStream("/fixture-compute.csh");
             LiteralResourceCalls.class.getClassLoader().getResourceAsStream("ui/font.ttf");
             ClassLoader.getSystemResource("defaults.json");
             LiteralResourceCalls.class.getClassLoader().getResourceAsStream("/loader-wrong.png");
@@ -49,22 +48,13 @@ public final class ExportGenerationProbe {
                 "ExportGenerationProbe$LiteralResourceCalls.class")) {
             new ClassReader(stream).accept(node, 0);
         }
-        Path small = Files.createTempFile("mcfao-resource-sample", ".bin");
-        Path large = Files.createTempFile("mcfao-resource-limit", ".bin");
-        try {
-            Files.write(large, new byte[1024 * 1024 + 1]);
-            var expected = Set.of("fixture-root.png", "mcfao/build/fixture-relative.ogg", "ui/font.ttf", "defaults.json");
-            var input = new HashMap<String, Path>();
-            for (String name : expected) input.put(name, small);
-            for (String name : List.of("fixture.so", "/loader-wrong.png", "bad/../escape.png", "dynamic.png",
-                    node.name + ".class")) input.put(name, small);
-            input.put("large.png", large);
-            var retained = new HashMap<String, Path>();
-            AotExport.collectLiteralResources(node, input, retained);
-            if (!retained.keySet().equals(expected)) throw new AssertionError("Retained classpath files: " + retained);
-        } finally {
-            Files.deleteIfExists(large);
-            Files.deleteIfExists(small);
+        var expected = Set.of("fixture-root.png", "fixture-compute.csh", "mcfao/build/fixture-relative.ogg",
+                "ui/font.ttf", "defaults.json", "large.png");
+        var lookups = new HashMap<String, Set<String>>();
+        var dynamic = new java.util.TreeSet<String>();
+        AotExport.collectResourceLookups(node, "fixture", lookups, dynamic);
+        if (!lookups.keySet().equals(expected) || dynamic.size() != 1) {
+            throw new AssertionError("Classpath lookups: " + lookups + "; dynamic: " + dynamic);
         }
     }
 

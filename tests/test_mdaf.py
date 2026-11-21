@@ -92,6 +92,33 @@ class MdafMetadataTests(unittest.TestCase):
             self.assertEqual(by_type["java.lang.String"]["status"], "PLATFORM_NOT_ARCHIVE_CHECKED")
             self.assertEqual(report["status"], "REPORT_ONLY_FINDINGS")
 
+    def test_unified_conditions_and_multi_release_members(self):
+        first = {"reflection": [{"type": "mod.Test", "condition": {"typeReached": "mod.Root"},
+                                 "methods": [{"name": "present", "parameterTypes": []}]}]}
+        second = {"reflection": [{"type": "mod.Test", "condition": {"typeReached": "mod.Root"},
+                                  "fields": [{"name": "marker"}]}]}
+        from mdaf import merge_json_documents
+        merged, conflicts = merge_json_documents(first, second)
+        self.assertEqual(conflicts, [])
+        self.assertEqual(len(merged["reflection"]), 1)
+        self.assertIn("fields", merged["reflection"][0])
+        with tempfile.TemporaryDirectory() as temporary:
+            jar = Path(temporary) / "fixture.jar"
+            with zipfile.ZipFile(jar, "w") as archive:
+                archive.writestr("META-INF/MANIFEST.MF", "Manifest-Version: 1.0\nMulti-Release: true\n\n")
+                archive.writestr("mod/Test.class", class_bytes("mod/Test", methods=["old"]))
+                archive.writestr("META-INF/versions/25/mod/Test.class",
+                                 class_bytes("mod/Test", methods=["present"]))
+            result = validate_reflection_entries([{"name": "mod.Test", "methods": [
+                {"name": "present", "parameterTypes": []},
+                {"name": "present", "parameterTypes": [False]},
+                {"name": "old"}]}], [jar])
+            self.assertEqual(result["findings"][0]["status"], "UNRESOLVED_MEMBERS")
+            self.assertEqual(result["findings"][0]["members"], [
+                {"kind": "method", "name": "present", "reason": "invalid parameterTypes"},
+                {"kind": "method", "name": "old"},
+            ])
+
     def test_absent_maintained_mod_config_is_skipped_but_observed_absence_warns(self):
         with tempfile.TemporaryDirectory() as temporary:
             _, report = collect_mdaf_configuration(

@@ -515,3 +515,9 @@ pack-88 之后工作重心从「找下一个崩溃」转成「让探针真正在
 用户明确反馈“测试成功，成功进入多人游戏”，对应 LAN-r4-20261117 / build 8 私有 IPA。已整合 authlib 反射元数据、聊天会话诊断、GL41 overlay/游戏可达代码检查、GLFW 双 API 桥接与实际二进制 ABI 校验，以及启动前预检和版本标记。证据与 IPA SHA-256 见 GL41_STARTUP_BRIDGE_FIX.md。该确认覆盖成功进入多人游戏；完整双向联机矩阵、长时性能、保存重进和全部 Gate 仍需独立证据，项目保持 experimental。
 
 整合回归：前端 69 项、Rust 9 项、Playwright 40 项通过；iPhoneOS 启动宿主编译检查通过。Python 全套 478 项通过、0 跳过，原始日志保存在本轮本地验证目录，游戏 IPA/资源/缓存和签名材料未提交源码仓库。按用户本次明确授权整合 main 并推送，保留开发与备份分支。
+
+## 2026-11-21 通用 Fabric 兼容复跑
+
+COMPAT-r2 使用与上一轮一致的 41 个已审计根 JAR，解析并生成 109 个 Mod 的 GL41 ARM64 测试包，Fabric 转换、原生代码和 IPA 校验通过。原版 COMPAT-r1 对照同时通过。Fabric tooltip 组件顺序、独立资源层、Classpath 实际读取及 Gson 往返分别保留了宿主运行证据。开发签名 IPA 通过通用验证。目标 iPhone 未被描述文件覆盖，游戏、Mod 功能和存档的目标设备验收受阻。见 [实现报告](compatibility/IMPLEMENTATION_REPORT.md) 和 [生成的矩阵](MOD_COMPATIBILITY_MATRIX.md)。
+
+r2 回传的真机日志确认主菜单及开始载入世界，最终因动态类路径无法读取 Sodium 地形着色器崩溃。COMPAT-r3 的 Fabric 资源层新增动态流索引及完整性检查，修复 Iris 根路径 `colorSpace.csh` 的保留，补齐 Gson 泛型 TypeToken 所指 DTO 的反射。实际 Sodium 方法 JVM 对照及严格模式 macOS AOT 探针通过。109 Mod 的 r3 开发签名包通过通用验签及 `mcfao verify`。指定 iPhone 的 profile 覆盖检查仍阻断 r3 设备复测。见 [r3 验证](compatibility/IMPLEMENTATION_REPORT.md#compat-r2-设备回传与-compat-r3-验证)。

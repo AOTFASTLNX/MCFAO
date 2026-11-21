@@ -91,7 +91,7 @@ class ModMatrixTests(unittest.TestCase):
             self.assertIn("incompatible-01/result.json", rows["delta"]["evidence"])
             self.assertIn("导出期排除", text)
             self.assertIn("预先隔离", text)
-            self.assertIn("Iris 保持隔离", text)
+            self.assertIn("needs OpenGL", text)
 
     def test_only_a_manual_observation_can_upgrade_a_row(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -99,9 +99,11 @@ class ModMatrixTests(unittest.TestCase):
                 "alpha": {"status": "FUNCTION_PASS", "note": "在运行的游戏内看到 Alpha 的 HUD",
                           "evidence": "pack-99-simulator/game.log#L42", "tests": "tests/test_alpha.py"},
                 "gamma": {"status": "BUILD_PASS", "note": "试图降级"},
+                "beta": {"status": "DEVICE_PASS", "evidence": "fabric-pack-88/device/game.log"},
             })
             rows = {row["id"]: row for row in data["rows"]}
             self.assertEqual(rows["alpha"]["status"], "FUNCTION_PASS")
+            self.assertEqual(rows["beta"]["status"], "BUILD_PASS")
             self.assertIn("pack-99-simulator/game.log#L42", rows["alpha"]["evidence"])
             # A downgrade is ignored: the derived verdict is stronger.
             self.assertEqual(rows["gamma"]["status"], "BLOCKED")

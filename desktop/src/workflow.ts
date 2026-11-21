@@ -34,12 +34,34 @@ export interface BuildForm {
   quickBuild?: boolean;
 }
 type CompatibilityStage = "PASS" | "FAIL" | "SKIPPED" | "UNVERIFIED";
+export interface ModCompatibility {
+  id: string;
+  name: string;
+  version: string;
+  dependencyStatus: "RESOLVED" | "UNSATISFIED" | "UNVERIFIED";
+  buildStatus: "BUILD_PASS" | "TRANSFORMED" | "BLOCKED" | "UNVERIFIED";
+  functionStatus: "UNVERIFIED";
+  deviceStatus: "DEVICE_NOT_RUN";
+  rules: string[];
+  risks: AotCompatibility["findings"];
+  riskCount: number;
+  degradation: string[];
+  relevantChecks: string[];
+}
+
 export interface AotCompatibility {
   modCount: number;
   fixes: number;
   warnings: number;
   blockers: number;
   findingGroups: number;
+  mods?: ModCompatibility[];
+  rootCause?: {
+    category: string;
+    confidence: "HIGH_CONFIDENCE" | "UNKNOWN";
+    modId?: string;
+    evidence: { line: string; frame?: string };
+  };
   stages: Record<
     "static" | "transform" | "aot" | "startup" | "device",
     CompatibilityStage

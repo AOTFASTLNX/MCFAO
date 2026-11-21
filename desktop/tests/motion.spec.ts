@@ -405,6 +405,20 @@ test("build history shows AOT findings and leaves launch and device unverified",
       startup: "UNVERIFIED",
       device: "UNVERIFIED",
     },
+    mods: [{
+      id: "optional-fixture",
+      name: "Optional Fixture",
+      version: "1.2.3",
+      dependencyStatus: "RESOLVED",
+      buildStatus: "BUILD_PASS",
+      functionStatus: "UNVERIFIED",
+      deviceStatus: "DEVICE_NOT_RUN",
+      rules: ["classpath.resource.v1"],
+      risks: [],
+      riskCount: 0,
+      degradation: [],
+      relevantChecks: ["runtime-resource-read"],
+    }],
     findings: [
       {
         code: "TYPED_GSON_CONFIG",
@@ -426,12 +440,19 @@ test("build history shows AOT findings and leaves launch and device unverified",
   });
   const report = page.getByRole("region", { name: "AOT 兼容性" });
   await expect(report.getByRole("status")).toContainText(
-    "4 个 Mod · 1 项自动修复 · 1 条警告",
+    "4 个 Mod · 1 项自动处理 · 1 条警告",
   );
   await expect(report).toContainText(
     "AOT 产物 通过 · 启动 待验证 · 真机 待验证",
   );
-  const summary = report.locator("summary");
+  const mods = report.getByText("逐 Mod 验证状态", { exact: true });
+  await mods.focus();
+  await mods.press("Enter");
+  const mod = report.getByText(/Optional Fixture 1.2.3.*依赖已解析.*已构建.*功能待验证/);
+  await mod.focus();
+  await mod.press("Enter");
+  await expect(report.getByText(/待执行验证.*runtime-resource-read/)).toBeVisible();
+  const summary = report.getByText("查看兼容性诊断", { exact: true });
   await summary.focus();
   await summary.press("Enter");
   await expect(
