@@ -13,7 +13,8 @@ ROOT = Path(__file__).resolve().parents[1]
 TREES = {'tools', 'compiler', 'interop', 'ios', 'tests', 'ci', 'docs'}
 EXTENSIONS = {'.py', '.java', '.c', '.cpp', '.cc', '.m', '.mm', '.h', '.hpp', '.swift', '.json',
               '.md', '.txt', '.sh', '.plist', '.pbxproj', '.xcscheme', '.xcworkspacedata',
-              '.xcconfig', '.glsl', '.metal', '.fsh', '.vsh', '.css', '.cmake', '.classtweaker', '.accesswidener'}
+              '.xcconfig', '.glsl', '.metal', '.fsh', '.vsh', '.css', '.cmake', '.classtweaker', '.accesswidener',
+              '.patch'}
 EXCLUDED = {'target', 'node_modules', '__pycache__', '.codex', 'xcuserdata',
             'evidence', 'artifacts', 'saves', 'accounts', '.cache', '.git'}
 B1_EVIDENCE = 'artifacts/evidence/b1-user-device-run-01/result.json'

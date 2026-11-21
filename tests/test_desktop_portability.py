@@ -347,6 +347,10 @@ class SourceAndHostPortabilityTests(TemporaryInputs):
             self.assertFalse(bundle_source.allowed(name), name)
         for name in ('tools/mcfao.py','compiler/fabric.lock.json','ios/C0Harness/C0Harness.xcodeproj/project.pbxproj','interop/b0/src/Fixture.java'):
             self.assertTrue(bundle_source.allowed(name), name)
+        # The packaged workbench rebuilds the GL41 runtime from this bundle, so
+        # the Mesa patch has to travel with the source instead of being skipped
+        # as an unknown extension.
+        self.assertTrue(bundle_source.allowed('compiler/gl41/patches/mesa-25.0.7-safe-readback.patch'))
 
     def test_bundled_source_identity_works_without_git_and_rejects_changes(self):
         source = self.root / 'tools/fixture.py'; source.parent.mkdir(); source.write_text('first party')
