@@ -26,7 +26,7 @@ static UIScrollView *FAOTInstallScroll(UIViewController *controller, UIStackView
         [scroll.topAnchor constraintEqualToAnchor:safe.topAnchor],
         [scroll.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor],
         [scroll.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor],
-        [scroll.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor],
+        [scroll.bottomAnchor constraintEqualToAnchor:controller.view.bottomAnchor],
         [stack.topAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.topAnchor constant:22],
         [stack.leadingAnchor constraintEqualToAnchor:scroll.frameLayoutGuide.leadingAnchor constant:24],
         [stack.trailingAnchor constraintEqualToAnchor:scroll.frameLayoutGuide.trailingAnchor constant:-24],
@@ -37,6 +37,7 @@ static UIScrollView *FAOTInstallScroll(UIViewController *controller, UIStackView
 
 static UIStackView *FAOTPageHeader(NSString *title, NSString *subtitle) {
     UILabel *heading = FAOTMakeLabel(title, 26, UIFontWeightBold, FAOTPrimaryTextColor());
+    if (subtitle.length == 0) return FAOTMakeStack(@[heading], 3);
     UILabel *detail = FAOTMakeLabel(subtitle, 13, UIFontWeightRegular, FAOTSecondaryTextColor());
     return FAOTMakeStack(@[heading, detail], 3);
 }
@@ -54,23 +55,71 @@ static UIView *FAOTPaddedCard(UIView *content, CGFloat padding) {
     return card;
 }
 
-static UIView *FAOTMetricTile(NSString *caption, UILabel *value) {
-    value.font = [UIFont systemFontOfSize:19 weight:UIFontWeightSemibold];
+/// A metric tile that keeps the caption above the value when the card is tall,
+/// and switches to a single row when the card is short. The cards now always
+/// split the column in half, so on phone-sized layouts a vertical pair would be
+/// clipped.
+@interface FAOTMetricTileView : UIView
+@property (nonatomic, strong) UILabel *captionLabel;
+@property (nonatomic, strong) UILabel *valueLabel;
+@property (nonatomic, strong) UIStackView *stack;
+@property (nonatomic, assign) BOOL horizontal;
+@end
+
+@implementation FAOTMetricTileView
+
+- (instancetype)initWithCaption:(NSString *)caption value:(UILabel *)value {
+    self = [super initWithFrame:CGRectZero];
+    if (!self) return nil;
+    self.backgroundColor = FAOTDynamicColor(FAOTRGBA(0.93, 0.94, 0.95, 1), FAOTRGBA(1, 1, 1, 0.045));
+    self.layer.cornerRadius = 12;
+    // Custom views have no intrinsic height. A low-priority floor lets the tile
+    // grow with the card while still keeping the text from being crushed.
+    NSLayoutConstraint *tileFloor = [self.heightAnchor constraintGreaterThanOrEqualToConstant:54];
+    tileFloor.priority = UILayoutPriorityDefaultHigh;
+    tileFloor.active = YES;
+    _captionLabel = FAOTMakeLabel(caption, 11, UIFontWeightMedium, FAOTMutedTextColor());
+    _captionLabel.numberOfLines = 1;
+    value.font = [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold];
     value.textColor = FAOTPrimaryTextColor();
-    UILabel *name = FAOTMakeLabel(caption, 11, UIFontWeightMedium, FAOTMutedTextColor());
-    UIView *tile = [UIView new];
-    tile.backgroundColor = FAOTRGBA(1, 1, 1, 0.045);
-    tile.layer.cornerRadius = 12;
-    UIStackView *stack = FAOTMakeStack(@[name, value], 3);
-    stack.translatesAutoresizingMaskIntoConstraints = NO;
-    [tile addSubview:stack];
+    value.numberOfLines = 1;
+    _valueLabel = value;
+    _stack = [[UIStackView alloc] initWithArrangedSubviews:@[_captionLabel, _valueLabel]];
+    _stack.axis = UILayoutConstraintAxisVertical;
+    _stack.alignment = UIStackViewAlignmentLeading;
+    _stack.spacing = 2;
+    _stack.translatesAutoresizingMaskIntoConstraints = NO;
+    [self addSubview:_stack];
+    // The stack fills the tile's width so both labels can use the full row.
+    // With a trailing `lessThanOrEqual` constraint it collapsed to its content
+    // width and the value truncated to an ellipsis on compact rows.
     [NSLayoutConstraint activateConstraints:@[
-        [stack.topAnchor constraintEqualToAnchor:tile.topAnchor constant:10],
-        [stack.leadingAnchor constraintEqualToAnchor:tile.leadingAnchor constant:12],
-        [stack.trailingAnchor constraintEqualToAnchor:tile.trailingAnchor constant:-12],
-        [stack.bottomAnchor constraintEqualToAnchor:tile.bottomAnchor constant:-10],
+        [_stack.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:12],
+        [_stack.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-12],
+        [_stack.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
     ]];
-    return tile;
+    [_captionLabel setContentCompressionResistancePriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
+    [_valueLabel setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    [self setContentCompressionResistancePriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisVertical];
+    return self;
+}
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    BOOL compact = CGRectGetHeight(self.bounds) < 52.0;
+    if (compact == self.horizontal) return;
+    self.horizontal = compact;
+    // Keep the caption above the value in both modes. Side by side they do not
+    // both fit on a compact tile, and truncating either one loses information.
+    // Compact tiles only tighten the gap so the two lines fit the shorter card.
+    self.stack.spacing = compact ? 1.0 : 2.0;
+    [self setNeedsLayout];
+}
+
+@end
+
+static UIView *FAOTMetricTile(NSString *caption, UILabel *value) {
+    return [[FAOTMetricTileView alloc] initWithCaption:caption value:value];
 }
 
 static NSString *FAOTSizeText(unsigned long long bytes) {
@@ -78,13 +127,6 @@ static NSString *FAOTSizeText(unsigned long long bytes) {
     if (bytes >= 1024ULL * 1024) return [NSString stringWithFormat:@"%.1f MB", bytes / 1048576.0];
     if (bytes >= 1024) return [NSString stringWithFormat:@"%.0f KB", bytes / 1024.0];
     return [NSString stringWithFormat:@"%llu B", bytes];
-}
-
-static NSString *FAOTDateText(NSDate *date) {
-    static NSDateFormatter *formatter;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{ formatter = [NSDateFormatter new]; formatter.dateFormat = @"MM-dd HH:mm"; });
-    return date ? [formatter stringFromDate:date] : @"尚无记录";
 }
 
 static UIStackView *FAOTRow(NSString *title, NSString *detail) {
@@ -126,15 +168,20 @@ static BOOL FAOTValidOfflineName(NSString *name) {
 @interface FAOTGamePageController ()
 @property (nonatomic, weak) id<FAOTLauncherPageHost> host;
 @property (nonatomic, strong) FAOTSkinView *skinView;
+@property (nonatomic, strong) FAOTSkinView *previewSkinView;
 @property (nonatomic, strong) UILabel *nameLabel;
 @property (nonatomic, strong) UILabel *accountLabel;
 @property (nonatomic, strong) UILabel *memoryValue;
 @property (nonatomic, strong) UILabel *modsValue;
 @property (nonatomic, strong) UILabel *packsValue;
 @property (nonatomic, strong) UILabel *shadersValue;
-@property (nonatomic, strong) UILabel *logValue;
 @property (nonatomic, strong) UILabel *statusLabel;
 @property (nonatomic, strong) UIButton *launchButton;
+@property (nonatomic, strong) UIStackView *savesStack;
+@property (nonatomic, strong) UILabel *savesEmptyLabel;
+@property (nonatomic, assign) CGFloat panStartYaw;
+@property (nonatomic, assign) CGFloat panStartPitch;
+@property (nonatomic, strong) UIScrollView *savesScrollView;
 @end
 
 #pragma mark - Resources
@@ -159,7 +206,7 @@ static BOOL FAOTValidOfflineName(NSString *name) {
     UIStackView *stack = FAOTMakeStack(@[], 14);
     FAOTInstallScroll(self, stack);
 
-    UIStackView *header = FAOTPageHeader(@"资源", @"游戏目录与构建内置的 Mod、资源包和光影包");
+    UIStackView *header = FAOTPageHeader(@"资源", @"");
     UIButton *refresh = FAOTMakeButton(@"刷新", FAOTFieldColor(), FAOTPrimaryTextColor());
     refresh.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
     [refresh addTarget:self action:@selector(refreshPage) forControlEvents:UIControlEventTouchUpInside];
@@ -242,6 +289,8 @@ static BOOL FAOTValidOfflineName(NSString *name) {
 @property (nonatomic, strong) UILabel *retentionCaption;
 @property (nonatomic, strong) UISegmentedControl *retentionPicker;
 @property (nonatomic, strong) UISegmentedControl *languagePicker;
+@property (nonatomic, strong) UISwitch *motionSwitch;
+@property (nonatomic, strong) UIScrollView *settingsScroll;
 @property (nonatomic, strong) UILabel *versionLabel;
 @property (nonatomic, strong) UILabel *buildLabel;
 @property (nonatomic, strong) UILabel *testVersionLabel;
@@ -262,7 +311,7 @@ static BOOL FAOTValidOfflineName(NSString *name) {
     UISegmentedControl *control = [[UISegmentedControl alloc] initWithItems:items];
     control.selectedSegmentTintColor = FAOTAccentColor();
     control.backgroundColor = FAOTFieldColor();
-    [control setTitleTextAttributes:@{NSForegroundColorAttributeName: UIColor.blackColor} forState:UIControlStateSelected];
+    [control setTitleTextAttributes:@{NSForegroundColorAttributeName: FAOTDynamicColor(UIColor.whiteColor, UIColor.blackColor)} forState:UIControlStateSelected];
     [control setTitleTextAttributes:@{NSForegroundColorAttributeName: FAOTSecondaryTextColor()} forState:UIControlStateNormal];
     [control addTarget:self action:action forControlEvents:UIControlEventValueChanged];
     return control;
@@ -272,8 +321,8 @@ static BOOL FAOTValidOfflineName(NSString *name) {
     [super viewDidLoad];
     self.view.backgroundColor = UIColor.clearColor;
     UIStackView *stack = FAOTMakeStack(@[], 14);
-    FAOTInstallScroll(self, stack);
-    [stack addArrangedSubview:FAOTPageHeader(@"设置", @"控制布局、性能、日志、语言与版本信息")];
+    self.settingsScroll = FAOTInstallScroll(self, stack);
+    [stack addArrangedSubview:FAOTPageHeader(@"设置", @"")];
 
     self.layoutLabel = FAOTMakeLabel(@"default", 14, UIFontWeightMedium, FAOTPrimaryTextColor());
     UIButton *edit = FAOTMakeButton(@"编辑按键", FAOTFieldColor(), FAOTPrimaryTextColor());
@@ -310,16 +359,28 @@ static BOOL FAOTValidOfflineName(NSString *name) {
     UILabel *languageTitle = FAOTMakeLabel(@"游戏语言", 12, UIFontWeightMedium, FAOTMutedTextColor());
     [stack addArrangedSubview:FAOTPaddedCard(FAOTMakeStack(@[languageTitle, self.languagePicker], 8), 14)];
 
+    UILabel *motionTitle = FAOTMakeLabel(@"减弱启动器动态效果", 14, UIFontWeightMedium, FAOTPrimaryTextColor());
+    UILabel *motionCaption = FAOTMakeLabel(@"关闭切换页面时的高斯模糊过渡，保留页面滑入。", 12, UIFontWeightRegular, FAOTSecondaryTextColor());
+    self.motionSwitch = [[UISwitch alloc] initWithFrame:CGRectZero];
+    self.motionSwitch.onTintColor = FAOTAccentColor();
+    [self.motionSwitch addTarget:self action:@selector(reduceMotionChanged) forControlEvents:UIControlEventValueChanged];
+    [self.motionSwitch setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    UIView *motionSpacer = [UIView new];
+    [motionSpacer setContentHuggingPriority:1 forAxis:UILayoutConstraintAxisHorizontal];
+    UIStackView *motionRow = [[UIStackView alloc] initWithArrangedSubviews:@[motionTitle, motionSpacer, self.motionSwitch]];
+    motionRow.axis = UILayoutConstraintAxisHorizontal;
+    motionRow.alignment = UIStackViewAlignmentCenter;
+    motionRow.spacing = 10;
+    [stack addArrangedSubview:FAOTPaddedCard(FAOTMakeStack(@[motionRow, motionCaption], 6), 14)];
+
     self.versionLabel = FAOTMakeLabel(@"", 13, UIFontWeightMedium, FAOTPrimaryTextColor());
     self.buildLabel = FAOTMakeLabel(@"", 13, UIFontWeightMedium, FAOTPrimaryTextColor());
     self.testVersionLabel = FAOTMakeLabel(@"", 13, UIFontWeightMedium, FAOTPrimaryTextColor());
     self.bundleLabel = FAOTMakeLabel(@"", 13, UIFontWeightMedium, FAOTPrimaryTextColor());
     UILabel *aboutTitle = FAOTMakeLabel(@"关于", 12, UIFontWeightMedium, FAOTMutedTextColor());
-    UILabel *powered = FAOTMakeLabel(@"Native Craft Launcher · Minecraft Java 26.1.2 · Fabric", 11, UIFontWeightRegular, FAOTMutedTextColor());
     [stack addArrangedSubview:FAOTPaddedCard(FAOTMakeStack(@[aboutTitle,
         FAOTValueRow(@"应用版本", self.versionLabel), FAOTValueRow(@"构建号", self.buildLabel),
-        FAOTValueRow(@"测试版本", self.testVersionLabel), FAOTValueRow(@"Bundle ID", self.bundleLabel),
-        powered], 9), 14)];
+        FAOTValueRow(@"测试版本", self.testVersionLabel), FAOTValueRow(@"Bundle ID", self.bundleLabel)], 9), 14)];
 
     self.statusLabel = FAOTMakeLabel(@"", 11, UIFontWeightRegular, FAOTMutedTextColor());
     [stack addArrangedSubview:self.statusLabel];
@@ -348,6 +409,7 @@ static BOOL FAOTValidOfflineName(NSString *name) {
                                   (unsigned long)logs, (long)retention];
     NSString *language = settings.languageCode;
     self.languagePicker.selectedSegmentIndex = [language isEqual:@"zh_cn"] ? 0 : [language isEqual:@"ja_jp"] ? 2 : 1;
+    self.motionSwitch.on = settings.reduceLauncherMotion;
 
     NSDictionary *info = NSBundle.mainBundle.infoDictionary;
     self.versionLabel.text = info[@"CFBundleShortVersionString"] ?: @"—";
@@ -388,6 +450,11 @@ static BOOL FAOTValidOfflineName(NSString *name) {
     self.statusLabel.text = @"游戏语言已更新（下次启动生效）";
 }
 
+- (void)reduceMotionChanged {
+    FAOTLauncherSettings.shared.reduceLauncherMotion = self.motionSwitch.isOn;
+    self.statusLabel.text = self.motionSwitch.isOn ? @"已减弱启动器动态效果" : @"已恢复启动器动态效果";
+}
+
 - (void)editLayoutTapped { [self.host pageRequestedLayoutEditor]; }
 - (void)importLayoutTapped { [self.host pageRequestedLayoutImport]; }
 
@@ -404,6 +471,8 @@ static BOOL FAOTValidOfflineName(NSString *name) {
 @property (nonatomic, strong) UIStackView *offlinePane;
 
 @property (nonatomic, strong) FAOTSkinView *activeSkin;
+@property (nonatomic, strong) UISegmentedControl *skinModelPicker;
+@property (nonatomic, strong) UILabel *skinModelCaption;
 @property (nonatomic, strong) UILabel *activeName;
 @property (nonatomic, strong) UILabel *activeKind;
 @property (nonatomic, strong) UILabel *activeDetail;
@@ -454,12 +523,12 @@ static BOOL FAOTValidOfflineName(NSString *name) {
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(keyboardWillChangeFrame:)
                                                name:UIKeyboardWillChangeFrameNotification object:nil];
 
-    [stack addArrangedSubview:FAOTPageHeader(@"账号", @"Microsoft 正版、authlib-injector 外置登录与离线档案")];
+    [stack addArrangedSubview:FAOTPageHeader(@"账号", @"")];
     [stack addArrangedSubview:[self buildActiveCard]];
     self.segmented = [[UISegmentedControl alloc] initWithItems:@[@"微软正版", @"外置登录", @"离线"]];
     self.segmented.selectedSegmentIndex = 0;
     self.segmented.selectedSegmentTintColor = FAOTAccentColor();
-    [self.segmented setTitleTextAttributes:@{NSForegroundColorAttributeName: UIColor.blackColor}
+    [self.segmented setTitleTextAttributes:@{NSForegroundColorAttributeName: FAOTDynamicColor(UIColor.whiteColor, UIColor.blackColor)}
                                   forState:UIControlStateSelected];
     [self.segmented setTitleTextAttributes:@{NSForegroundColorAttributeName: FAOTSecondaryTextColor()}
                                   forState:UIControlStateNormal];
@@ -494,6 +563,19 @@ static BOOL FAOTValidOfflineName(NSString *name) {
     UIStackView *identity = FAOTMakeStack(@[self.activeName, self.activeKind, self.activeDetail], 3);
     identity.alignment = UIStackViewAlignmentLeading;
 
+    self.skinModelCaption = FAOTMakeLabel(@"皮肤模型", 11, UIFontWeightMedium, FAOTMutedTextColor());
+    self.skinModelPicker = [[UISegmentedControl alloc] initWithItems:@[@"经典", @"纤细"]];
+    self.skinModelPicker.selectedSegmentTintColor = FAOTAccentColor();
+    self.skinModelPicker.backgroundColor = FAOTFieldColor();
+    [self.skinModelPicker setTitleTextAttributes:@{NSForegroundColorAttributeName: FAOTDynamicColor(UIColor.whiteColor, UIColor.blackColor)}
+                                        forState:UIControlStateSelected];
+    [self.skinModelPicker setTitleTextAttributes:@{NSForegroundColorAttributeName: FAOTSecondaryTextColor()}
+                                        forState:UIControlStateNormal];
+    [self.skinModelPicker addTarget:self action:@selector(skinModelChanged) forControlEvents:UIControlEventValueChanged];
+    [self.skinModelPicker.heightAnchor constraintEqualToConstant:30].active = YES;
+    UIStackView *modelColumn = FAOTMakeStack(@[self.skinModelCaption, self.skinModelPicker], 4);
+    [modelColumn.widthAnchor constraintEqualToConstant:150].active = YES;
+
     self.refreshButton = FAOTMakeButton(@"刷新", FAOTFieldColor(), FAOTPrimaryTextColor());
     self.refreshButton.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
     [self.refreshButton addTarget:self action:@selector(refreshActiveAccount) forControlEvents:UIControlEventTouchUpInside];
@@ -508,7 +590,7 @@ static BOOL FAOTValidOfflineName(NSString *name) {
 
     UIView *spacer = [UIView new];
     [spacer setContentHuggingPriority:1 forAxis:UILayoutConstraintAxisHorizontal];
-    UIStackView *row = [[UIStackView alloc] initWithArrangedSubviews:@[self.activeSkin, identity, spacer, actions]];
+    UIStackView *row = [[UIStackView alloc] initWithArrangedSubviews:@[self.activeSkin, identity, modelColumn, spacer, actions]];
     row.axis = UILayoutConstraintAxisHorizontal;
     row.alignment = UIStackViewAlignmentCenter;
     row.spacing = 14;
@@ -518,7 +600,7 @@ static BOOL FAOTValidOfflineName(NSString *name) {
 - (UIStackView *)buildMicrosoftPane {
     UILabel *intro = FAOTMakeLabel(@"使用 Microsoft 账号登录。设备码只在本机显示，授权在浏览器完成；登录后会验证 Minecraft Java 版资格并读取正版皮肤。",
                                    12, UIFontWeightRegular, FAOTSecondaryTextColor());
-    self.microsoftLoginButton = FAOTMakeButton(@"使用 Microsoft 登录", FAOTAccentColor(), UIColor.blackColor);
+    self.microsoftLoginButton = FAOTMakeButton(@"使用 Microsoft 登录", FAOTAccentColor(), FAOTDynamicColor(UIColor.whiteColor, UIColor.blackColor));
     [self.microsoftLoginButton.heightAnchor constraintEqualToConstant:44].active = YES;
     [self.microsoftLoginButton addTarget:self action:@selector(microsoftLoginTapped) forControlEvents:UIControlEventTouchUpInside];
 
@@ -531,7 +613,7 @@ static BOOL FAOTValidOfflineName(NSString *name) {
     [open addTarget:self action:@selector(openLoginPage) forControlEvents:UIControlEventTouchUpInside];
     UIButton *copy = FAOTMakeButton(@"复制代码", FAOTFieldColor(), FAOTPrimaryTextColor());
     [copy addTarget:self action:@selector(copyCode) forControlEvents:UIControlEventTouchUpInside];
-    self.pollButton = FAOTMakeButton(@"我已完成登录", FAOTAccentColor(), UIColor.blackColor);
+    self.pollButton = FAOTMakeButton(@"我已完成登录", FAOTAccentColor(), FAOTDynamicColor(UIColor.whiteColor, UIColor.blackColor));
     [self.pollButton addTarget:self action:@selector(pollMicrosoftNow) forControlEvents:UIControlEventTouchUpInside];
     UIButton *cancel = FAOTMakeButton(@"取消", UIColor.clearColor, FAOTSecondaryTextColor());
     [cancel addTarget:self action:@selector(cancelMicrosoftLogin) forControlEvents:UIControlEventTouchUpInside];
@@ -572,7 +654,7 @@ static BOOL FAOTValidOfflineName(NSString *name) {
         field.delegate = self;
         [field.heightAnchor constraintEqualToConstant:42].active = YES;
     }
-    self.yggdrasilLoginButton = FAOTMakeButton(@"登录外置账号", FAOTAccentColor(), UIColor.blackColor);
+    self.yggdrasilLoginButton = FAOTMakeButton(@"登录外置账号", FAOTAccentColor(), FAOTDynamicColor(UIColor.whiteColor, UIColor.blackColor));
     [self.yggdrasilLoginButton.heightAnchor constraintEqualToConstant:44].active = YES;
     [self.yggdrasilLoginButton addTarget:self action:@selector(yggdrasilLoginTapped) forControlEvents:UIControlEventTouchUpInside];
     self.yggdrasilStatus = FAOTMakeLabel(@"", 12, UIFontWeightRegular, FAOTSecondaryTextColor());
@@ -604,11 +686,26 @@ static BOOL FAOTValidOfflineName(NSString *name) {
     self.offlinePane.hidden = index != 2;
 }
 
+- (void)skinModelChanged {
+    FAOTAccount *account = FAOTAccountStore.shared.activeAccount;
+    FAOTSkinModel model = self.skinModelPicker.selectedSegmentIndex == 1 ? FAOTSkinModelSlim : FAOTSkinModelClassic;
+    [FAOTAccountStore.shared setSkinModel:model forAccount:account];
+    [self applySkinModelToPreviews];
+    [self.host pageAccountsChanged];
+}
+
+- (void)applySkinModelToPreviews {
+    BOOL slim = [FAOTAccountStore.shared skinModelForAccount:FAOTAccountStore.shared.activeAccount] == FAOTSkinModelSlim;
+    self.activeSkin.slim = slim;
+    self.skinModelPicker.selectedSegmentIndex = slim ? 1 : 0;
+}
+
 - (void)refreshPage {
     FAOTAccount *account = FAOTAccountStore.shared.activeAccount;
     self.activeName.text = account.name.length ? account.name : FAOTLauncherSettings.shared.offlineName;
     self.activeKind.text = account.kindTitle;
     self.activeSkin.skin = [FAOTAccountStore.shared cachedSkinForAccount:account];
+    [self applySkinModelToPreviews];
     if (account.kind == FAOTAccountKindOffline) {
         self.activeDetail.text = @"本地档案 · 无远程皮肤";
     } else if (account.kind == FAOTAccountKindMicrosoft) {
@@ -901,92 +998,301 @@ static BOOL FAOTValidOfflineName(NSString *name) {
     return self;
 }
 
+static NSString *FAOTSaveDateText(NSDate *date) {
+    static NSDateFormatter *formatter;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ formatter = [NSDateFormatter new]; formatter.dateFormat = @"yyyy-MM-dd HH:mm"; });
+    return date ? [formatter stringFromDate:date] : @"";
+}
+
+static NSArray<NSDictionary<NSString *, id> *> *FAOTLocalSaves(void) {
+    NSString *documents = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
+    NSString *saves = [[documents ?: NSTemporaryDirectory() stringByAppendingPathComponent:@"game"] stringByAppendingPathComponent:@"saves"];
+    NSMutableArray *entries = [NSMutableArray array];
+    NSArray *names = [NSFileManager.defaultManager contentsOfDirectoryAtPath:saves error:nil] ?: @[];
+    for (NSString *name in names) {
+        if ([name hasPrefix:@"."]) continue;
+        NSString *path = [saves stringByAppendingPathComponent:name];
+        NSDictionary *attributes = [NSFileManager.defaultManager attributesOfItemAtPath:path error:nil];
+        if (![attributes[NSFileType] isEqual:NSFileTypeDirectory]) continue;
+        NSString *level = [path stringByAppendingPathComponent:@"level.dat"];
+        NSDictionary *levelAttributes = [NSFileManager.defaultManager attributesOfItemAtPath:level error:nil];
+        NSDate *date = levelAttributes[NSFileModificationDate] ?: attributes[NSFileModificationDate];
+        [entries addObject:@{@"name": name, @"date": date ?: NSDate.date, @"detail": FAOTSaveDateText(date)}];
+    }
+    [entries sortUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
+        return [b[@"date"] compare:a[@"date"]];
+    }];
+    return entries;
+}
+
+- (UIView *)cardWithScrollView:(UIScrollView **)outScroll content:(UIStackView **)outContent {
+    UIView *card = FAOTMakeCard();
+    card.clipsToBounds = YES;
+    card.translatesAutoresizingMaskIntoConstraints = NO;
+
+    UIScrollView *scroll = [UIScrollView new];
+    scroll.alwaysBounceVertical = YES;
+    scroll.showsVerticalScrollIndicator = NO;
+    scroll.translatesAutoresizingMaskIntoConstraints = NO;
+    [card addSubview:scroll];
+    UIStackView *content = FAOTMakeStack(@[], 10);
+    content.translatesAutoresizingMaskIntoConstraints = NO;
+    [scroll addSubview:content];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [scroll.topAnchor constraintEqualToAnchor:card.topAnchor],
+        [scroll.leadingAnchor constraintEqualToAnchor:card.leadingAnchor],
+        [scroll.trailingAnchor constraintEqualToAnchor:card.trailingAnchor],
+        [scroll.bottomAnchor constraintEqualToAnchor:card.bottomAnchor],
+        [content.topAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.topAnchor constant:14],
+        [content.leadingAnchor constraintEqualToAnchor:scroll.frameLayoutGuide.leadingAnchor constant:16],
+        [content.trailingAnchor constraintEqualToAnchor:scroll.frameLayoutGuide.trailingAnchor constant:-16],
+        [content.bottomAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.bottomAnchor constant:-14],
+    ]];
+    if (outScroll) *outScroll = scroll;
+    if (outContent) *outContent = content;
+    return card;
+}
+
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.view.backgroundColor = UIColor.clearColor;
 
-    UIStackView *stack = FAOTMakeStack(@[], 16);
-    FAOTInstallScroll(self, stack);
+    UILabel *title = FAOTMakeLabel(@"游戏", 26, UIFontWeightBold, FAOTPrimaryTextColor());
+    title.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:title];
 
     self.skinView = [[FAOTSkinView alloc] initWithFrame:CGRectZero];
     self.skinView.headOnly = YES;
     self.skinView.translatesAutoresizingMaskIntoConstraints = NO;
     self.skinView.backgroundColor = FAOTRGBA(1, 1, 1, 0.06);
     [NSLayoutConstraint activateConstraints:@[
-        [self.skinView.widthAnchor constraintEqualToConstant:76],
-        [self.skinView.heightAnchor constraintEqualToConstant:76],
+        [self.skinView.widthAnchor constraintEqualToConstant:44],
+        [self.skinView.heightAnchor constraintEqualToConstant:44],
     ]];
-    self.nameLabel = FAOTMakeLabel(@"Dev", 27, UIFontWeightBold, FAOTPrimaryTextColor());
-    self.accountLabel = FAOTMakeLabel(@"离线账号", 13, UIFontWeightSemibold, FAOTAccentColor());
-    UILabel *version = FAOTMakeLabel(@"Minecraft Java 26.1.2  ·  Fabric", 12, UIFontWeightRegular, FAOTSecondaryTextColor());
-    UIStackView *identity = FAOTMakeStack(@[self.nameLabel, self.accountLabel, version], 4);
-    identity.alignment = UIStackViewAlignmentLeading;
-    UIStackView *hero = [[UIStackView alloc] initWithArrangedSubviews:@[self.skinView, identity]];
+    self.nameLabel = FAOTMakeLabel(@"Dev", 18, UIFontWeightBold, FAOTPrimaryTextColor());
+    self.accountLabel = FAOTMakeLabel(@"离线账号", 10, UIFontWeightSemibold, FAOTAccentColor());
+    // The identity block sits at the trailing edge of the header row, so the
+    // text hugs the avatar on its right instead of running away from it.
+    self.nameLabel.textAlignment = NSTextAlignmentRight;
+    self.accountLabel.textAlignment = NSTextAlignmentRight;
+    self.nameLabel.numberOfLines = 1;
+    self.accountLabel.numberOfLines = 1;
+    // Keep the two labels at their natural width so the avatar stays right
+    // beside the name instead of the stack squeezing the subtitle into a column.
+    [self.nameLabel setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    [self.accountLabel setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    UIStackView *identity = FAOTMakeStack(@[self.nameLabel, self.accountLabel], 3);
+    identity.alignment = UIStackViewAlignmentTrailing;
+    [identity setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    [identity setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    // Name first, avatar after it.
+    UIStackView *hero = [[UIStackView alloc] initWithArrangedSubviews:@[identity, self.skinView]];
     hero.axis = UILayoutConstraintAxisHorizontal;
     hero.alignment = UIStackViewAlignmentCenter;
-    hero.spacing = 18;
+    hero.spacing = 10;
+    hero.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:hero];
 
-    self.memoryValue = FAOTMakeLabel(@"—", 19, UIFontWeightSemibold, FAOTPrimaryTextColor());
-    self.modsValue = FAOTMakeLabel(@"—", 19, UIFontWeightSemibold, FAOTPrimaryTextColor());
-    self.packsValue = FAOTMakeLabel(@"—", 19, UIFontWeightSemibold, FAOTPrimaryTextColor());
-    self.shadersValue = FAOTMakeLabel(@"—", 19, UIFontWeightSemibold, FAOTPrimaryTextColor());
-    UIStackView *metricRow1 = [[UIStackView alloc] initWithArrangedSubviews:@[
+    self.memoryValue = FAOTMakeLabel(@"—", 17, UIFontWeightSemibold, FAOTPrimaryTextColor());
+    self.modsValue = FAOTMakeLabel(@"—", 17, UIFontWeightSemibold, FAOTPrimaryTextColor());
+    self.packsValue = FAOTMakeLabel(@"—", 17, UIFontWeightSemibold, FAOTPrimaryTextColor());
+    self.shadersValue = FAOTMakeLabel(@"—", 17, UIFontWeightSemibold, FAOTPrimaryTextColor());
+    UIStackView *row1 = [[UIStackView alloc] initWithArrangedSubviews:@[
         FAOTMetricTile(@"Java 内存", self.memoryValue), FAOTMetricTile(@"Mod", self.modsValue)]];
-    UIStackView *metricRow2 = [[UIStackView alloc] initWithArrangedSubviews:@[
+    UIStackView *row2 = [[UIStackView alloc] initWithArrangedSubviews:@[
         FAOTMetricTile(@"资源包", self.packsValue), FAOTMetricTile(@"光影包", self.shadersValue)]];
-    for (UIStackView *row in @[metricRow1, metricRow2]) {
+    for (UIStackView *row in @[row1, row2]) {
         row.axis = UILayoutConstraintAxisHorizontal;
         row.distribution = UIStackViewDistributionFillEqually;
         row.spacing = 10;
     }
-    UIView *overview = FAOTPaddedCard(FAOTMakeStack(@[metricRow1, metricRow2], 10), 14);
+    // The metrics card holds only two fixed rows, so it is a plain card that
+    // sizes itself. Wrapping it in a scroll view gave it no intrinsic height and
+    // the layout collapsed it.
+    UIView *infoCard = FAOTMakeCard();
+    infoCard.clipsToBounds = YES;
+    infoCard.translatesAutoresizingMaskIntoConstraints = NO;
+    [infoCard addSubview:row1];
+    [infoCard addSubview:row2];
+    row1.translatesAutoresizingMaskIntoConstraints = NO;
+    row2.translatesAutoresizingMaskIntoConstraints = NO;
+    // Equal heights make the two rows share whatever space the card receives.
+    // With the 54pt tile floor inside, the card can grow but never squeezes a
+    // row below its minimum.
+    [row2.heightAnchor constraintEqualToAnchor:row1.heightAnchor].active = YES;
+    [NSLayoutConstraint activateConstraints:@[
+        [row1.topAnchor constraintEqualToAnchor:infoCard.topAnchor constant:14],
+        [row1.leadingAnchor constraintEqualToAnchor:infoCard.leadingAnchor constant:16],
+        [row1.trailingAnchor constraintEqualToAnchor:infoCard.trailingAnchor constant:-16],
+        [row2.topAnchor constraintEqualToAnchor:row1.bottomAnchor constant:10],
+        [row2.leadingAnchor constraintEqualToAnchor:infoCard.leadingAnchor constant:16],
+        [row2.trailingAnchor constraintEqualToAnchor:infoCard.trailingAnchor constant:-16],
+        [row2.bottomAnchor constraintEqualToAnchor:infoCard.bottomAnchor constant:-14],
+    ]];
 
-    UILabel *sessionTitle = FAOTMakeLabel(@"本次会话", 13, UIFontWeightSemibold, FAOTMutedTextColor());
-    UILabel *logTitle = FAOTMakeLabel(@"最近日志", 13, UIFontWeightMedium, FAOTPrimaryTextColor());
-    self.logValue = FAOTMakeLabel(@"尚无记录", 12, UIFontWeightRegular, FAOTSecondaryTextColor());
-    self.logValue.textAlignment = NSTextAlignmentRight;
-    UIStackView *logRow = [[UIStackView alloc] initWithArrangedSubviews:@[logTitle, self.logValue]];
-    logRow.axis = UILayoutConstraintAxisHorizontal;
-    logRow.alignment = UIStackViewAlignmentFirstBaseline;
-    logRow.spacing = 12;
-    UIView *session = FAOTPaddedCard(FAOTMakeStack(@[sessionTitle, logRow], 8), 14);
+    UIScrollView *savesScroll = nil;
+    UIStackView *savesContent = nil;
+    UIView *savesCard = [self cardWithScrollView:&savesScroll content:&savesContent];
+    self.savesScrollView = savesScroll;
+    self.savesStack = savesContent;
+    self.savesEmptyLabel = FAOTMakeLabel(@"暂无存档 · 首次进入游戏后可在此查看", 12, UIFontWeightRegular, FAOTMutedTextColor());
+    self.savesEmptyLabel.textAlignment = NSTextAlignmentCenter;
 
-    self.launchButton = FAOTMakeButton(@"进入世界  →", FAOTAccentColor(), UIColor.blackColor);
-    self.launchButton.titleLabel.font = [UIFont systemFontOfSize:19 weight:UIFontWeightBold];
-    self.launchButton.layer.cornerRadius = 14;
-    [self.launchButton addTarget:self action:@selector(launchTapped) forControlEvents:UIControlEventTouchUpInside];
-    [self.launchButton.heightAnchor constraintEqualToConstant:54].active = YES;
+    // Both cards take exactly half of the column's height. Letting the info card
+    // hug its content made it grow on tall layouts while the saves card stayed
+    // small, which is the imbalance this layout is meant to avoid.
+    UIView *leftColumn = [UIView new];
+    leftColumn.translatesAutoresizingMaskIntoConstraints = NO;
+    [leftColumn addSubview:infoCard];
+    [leftColumn addSubview:savesCard];
+    [NSLayoutConstraint activateConstraints:@[
+        [infoCard.topAnchor constraintEqualToAnchor:leftColumn.topAnchor],
+        [infoCard.leadingAnchor constraintEqualToAnchor:leftColumn.leadingAnchor],
+        [infoCard.trailingAnchor constraintEqualToAnchor:leftColumn.trailingAnchor],
+        [savesCard.topAnchor constraintEqualToAnchor:infoCard.bottomAnchor constant:12],
+        [savesCard.leadingAnchor constraintEqualToAnchor:leftColumn.leadingAnchor],
+        [savesCard.trailingAnchor constraintEqualToAnchor:leftColumn.trailingAnchor],
+        [savesCard.bottomAnchor constraintEqualToAnchor:leftColumn.bottomAnchor],
+        [infoCard.heightAnchor constraintEqualToAnchor:savesCard.heightAnchor],
+    ]];
+    [self.view addSubview:leftColumn];
+    // Equal heights, so each card is half of the column once the 12pt gap is
+    // taken out. The floor keeps the metric rows readable on short layouts.
+    [savesCard.heightAnchor constraintGreaterThanOrEqualToConstant:64].active = YES;
+
+    UIView *previewCard = FAOTMakeCard();
+    previewCard.clipsToBounds = YES;
+    previewCard.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:previewCard];
+    self.previewSkinView = [[FAOTSkinView alloc] initWithFrame:CGRectZero];
+    self.previewSkinView.translatesAutoresizingMaskIntoConstraints = NO;
+    self.previewSkinView.backgroundColor = UIColor.clearColor;
+    self.previewSkinView.userInteractionEnabled = YES;
+    self.previewSkinView.yaw = 0.38;
+    self.previewSkinView.pitch = 0.1;
+    self.previewSkinView.layer.cornerRadius = 0;
+    self.previewSkinView.clipsToBounds = NO;
+    [previewCard addSubview:self.previewSkinView];
+    [NSLayoutConstraint activateConstraints:@[
+        [self.previewSkinView.topAnchor constraintEqualToAnchor:previewCard.topAnchor constant:12],
+        [self.previewSkinView.leadingAnchor constraintEqualToAnchor:previewCard.leadingAnchor constant:12],
+        [self.previewSkinView.trailingAnchor constraintEqualToAnchor:previewCard.trailingAnchor constant:-12],
+        [self.previewSkinView.bottomAnchor constraintEqualToAnchor:previewCard.bottomAnchor constant:-12],
+    ]];
+    UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(previewPanned:)];
+    [self.previewSkinView addGestureRecognizer:pan];
 
     self.statusLabel = FAOTMakeLabel(@"准备就绪", 11, UIFontWeightRegular, FAOTMutedTextColor());
     self.statusLabel.font = [UIFont monospacedSystemFontOfSize:11 weight:UIFontWeightRegular];
-    UILabel *note = FAOTMakeLabel(@"游戏逻辑与渲染在本机运行，不需要 JIT。首次进入请新建测试世界。", 11, UIFontWeightRegular, FAOTMutedTextColor());
+    self.statusLabel.numberOfLines = 1;
+    [self.statusLabel setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisVertical];
+    self.launchButton = FAOTMakeButton(@"进入世界  →", FAOTAccentColor(), FAOTDynamicColor(UIColor.whiteColor, UIColor.blackColor));
+    self.launchButton.titleLabel.font = [UIFont systemFontOfSize:19 weight:UIFontWeightBold];
+    self.launchButton.layer.cornerRadius = 14;
+    [self.launchButton addTarget:self action:@selector(launchTapped) forControlEvents:UIControlEventTouchUpInside];
+    [self.launchButton.heightAnchor constraintEqualToConstant:52].active = YES;
+    // Status and button are laid out independently. A stack that contains a
+    // 52pt button plus a single-line label kept squeezing the label to zero
+    // height once the cards above claimed the remaining space.
+    self.statusLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    self.launchButton.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:self.statusLabel];
+    [self.view addSubview:self.launchButton];
 
-    for (UIView *view in @[FAOTPageHeader(@"游戏", @"启动 Native Craft 并查看本次运行概览"), hero,
-                           self.launchButton, self.statusLabel, overview, session, note]) {
-        [stack addArrangedSubview:view];
+    UILayoutGuide *safe = self.view.safeAreaLayoutGuide;
+    [NSLayoutConstraint activateConstraints:@[
+        [title.topAnchor constraintEqualToAnchor:safe.topAnchor constant:20],
+        [title.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:24],
+        [hero.topAnchor constraintEqualToAnchor:title.topAnchor],
+        [hero.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-24],
+        [hero.leadingAnchor constraintGreaterThanOrEqualToAnchor:title.trailingAnchor constant:16],
+        [leftColumn.topAnchor constraintEqualToAnchor:hero.bottomAnchor constant:18],
+        [leftColumn.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:24],
+        [leftColumn.bottomAnchor constraintEqualToAnchor:self.statusLabel.topAnchor constant:-8],
+        [previewCard.topAnchor constraintEqualToAnchor:leftColumn.topAnchor],
+        [previewCard.leadingAnchor constraintEqualToAnchor:leftColumn.trailingAnchor constant:14],
+        [previewCard.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-24],
+        [previewCard.bottomAnchor constraintEqualToAnchor:leftColumn.bottomAnchor],
+        [leftColumn.widthAnchor constraintEqualToAnchor:previewCard.widthAnchor multiplier:0.96],
+        [self.statusLabel.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:24],
+        [self.statusLabel.trailingAnchor constraintLessThanOrEqualToAnchor:safe.trailingAnchor constant:-24],
+        [self.statusLabel.heightAnchor constraintEqualToConstant:14],
+        [self.statusLabel.bottomAnchor constraintEqualToAnchor:self.launchButton.topAnchor constant:-8],
+        [self.launchButton.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:24],
+        [self.launchButton.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-24],
+        // The footer owns the bottom edge; pinning to the safe area left a visible
+        // home-indicator strip below the launch button in landscape.
+        [self.launchButton.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor constant:-10],
+    ]];
+    [self refreshPage];
+}
+
+- (void)previewPanned:(UIPanGestureRecognizer *)pan {
+    CGPoint translation = [pan translationInView:pan.view];
+    if (pan.state == UIGestureRecognizerStateBegan) {
+        self.panStartYaw = self.previewSkinView.yaw;
+        self.panStartPitch = self.previewSkinView.pitch;
+    } else if (pan.state == UIGestureRecognizerStateChanged) {
+        self.previewSkinView.yaw = self.panStartYaw + translation.x * 0.012;
+        // Dragging up should look down on the figure (towards its head) and
+        // dragging down should look up at it, which is the reverse of how the
+        // screen-space translation reads.
+        CGFloat pitch = self.panStartPitch + translation.y * 0.005;
+        self.previewSkinView.pitch = MAX(-0.45, MIN(0.45, pitch));
     }
-    [stack setCustomSpacing:22 afterView:hero];
-    [stack setCustomSpacing:10 afterView:self.statusLabel];
-    [stack setCustomSpacing:18 afterView:session];
+}
+
+- (void)refreshSaves {
+    for (UIView *view in self.savesStack.arrangedSubviews) {
+        [self.savesStack removeArrangedSubview:view];
+        [view removeFromSuperview];
+    }
+    NSArray<NSDictionary<NSString *, id> *> *saves = FAOTLocalSaves();
+    if (saves.count == 0) {
+        [self.savesStack addArrangedSubview:self.savesEmptyLabel];
+        return;
+    }
+    for (NSDictionary *entry in saves) {
+        UIView *row = [UIView new];
+        row.backgroundColor = FAOTDynamicColor(FAOTRGBA(0.93, 0.94, 0.95, 1), FAOTRGBA(1, 1, 1, 0.05));
+        row.layer.cornerRadius = 10;
+        UILabel *name = FAOTMakeLabel(entry[@"name"], 13, UIFontWeightSemibold, FAOTPrimaryTextColor());
+        UILabel *detail = FAOTMakeLabel(entry[@"detail"], 11, UIFontWeightRegular, FAOTMutedTextColor());
+        UIStackView *text = FAOTMakeStack(@[name, detail], 2);
+        text.translatesAutoresizingMaskIntoConstraints = NO;
+        [row addSubview:text];
+        [NSLayoutConstraint activateConstraints:@[
+            [text.topAnchor constraintEqualToAnchor:row.topAnchor constant:9],
+            [text.leadingAnchor constraintEqualToAnchor:row.leadingAnchor constant:12],
+            [text.trailingAnchor constraintEqualToAnchor:row.trailingAnchor constant:-12],
+            [text.bottomAnchor constraintEqualToAnchor:row.bottomAnchor constant:-9],
+        ]];
+        [self.savesStack addArrangedSubview:row];
+    }
 }
 
 - (void)refreshPage {
     FAOTAccountStore *store = FAOTAccountStore.shared;
     FAOTAccount *account = store.activeAccount;
     FAOTLauncherSettings *settings = FAOTLauncherSettings.shared;
+    UIImage *skin = [store cachedSkinForAccount:account];
     self.nameLabel.text = account.name.length ? account.name : settings.offlineName;
     self.accountLabel.text = account.kindTitle;
-    self.skinView.skin = [store cachedSkinForAccount:account];
+    self.skinView.skin = skin;
+    self.previewSkinView.skin = skin;
+    BOOL slim = [store skinModelForAccount:account] == FAOTSkinModelSlim;
+    self.previewSkinView.slim = slim;
     self.memoryValue.text = [NSString stringWithFormat:@"%ld GB", (long)settings.memoryGiB];
     self.modsValue.text = [NSString stringWithFormat:@"%lu", (unsigned long)FAOTContentCatalog.mods.count];
     self.packsValue.text = [NSString stringWithFormat:@"%lu", (unsigned long)FAOTContentCatalog.resourcePacks.count];
     self.shadersValue.text = [NSString stringWithFormat:@"%lu", (unsigned long)FAOTContentCatalog.shaderPacks.count];
-    NSDictionary *log = FAOTLogStore.files.firstObject;
-    self.logValue.text = log ? [NSString stringWithFormat:@"%@ · %@", log[@"name"], FAOTDateText(log[@"date"])] : @"尚无记录";
+    [self refreshSaves];
     BOOL launched = [self.host pageGameHasLaunched];
     [self.launchButton setTitle:(launched ? @"重新启动应用" : @"进入世界  →") forState:UIControlStateNormal];
     self.launchButton.backgroundColor = launched ? UIColor.systemOrangeColor : FAOTAccentColor();
-    [self.launchButton setTitleColor:UIColor.blackColor forState:UIControlStateNormal];
+    [self.launchButton setTitleColor:FAOTDynamicColor(UIColor.whiteColor, UIColor.blackColor) forState:UIControlStateNormal];
 }
 
 - (void)showStatus:(NSString *)status {

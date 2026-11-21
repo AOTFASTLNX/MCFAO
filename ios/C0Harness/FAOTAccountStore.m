@@ -12,6 +12,8 @@ static NSString *const FAOTLanguageKey = @"FAOTLanguage";
 static NSString *const FAOTLayoutKey = @"FAOTControlLayout";
 static NSString *const FAOTOfflineNameKey = @"FAOTPlayerName";
 static NSString *const FAOTLogRetentionKey = @"FAOTLogRetention";
+static NSString *const FAOTSkinModelKey = @"FAOTSkinModels";
+static NSString *const FAOTReduceMotionKey = @"FAOTReduceLauncherMotion";
 
 #pragma mark - Keychain
 
@@ -218,6 +220,21 @@ static NSString *FAOTSafeFileName(NSString *value) {
     [NSFileManager.defaultManager removeItemAtPath:[self skinPathForIdentifier:account.identifier] error:nil];
 }
 
+- (FAOTSkinModel)skinModelForAccount:(FAOTAccount *)account {
+    if (!account) return FAOTSkinModelClassic;
+    NSDictionary *models = [NSUserDefaults.standardUserDefaults dictionaryForKey:FAOTSkinModelKey];
+    NSNumber *value = models[account.identifier];
+    return value.integerValue == FAOTSkinModelSlim ? FAOTSkinModelSlim : FAOTSkinModelClassic;
+}
+
+- (void)setSkinModel:(FAOTSkinModel)model forAccount:(FAOTAccount *)account {
+    if (!account) return;
+    NSMutableDictionary *models = [[NSUserDefaults.standardUserDefaults dictionaryForKey:FAOTSkinModelKey] mutableCopy];
+    if (!models) models = [NSMutableDictionary dictionary];
+    models[account.identifier] = @(model == FAOTSkinModelSlim ? FAOTSkinModelSlim : FAOTSkinModelClassic);
+    [NSUserDefaults.standardUserDefaults setObject:models forKey:FAOTSkinModelKey];
+}
+
 @end
 
 #pragma mark - Settings
@@ -290,6 +307,14 @@ static NSString *FAOTSafeFileName(NSString *value) {
 
 - (void)setOfflineName:(NSString *)offlineName {
     [NSUserDefaults.standardUserDefaults setObject:offlineName.length ? offlineName : @"Dev" forKey:FAOTOfflineNameKey];
+}
+
+- (BOOL)reduceLauncherMotion {
+    return [NSUserDefaults.standardUserDefaults boolForKey:FAOTReduceMotionKey];
+}
+
+- (void)setReduceLauncherMotion:(BOOL)reduceLauncherMotion {
+    [NSUserDefaults.standardUserDefaults setBool:reduceLauncherMotion forKey:FAOTReduceMotionKey];
 }
 
 - (NSString *)deviceMemoryCaption {

@@ -493,6 +493,8 @@
 					"-framework",
 					QuartzCore,
 					"-framework",
+					CoreImage,
+					"-framework",
 					Security,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = org.fabricaot.research.c0.kexin;
@@ -525,6 +527,8 @@
 					CoreGraphics,
 					"-framework",
 					QuartzCore,
+					"-framework",
+					CoreImage,
 					"-framework",
 					Security,
 				);
@@ -568,6 +572,8 @@
 					CoreGraphics,
 					"-framework",
 					QuartzCore,
+					"-framework",
+					CoreImage,
 					"-framework",
 					Security,
 				);
@@ -622,6 +628,8 @@
 					"-framework",
 					QuartzCore,
 					"-framework",
+					CoreImage,
+					"-framework",
 					Security,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = org.fabricaot.research.c0.kexin;
@@ -663,6 +671,8 @@
 					CoreGraphics,
 					"-framework",
 					QuartzCore,
+					"-framework",
+					CoreImage,
 					"-framework",
 					Security,
 				);

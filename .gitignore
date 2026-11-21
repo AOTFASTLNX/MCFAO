@@ -13,6 +13,7 @@
 /build/
 /.local-build/
 /ios/C0Harness/build/
+/ios/NCLDemo/build/
 .venv/
 __pycache__/
 *.pyc
