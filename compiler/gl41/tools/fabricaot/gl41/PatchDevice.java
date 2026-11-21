@@ -51,6 +51,50 @@ public final class PatchDevice {
     private static final String DIAGNOSTICS = "fabricaot/diag/PlayDiagnostics";
     private static final String FRAME_LIMITER = "net/minecraft/client/FramerateLimiter";
     private static final String FRAME_PACING = "fabricaot/gl41/FramePacing";
+    static final String IRIS_ENTITY = "net/irisshaders/iris/pipeline/transform/transformer/EntityPatcher.class";
+    private static final String IRIS_ENTITY_SHA256 =
+            "d0072c583ba1ef21896198dc12966bbc90d8f52570152f37426285bb970addf3";
+
+    static byte[] fixIrisEntityAttribute(byte[] bytes) {
+        String digest;
+        try {
+            digest = java.util.HexFormat.of().formatHex(
+                    java.security.MessageDigest.getInstance("SHA-256").digest(bytes));
+        } catch (java.security.NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException(impossible);
+        }
+        if (!digest.equals(IRIS_ENTITY_SHA256)) {
+            throw new IllegalArgumentException("Unverified Iris EntityPatcher SHA-256: " + digest
+                    + "; review the entity vertex format before applying the GL41 conversion");
+        }
+        ClassNode cls = new ClassNode();
+        new ClassReader(bytes).accept(cls, 0);
+        if (!cls.name.equals(IRIS_ENTITY.substring(0, IRIS_ENTITY.length() - 6))) {
+            throw new IllegalArgumentException("Unexpected Iris entity patch class");
+        }
+        int inputs = 0, assignments = 0;
+        for (MethodNode method : cls.methods) {
+            if (!method.name.equals("patchEntityId")) continue;
+            for (AbstractInsnNode instruction : method.instructions) {
+                if (!(instruction instanceof LdcInsnNode literal)) continue;
+                if ("in ivec3 iris_Entity;".equals(literal.cst)) {
+                    literal.cst = "in uvec3 iris_Entity;";
+                    inputs++;
+                } else if ("iris_entityInfo = iris_Entity;".equals(literal.cst)) {
+                    // The USHORT4 stream supplies 0..65535, all exactly representable as int.
+                    // Keep downstream signed varyings and all entity/item IDs unchanged.
+                    literal.cst = "iris_entityInfo = ivec3(iris_Entity);";
+                    assignments++;
+                }
+            }
+        }
+        if (inputs != 1 || assignments != 1) {
+            throw new IllegalArgumentException("Expected one audited Iris entity input and assignment");
+        }
+        ClassWriter writer = new ClassWriter(0);
+        cls.accept(writer);
+        return writer.toByteArray();
+    }
 
     // Every registered class patch must be applied and change its input bytes.
     private static final Map<String, UnaryOperator<byte[]>> CLASS_PATCHES = Map.of(
@@ -164,6 +208,9 @@ public final class PatchDevice {
                     }
                     pending.remove(name);
                     data = patched;
+                } else if (name.equals(IRIS_ENTITY)) {
+                    data = fixIrisEntityAttribute(data);
+                    System.out.println("GL41_IRIS_ENTITY_UNSIGNED_INPUT_APPLIED");
                 } else if (name.equals("META-INF/MANIFEST.MF")) {
                     data = cleanManifest(data);
                 }

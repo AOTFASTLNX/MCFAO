@@ -552,7 +552,8 @@ class RuntimeOverlayTests(unittest.TestCase):
         roots = [self.jar("other.jar", "othermod")]
         compiled, skipped = runtime_overlay_sources(roots)
         self.assertEqual([p.name for p in compiled],
-                         ["ClasspathPackResources.java", "ModCatalog.java", "ModFiles.java", "TextureImage.java"])
+                         ["ClasspathPackResources.java", "ModCatalog.java", "ModFiles.java",
+                          "OptionalJvmCapabilities.java", "TextureImage.java"])
         self.assertEqual(skipped, [{"source": "mcfao/aot/GenericVertexSerializer.java",
                                     "requiresMod": "sodium"}])
 
@@ -561,7 +562,7 @@ class RuntimeOverlayTests(unittest.TestCase):
         compiled, skipped = runtime_overlay_sources(roots)
         self.assertEqual([p.name for p in compiled],
                          ["ClasspathPackResources.java", "GenericVertexSerializer.java", "ModCatalog.java",
-                          "ModFiles.java", "TextureImage.java"])
+                          "ModFiles.java", "OptionalJvmCapabilities.java", "TextureImage.java"])
         self.assertEqual(skipped, [])
 
     def test_root_mod_ids_reads_every_root_jar(self):

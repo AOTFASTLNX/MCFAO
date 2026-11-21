@@ -53,6 +53,14 @@
 | 反射推断和实际读取 | Gson TypeToken 正负例通过。真实 r3 反射配置含 FancyMenu DTO。在 macOS 严格 Native Image 运行资源 SHA-256 和 Gson 泛型往返。 | `probe-native-build.log`、`probe-native-run.log` |
 | 同类回归 | RuntimeLowering、资源闭包、配置反射、MDAF、兼容性报告、类路径和 CLI 夹具通过。外部测试包和 Metal 样本条件缺失的条目按需跳过。 | `python-regression-retry.log`、`resource-tests.log` |
 
+## 2026-11-21 分析器证据聚合修正
+
+本次复核确认，默认构建已把最终 Fabric 导出类路径交给 `aot_compatibility.py` 做静态成员、反射、资源、服务、初始化副作用、动态类生成、JNI 与图形 API 风险检查；命中的自动适配仍由独立元数据/规则步骤处理，报告不会把扫描命中当作运行验证。Mixin 输入来自实际 Fabric 导出流程，无法安全静态处理的目标由 Loader 转换记录拒绝或列为风险。OpenAL EFX 目前属于静态风险提示，真实 iOS 对象生命周期仍须设备验收。
+
+发现并修复一处证据丢失：动态调用风险在加入聚合报告时没有携带来源归档，且同类命中只展示首个方法。现在每条静态风险保留命中的 Mod（若所有权映射可用）、调用方类/方法、来源 JAR、扫描证据类型和 `REPORT_ONLY` 处理状态；最多内嵌 32 个不同调用点，额外命中会显式置 `evidenceTruncated`，出现次数另计。该修正确保风险仍可操作追查，不改变其严重度或兼容结论。两个方法触发同一动态类定义风险的字节码夹具验证了多调用点保留。
+
+当前可复现检查：`python3 -B -m unittest discover -s tests -p test_aot_compatibility.py -v`（13 项通过）。此修正没有运行真实第三方整合包的完整新构建、iOS AOT、OpenAL EFX 或设备世界/GUI 流程；相应 Gate 维持原记录，不据此提升任何 Mod 状态。
+
 日志位于 `logs/compat-r3-20261121`。已有工作区以 `9126340497d8528cd52d23b6aac084b065e32262` 为基线。采用本地 `artifacts/mcfao-gl41.json` 和与 r2 相同的已审计实例，运行 `mcfao build`，使用 `--test-version COMPAT-r3-20261121`。r3 冷预检扫描 53,746 个类，用时 36.02 秒，解析 109 个 Mod。完整性校验加严后在三阶段的真实 r3 JAR 上分别执行。
 
 r3 完成 iOS ARM64 Native Image（8 分 45 秒，79,159 个可达类型）、链接和 Xcode 开发签名。通用 `mcfao verify` 通过，核验真实游戏符号及无动态代码权限。签名镜像可定位完整索引和五份目标资源字节。IPA 位于 `artifacts/compat-r3-20261121/fabric-signed-retry/NCL-game-COMPAT-r3-20261121.ipa`，587,147,393 字节，SHA-256 为 `25b8b1796db07e0861f5df5be7f4af06005f415d624272bb1941e9437e88f5a3`。包名、Info.plist 和记录的测试标识一致。指定此前目标 iPhone 的核验因描述文件未覆盖而失败，见 `verify-device-host.log`。r3 设备和模拟器为 DEVICE_NOT_RUN。

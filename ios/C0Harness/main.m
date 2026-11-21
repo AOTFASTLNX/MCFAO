@@ -29,12 +29,11 @@
 #include "log_file.h"
 #include "renderer_preflight.h"
 #import "FAOTLauncherViewController.h"
+#import "FAOTAccountStore.h"
 
 // A single process can only ever host one Graal isolate; later attempts return an error.
 // The reservation must be bounded because Graal otherwise asks for at least 32 GiB, which
 // iOS rejects outright.
-static const unsigned long long FAOTReservedSpaceDefault = 4ULL * 1024 * 1024 * 1024;
-
 typedef int (*faot_create_isolate_t)(void *params, void **isolate, void **thread);
 typedef int (*faot_run_main_t)(int argc, char **argv);
 typedef int (*faot_tear_down_t)(void *thread);
@@ -297,6 +296,7 @@ static void FAOTInstallCrashHandlers(int fd) {
         self.status.text = [NSString stringWithFormat:@"无法创建本次日志：%s", strerror(errno)];
         return;
     }
+    [FAOTLogStore pruneToRetention:FAOTLauncherSettings.shared.logRetention];
     self.logHandle = [[NSFileHandle alloc] initWithFileDescriptor:logFD closeOnDealloc:YES];
     int fd = self.logHandle.fileDescriptor;
     dup2(fd, STDOUT_FILENO);
@@ -472,6 +472,15 @@ static void FAOTProbeReservations(FILE *logFile) {
         [worldDefaults writeToFile:options options:NSDataWritingWithoutOverwriting error:nil];
 #endif
 
+        FAOTAccount *account = FAOTAccountStore.shared.activeAccount;
+        NSString *accountName = account.name.length ? account.name
+            : ([NSUserDefaults.standardUserDefaults stringForKey:@"FAOTPlayerName"] ?: @"Dev");
+        NSString *accountUUID = account.uuid.length == 32 ? account.uuid : @"00000000000000000000000000000000";
+        NSString *accessToken = account.accessToken.length ? account.accessToken : @"0";
+        NSString *userType = account.kind == FAOTAccountKindMicrosoft ? @"msa"
+            : account.kind == FAOTAccountKindYggdrasil ? @"mojang" : @"legacy";
+        emit([NSString stringWithFormat:@"[FAOT] account=%@ kind=%@ uuid=%@",
+              accountName, account.kindTitle, accountUUID]);
         NSMutableArray<NSString *> *argvList = [NSMutableArray arrayWithArray:@[
             @"fabricaot-c0",
             [NSString stringWithFormat:@"-XX:ReservedAddressSpaceSize=%llu", reserved],
@@ -482,10 +491,10 @@ static void FAOTProbeReservations(FILE *logFile) {
             @"-Dorg.lwjgl.system.allocator=system",
             [NSString stringWithFormat:@"-Duser.language=%@", [language substringToIndex:2]],
             [NSString stringWithFormat:@"-Duser.country=%@", [language substringFromIndex:3].uppercaseString],
-            @"--username", [NSUserDefaults.standardUserDefaults stringForKey:@"FAOTPlayerName"] ?: @"Dev", @"--version", @"26.1.2",
+            @"--username", accountName, @"--version", @"26.1.2",
             @"--gameDir", game, @"--assetsDir", assets, @"--assetIndex", @"30",
-            @"--uuid", @"00000000000000000000000000000000",
-            @"--accessToken", @"0", @"--userType", @"legacy", @"--versionType", @"release",
+            @"--uuid", accountUUID,
+            @"--accessToken", accessToken, @"--userType", userType, @"--versionType", @"release",
         ]];
         if (hasGL41) {
             [argvList insertObject:@"-Dorg.lwjgl.opengl.libname=liblwjgl_opengl.dylib" atIndex:4];
@@ -533,8 +542,13 @@ static void FAOTProbeReservations(FILE *logFile) {
         int argc = (int)argvList.count;
         char **argv = calloc((size_t)argc + 1, sizeof(char *));
         for (int i = 0; i < argc; i++) argv[i] = strdup(argvList[(NSUInteger)i].UTF8String);
+        NSMutableArray<NSString *> *loggedArgv = [argvList mutableCopy];
+        NSUInteger tokenFlag = [loggedArgv indexOfObject:@"--accessToken"];
+        if (tokenFlag != NSNotFound && tokenFlag + 1 < loggedArgv.count) {
+            loggedArgv[tokenFlag + 1] = @"<redacted>";
+        }
         emit([NSString stringWithFormat:@"[FAOT] run_main argc=%d argv=%@", argc,
-              [argvList componentsJoinedByString:@" "]]);
+              [loggedArgv componentsJoinedByString:@" "]]);
 
         int result = runMain(argc, argv);
         emit([NSString stringWithFormat:@"[FAOT] run_main returned %d", result]);

@@ -613,6 +613,7 @@ public final class AotExport implements Opcodes {
                                     throw new IllegalArgumentException("Invalid class path in " + id + ": " + name);
                                 }
                                 String sourceHash = hash(Files.readAllBytes(path));
+                                OptionalJvmCapabilityLowering.lower(node, sourceHash, adaptations, ruleOutcomes);
                                 TextureImageLowering.lower(node, adaptations);
                                 RuntimeLowering.lowerResourcePackEnumeration(node, sourceHash, adaptations);
                                 if (node.name.equals(RuntimeLowering.TOOLTIP_ORDER)) {

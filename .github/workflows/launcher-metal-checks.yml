@@ -36,6 +36,8 @@ jobs:
               -Iios/C0Harness -Iios/glfw-lite -I"$JDK/include" -I"$JDK/include/darwin" \
               ios/C0Harness/FAOTControlLayout.m ios/C0Harness/FAOTControlsOverlay.m \
               ios/C0Harness/FAOTLauncherViewController.m ios/C0Harness/FAOTControlEditorViewController.m \
+              ios/C0Harness/FAOTLauncherPages.m ios/C0Harness/FAOTAccountStore.m \
+              ios/C0Harness/FAOTAuthService.m ios/C0Harness/FAOTSkinView.m \
               ios/metal-bridge/metal_bridge.m
           done
       - name: Execute Metal snapshot lifetime regression
@@ -101,8 +103,11 @@ jobs:
             -I ios/C0Harness \
             ios/C0Harness/FAOTControlLayout.m ios/C0Harness/FAOTControlsOverlay.m \
             ios/C0Harness/FAOTLauncherViewController.m ios/C0Harness/FAOTControlEditorViewController.m \
+            ios/C0Harness/FAOTLauncherPages.m ios/C0Harness/FAOTAccountStore.m \
+            ios/C0Harness/FAOTAuthService.m ios/C0Harness/FAOTSkinView.m \
             tests/launcher_smoke_main.m \
             -framework UIKit -framework Foundation -framework CoreGraphics -framework QuartzCore \
+            -framework Security \
             -o "$APP/Native Craft"
           codesign --force --sign - "$APP"
           ls -la "$APP"

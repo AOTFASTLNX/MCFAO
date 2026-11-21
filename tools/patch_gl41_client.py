@@ -80,6 +80,9 @@ def main(argv=None):
                     "net/minecraft/client/multiplayer/ClientChunkCache.class",
                     "net/minecraft/client/renderer/DynamicUniforms.class",
                     "net/minecraft/network/Connection.class"]
+        iris_entity = "net/irisshaders/iris/pipeline/transform/transformer/EntityPatcher.class"
+        if iris_entity in names_before:
+            expected.append(iris_entity)
         if sorted(changed_classes) != sorted(expected):
             raise ValueError("Unexpected patched entries: " + repr(changed))
     result = {"status": "GL41_CLIENT_PATCHED", "client": str(client), "clientSHA256": sha256(client),
@@ -88,6 +91,8 @@ def main(argv=None):
               "worldJoin": "preserve vanilla readiness and chat signature checks; trace client loading",
               "framePacing": "fixed-deadline 120 FPS limiter; overdue frames do not accumulate",
               "uniformBuffers": "pre-size dynamic transform and chunk-section buffers to avoid frame hitches while loading terrain",
+              "irisEntityAttribute": ("unsigned USHORT4 input with exact signed-ID conversion"
+                                      if iris_entity in names_before else "Iris entity patcher absent"),
               "scope": "build-time bytecode adaptation; no game execution"}
     (out / "result.json").write_text(json.dumps(result, indent=2) + "\n")
     register_tree(out, [sys.executable, "-B", str(Path(__file__).resolve()),

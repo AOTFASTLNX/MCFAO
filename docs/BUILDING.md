@@ -173,6 +173,14 @@ ExportOptions.plist 使用本地 debugging 导出和当前 Team；其他用户�
 
 启动页和游戏均为横屏应用：默认诊断目标的 `Info.plist`、`WorldDevice`/`WorldSimulator` 使用的 `Info.WorldSimulator.plist`，以及启动页和按键编辑器都只声明左右横屏。竖屏状态恢复时，启动场景会请求一次横屏几何，不需要用户先旋转设备。
 
+启动器使用左侧边栏组织四页内容。**游戏**显示当前账号、Java 内存和本地内容概览，并提供启动或重启入口；**账号**提供 Microsoft 设备码正版登录、authlib-injector 兼容的外置登录和离线档案；**资源**列出游戏目录与包内 `instance-seed` 中的 Mod、资源包和光影包；**设置**管理按键布局、内存、日志保留份数、游戏语言和版本信息。
+
+Microsoft 登录复用 `compiler/microsoft-auth.json` 的公开 Client ID，经设备码授权、Xbox Live、XSTS、Minecraft 档案与正版资格检查后读取皮肤。外置登录向用户填写的 HTTPS Yggdrasil API 发送 `authserver/authenticate`，读取 `sessionserver` 档案和 textures 皮肤。密码只存在于当次请求体，不写入设置或日志；访问令牌保存在系统钥匙串，皮肤缓存在应用容器的 `Library/Application Support/NCL/Skins`。
+
+带 Mod 的设备构建会把本次编译的根 JAR 名称写入 `instance-seed/FAOTContentManifest.json`，资源页据此列出已经转换进原生镜像的 Mod；用户放入 `Documents/game` 的资源包和光影包仍按目录扫描。日志默认保留 20 份，可在设置中改为 5/10/20/50/100 份，创建新日志时自动清理旧文件。
+
+外置登录目前完成启动器侧的账号认证、角色档案和皮肤获取。游戏内联机认证仍需要 authlib-injector 的运行时注入路径；当前 AOT 镜像没有该注入，因此不能把外置登录当作服务器联机已验证。
+
 镜像在 `run_main` 里自行创建 isolate。宿主通过 `-XX:ReservedAddressSpaceSize=<字节>` 传入预留空间，设备诊断默认 1 GiB，模拟器默认 2 GiB。
 
 打开 Xcode 工程，选择 **WorldSimulator** 和 **Native Craft 26.1.2**，按 ⌘R 可进入原版横屏菜单。左右横屏均由应用支持。本地 AOT、Metal 着色器和原生库由下面的命令核验并准备。新模拟器安装应用后，需要将经过哈希验证的资源目录复制到该应用的 `Documents/assets`。本次测试模拟器已经准备好。
