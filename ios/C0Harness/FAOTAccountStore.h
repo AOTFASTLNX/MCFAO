@@ -34,6 +34,11 @@ typedef NS_ENUM(NSInteger, FAOTAccountKind) {
 
 @end
 
+typedef NS_ENUM(NSInteger, FAOTSkinModel) {
+    FAOTSkinModelClassic = 0,
+    FAOTSkinModelSlim = 1,
+};
+
 @interface FAOTAccountStore : NSObject
 
 @property (class, readonly) FAOTAccountStore *shared;
@@ -45,6 +50,11 @@ typedef NS_ENUM(NSInteger, FAOTAccountKind) {
 - (nullable UIImage *)cachedSkinForAccount:(FAOTAccount *)account;
 - (void)storeSkinData:(NSData *)data forAccount:(FAOTAccount *)account;
 - (void)deleteSkinForAccount:(FAOTAccount *)account;
+/// The arm width the skin was authored for. Minecraft stores this as the
+/// "slim" flag on the profile texture; the launcher keeps it locally so the
+/// preview can draw 4-pixel or 3-pixel arms.
+- (FAOTSkinModel)skinModelForAccount:(FAOTAccount *)account;
+- (void)setSkinModel:(FAOTSkinModel)model forAccount:(FAOTAccount *)account;
 
 @end
 
@@ -56,6 +66,9 @@ typedef NS_ENUM(NSInteger, FAOTAccountKind) {
 @property (nonatomic, copy) NSString *layoutName;
 @property (nonatomic, assign) NSInteger logRetention;
 @property (nonatomic, copy) NSString *offlineName;
+/// Skips the page-transition blur. The incoming page still slides, so the
+/// layout change stays legible without the extra motion.
+@property (nonatomic, assign) BOOL reduceLauncherMotion;
 @property (nonatomic, readonly) NSArray<NSNumber *> *memoryOptions;
 @property (nonatomic, readonly) NSString *deviceMemoryCaption;
 
