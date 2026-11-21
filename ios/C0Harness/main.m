@@ -187,9 +187,18 @@ static void FAOTInstallCrashHandlers(int fd) {
 @property(nonatomic, assign) BOOL started;
 @property(nonatomic, assign) BOOL finished;
 @property(nonatomic, strong) NSFileHandle *logHandle;
+- (void)startInBackground;
 @end
 
 @implementation FAOTHarnessController
+
+/// Starts the runtime without presenting the controller. The GL41 surface opens
+/// its own window for the game, so showing a console page first only flashed a
+/// text screen between the launcher and the game.
+- (void)startInBackground {
+    if (self.started) return;
+    [self start];
+}
 
 - (void)viewDidLoad {
     [super viewDidLoad];
@@ -233,8 +242,10 @@ static void FAOTInstallCrashHandlers(int fd) {
     [self showPreviousLogTail];
     // Run once per process launch: the isolate cannot be re-created after teardown, so a second
     // in-process attempt would only produce a misleading error.
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.4 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{ [self start]; });
+    if (!self.started) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.4 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{ [self start]; });
+    }
 }
 
 - (unsigned long long)reservedBytes {
@@ -294,7 +305,9 @@ static void FAOTInstallCrashHandlers(int fd) {
 
     int logFD = faot_open_append_log(logPath.fileSystemRepresentation);
     if (logFD < 0) {
-        self.status.text = [NSString stringWithFormat:@"无法创建本次日志：%s", strerror(errno)];
+        NSString *message = [NSString stringWithFormat:@"无法创建本次日志：%s", strerror(errno)];
+        if (self.isViewLoaded) self.status.text = message;
+        else fprintf(stderr, "[FAOT] %s\n", message.UTF8String);
         return;
     }
     [FAOTLogStore pruneToRetention:FAOTLauncherSettings.shared.logRetention];
@@ -309,8 +322,12 @@ static void FAOTInstallCrashHandlers(int fd) {
     else fprintf(stdout, "[FAOT] log=%s\n", name.UTF8String);
     FAOTLoadGL41Diagnostics(FAOTDocuments(), NSBundle.mainBundle.resourcePath);
 
-    self.status.text = [NSString stringWithFormat:@"启动中 · 预留 %llu GiB · 日志 %@",
-                        reserved >> 30, name];
+    // The harness can run without its console on screen, so only touch the label
+    // when the view exists.
+    if (self.isViewLoaded) {
+        self.status.text = [NSString stringWithFormat:@"启动中 · 预留 %llu GiB · 日志 %@",
+                            reserved >> 30, name];
+    }
 
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         [self runImageReserving:reserved logPath:logPath];
@@ -319,6 +336,7 @@ static void FAOTInstallCrashHandlers(int fd) {
 
 - (void)appendConsole:(NSString *)line {
     dispatch_async(dispatch_get_main_queue(), ^{
+        if (!self.isViewLoaded) return;
         self.console.text = [self.console.text stringByAppendingFormat:@"\n%@", line];
     });
 }
@@ -575,6 +593,9 @@ static void FAOTProbeReservations(FILE *logFile) {
     }
     self.finished = YES;
     dispatch_async(dispatch_get_main_queue(), ^{
+        // Nothing to show when the harness ran headless; the log file is the
+        // record in that case.
+        if (!self.isViewLoaded) return;
         self.status.text = [NSString stringWithFormat:@"%@\n日志：%@", text, path.lastPathComponent];
         [self refreshStatus];
         self.status.text = [NSString stringWithFormat:@"%@\n\n%@", text,
@@ -599,7 +620,6 @@ static void FAOTProbeReservations(FILE *logFile) {
     if (![scene isKindOfClass:UIWindowScene.class]) return;
     self.window = [[UIWindow alloc] initWithWindowScene:(UIWindowScene *)scene];
     FAOTLauncherViewController *launcher = [FAOTLauncherViewController new];
-    __weak FAOTLauncherViewController *weakLauncher = launcher;
     launcher.onLaunch = ^(NSString *playerName, NSInteger memoryGiB, NSString *layoutName, NSString *languageCode) {
         NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
         [defaults setObject:playerName forKey:@"FAOTPlayerName"];
@@ -608,8 +628,11 @@ static void FAOTProbeReservations(FILE *logFile) {
         [defaults setObject:layoutName forKey:@"FAOTControlLayout"];
         [defaults setObject:languageCode forKey:@"FAOTLanguage"];
         FAOTHarnessController *harness = [FAOTHarnessController new];
-        harness.modalPresentationStyle = UIModalPresentationFullScreen;
-        [weakLauncher presentViewController:harness animated:YES completion:nil];
+        // The runtime starts on its own: the GL41 surface creates and focuses a
+        // dedicated window, so presenting the harness would only flash a console
+        // page over the launcher first. The launcher keeps its loading button
+        // until the game window takes over, and the log stays on disk.
+        [harness startInBackground];
     };
     self.window.rootViewController = launcher;
     [self.window makeKeyAndVisible];
