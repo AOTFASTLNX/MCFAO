@@ -24,6 +24,7 @@ PLATFORM_TYPES = ("java/", "javax/", "jdk/", "sun/", "com/sun/", "org/w3c/", "or
 MEMBER_TYPES = re.compile(r"L([^;<:]+)(?=[;<])")
 GL_AFTER_41 = re.compile(r"org/lwjgl/opengl/GL4[2-6]C?$")
 ISSUE_LIMIT = 160
+EVIDENCE_SITE_LIMIT = 32
 STATIC = 0x0008
 PRIVATE = 0x0002
 PUBLIC = 0x0001
@@ -443,12 +444,24 @@ def bytecode_report(client, libraries, renderer, *, java_home=None, required=(),
 
         def add(code, severity, target, location, source=None):
             mod = owners.get(location.split("#", 1)[0])
-            key = (code, severity, target, mod)
+            archive_name = Path(source.filename).name if source is not None else None
+            key = (code, severity, target, mod, archive_name)
             if key not in grouped:
                 grouped[key] = issue(code, severity, target, location, count=0,
                                      stage="final-classpath", renderer=renderer, mod=mod,
-                                     **({"archive": Path(source.filename).name} if source else {}))
-            grouped[key]["count"] += 1
+                                     evidenceType="BYTECODE_OR_ARCHIVE_SCAN",
+                                     handling="REPORT_ONLY", evidenceSites=[], evidenceOccurrenceCount=0,
+                                     evidenceTruncated=False,
+                                     **({"archive": archive_name} if archive_name else {}))
+            finding = grouped[key]
+            finding["count"] += 1
+            finding["evidenceOccurrenceCount"] += 1
+            site = {"caller": redact_log(location), "archive": archive_name}
+            if site not in finding["evidenceSites"]:
+                if len(finding["evidenceSites"]) < EVIDENCE_SITE_LIMIT:
+                    finding["evidenceSites"].append(site)
+                else:
+                    finding["evidenceTruncated"] = True
 
         def inspect(shape):
             internal = shape["name"]
@@ -541,7 +554,7 @@ def bytecode_report(client, libraries, renderer, *, java_home=None, required=(),
                             declaration = resolve_member(owner, name, descriptor, tag == 9) if name == "defineClass" else None
                             category = dynamic_risk(declaration[0] if declaration else owner, name, renderer)
                             if category:
-                                add(category, "warning", owner + "." + name, location)
+                                add(category, "warning", owner + "." + name, location, source)
                     receiver, previous = previous, operand
             for name in sorted(types - {internal}):
                 if renderer == "gl41" and name.startswith(METAL_PREFIX):

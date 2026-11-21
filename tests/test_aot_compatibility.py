@@ -82,6 +82,9 @@ JAVA_FIXTURES = {
             public void runtimeDefine(ClassLoader parent) throws Exception {
                 java.lang.invoke.MethodHandles.lookup().defineClass(new byte[0]);
             }
+            public void runtimeDefineAgain(ClassLoader parent) throws Exception {
+                java.lang.invoke.MethodHandles.lookup().defineClass(new byte[0]);
+            }
         }
     """,
     "third/Dependency": """
@@ -226,6 +229,16 @@ class AotCompatibilityTests(unittest.TestCase):
         _, _, findings, _ = bytecode_report(mod, [mod, library], "gl41", required=["second/SecondMod"])
         self.assertNotIn("MISSING_REQUIRED_TYPE", {row["code"] for row in findings})
         self.assertIn("classInitializers", graph)
+        dynamic = next(row for row in findings if row["code"] == "RUNTIME_CLASS_DEFINITION")
+        self.assertEqual(dynamic["handling"], "REPORT_ONLY")
+        self.assertEqual(dynamic["evidenceType"], "BYTECODE_OR_ARCHIVE_SCAN")
+        self.assertEqual(dynamic["evidenceOccurrenceCount"], 2)
+        self.assertFalse(dynamic["evidenceTruncated"])
+        self.assertEqual({site["caller"] for site in dynamic["evidenceSites"]}, {
+            "second/SecondMod#runtimeDefine(Ljava/lang/ClassLoader;)V",
+            "second/SecondMod#runtimeDefineAgain(Ljava/lang/ClassLoader;)V",
+        })
+        self.assertEqual(dynamic["archive"], mod.name)
 
     def test_stage_pass_leaves_startup_and_device_unverified(self):
         report = transform_report({"status": "FABRIC_AOT_INPUT_PREPARED", "renderer": "gl41",
