@@ -22,6 +22,9 @@ NS_ASSUME_NONNULL_BEGIN
 @interface FAOTGamePageController : UIViewController <FAOTLauncherPage>
 - (instancetype)initWithHost:(id<FAOTLauncherPageHost>)host;
 - (void)showStatus:(NSString *)status;
+/// Shows 加载中 with a spinner and disables the button until -finishLaunching.
+- (void)showLaunching;
+- (void)finishLaunching;
 @end
 
 @interface FAOTAccountPageController : UIViewController <FAOTLauncherPage>

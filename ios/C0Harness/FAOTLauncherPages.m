@@ -177,6 +177,8 @@ static BOOL FAOTValidOfflineName(NSString *name) {
 @property (nonatomic, strong) UILabel *shadersValue;
 @property (nonatomic, strong) UILabel *statusLabel;
 @property (nonatomic, strong) UIButton *launchButton;
+@property (nonatomic, strong) UIActivityIndicatorView *launchSpinner;
+@property (nonatomic, assign) BOOL launching;
 @property (nonatomic, strong) UIStackView *savesStack;
 @property (nonatomic, strong) UILabel *savesEmptyLabel;
 @property (nonatomic, assign) CGFloat panStartYaw;
@@ -1193,6 +1195,16 @@ static NSArray<NSDictionary<NSString *, id> *> *FAOTLocalSaves(void) {
     self.launchButton.layer.cornerRadius = 14;
     [self.launchButton addTarget:self action:@selector(launchTapped) forControlEvents:UIControlEventTouchUpInside];
     [self.launchButton.heightAnchor constraintEqualToConstant:52].active = YES;
+    // Shown beside the title while the runtime starts up.
+    self.launchSpinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium];
+    self.launchSpinner.hidesWhenStopped = YES;
+    self.launchSpinner.userInteractionEnabled = NO;
+    self.launchSpinner.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.launchButton addSubview:self.launchSpinner];
+    [NSLayoutConstraint activateConstraints:@[
+        [self.launchSpinner.centerYAnchor constraintEqualToAnchor:self.launchButton.centerYAnchor],
+        [self.launchSpinner.trailingAnchor constraintEqualToAnchor:self.launchButton.centerXAnchor constant:-46],
+    ]];
     // Status and button are laid out independently. A stack that contains a
     // 52pt button plus a single-line label kept squeezing the label to zero
     // height once the cards above claimed the remaining space.
@@ -1289,10 +1301,37 @@ static NSArray<NSDictionary<NSString *, id> *> *FAOTLocalSaves(void) {
     self.packsValue.text = [NSString stringWithFormat:@"%lu", (unsigned long)FAOTContentCatalog.resourcePacks.count];
     self.shadersValue.text = [NSString stringWithFormat:@"%lu", (unsigned long)FAOTContentCatalog.shaderPacks.count];
     [self refreshSaves];
-    BOOL launched = [self.host pageGameHasLaunched];
-    [self.launchButton setTitle:(launched ? @"重新启动应用" : @"进入世界  →") forState:UIControlStateNormal];
-    self.launchButton.backgroundColor = launched ? UIColor.systemOrangeColor : FAOTAccentColor();
-    [self.launchButton setTitleColor:FAOTDynamicColor(UIColor.whiteColor, UIColor.blackColor) forState:UIControlStateNormal];
+    // The title only ever reads 进入世界 or 加载中. Showing a restart label after
+    // the runtime had already started was confusing, so the button keeps its
+    // launch title and the busy state is expressed by the spinner instead.
+    [self updateLaunchButton];
+}
+
+- (void)updateLaunchButton {
+    UIColor *titleColor = FAOTDynamicColor(UIColor.whiteColor, UIColor.blackColor);
+    self.launchButton.enabled = !self.launching;
+    self.launchButton.backgroundColor = FAOTAccentColor();
+    [self.launchButton setTitleColor:titleColor forState:UIControlStateNormal];
+    self.launchSpinner.color = titleColor;
+    if (self.launching) {
+        [self.launchButton setTitle:@"加载中" forState:UIControlStateNormal];
+        [self.launchSpinner startAnimating];
+    } else {
+        [self.launchButton setTitle:@"进入世界  →" forState:UIControlStateNormal];
+        [self.launchSpinner stopAnimating];
+    }
+}
+
+- (void)showLaunching {
+    if (self.launching) return;
+    self.launching = YES;
+    [self updateLaunchButton];
+}
+
+- (void)finishLaunching {
+    if (!self.launching) return;
+    self.launching = NO;
+    [self updateLaunchButton];
 }
 
 - (void)showStatus:(NSString *)status {
@@ -1300,6 +1339,8 @@ static NSArray<NSDictionary<NSString *, id> *> *FAOTLocalSaves(void) {
 }
 
 - (void)launchTapped {
+    if (self.launching) return;
+    [self showLaunching];
     [self.host pageRequestedLaunch];
 }
 

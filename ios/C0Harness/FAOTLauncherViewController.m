@@ -592,10 +592,9 @@ static const CGFloat kTransitionBlurDrift = 22.0;
 #pragma mark - Page host
 
 - (void)pageRequestedLaunch {
-    if (self.launchedInThisProcess) {
-        [self.gamePage showStatus:@"正在重新启动应用…"];
-        exit(0);
-    }
+    // A second tap while the runtime is already starting is ignored; the button
+    // is disabled and shows a spinner, so it never needs a restart label.
+    if (self.launchedInThisProcess) return;
     FAOTAccount *account = FAOTAccountStore.shared.activeAccount;
     FAOTLauncherSettings *settings = FAOTLauncherSettings.shared;
     NSString *name = account.name.length ? account.name : settings.offlineName;
