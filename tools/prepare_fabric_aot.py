@@ -3,6 +3,7 @@ from __future__ import annotations
 from aot_compatibility import publish, transform_report
 
 import argparse
+import hashlib
 from collections import defaultdict
 import json
 import os
@@ -384,6 +385,50 @@ def merge_client(client, overlay, output, changes, resources=()):
                 merged.writestr(member, source.read(member))
 
 
+def verify_resource_closure(client, closure):
+    with zipfile.ZipFile(client) as archive:
+        for row in closure:
+            if row["status"] != "RETAINED":
+                continue
+            name = row["finalPath"]
+            try:
+                contents = archive.read(name)
+            except KeyError:
+                raise ValueError(f"Resource closure missing from merged client: {name}") from None
+            if len(contents) != row["bytes"] or hashlib.sha256(contents).hexdigest() != row["sha256"]:
+                raise ValueError(f"Resource closure fingerprint differs in merged client: {name}")
+            row["jarVerified"] = True
+
+
+def verify_pack_classpath(client, expected_entries, *, layered=True):
+    """Check the index for broken targets and omitted unique paths in the final JAR."""
+    index = "mcfao/classpath-pack-resources.tsv"
+    target_pattern = re.compile(r"mcfao/mod-files/[a-z][a-z0-9_-]*/(assets/.+|data/.+)")
+    with zipfile.ZipFile(client) as archive:
+        entries = set(archive.namelist())
+        rows = archive.read(index).decode("utf-8").split("\n")
+        seen = {}
+        for line in rows[:-1]:
+            path, separator, target = line.partition("\t")
+            match = target_pattern.fullmatch(target)
+            if (not separator or path in seen
+                    or not match or match[1] != path or path in entries or target not in entries):
+                raise ValueError(f"Invalid classpath pack stream target: {line!r}")
+            seen[path] = target
+        if rows[-1] or len(seen) != expected_entries:
+            raise ValueError("Classpath pack index count differs from the export report")
+        candidates = defaultdict(list)
+        if layered:
+            for target in entries:
+                if not target.endswith("/") and (match := target_pattern.fullmatch(target)) and match[1] not in entries:
+                    candidates[match[1]].append(target)
+        unique = {path: targets[0] for path, targets in candidates.items() if len(targets) == 1}
+        if missing := unique.keys() - seen.keys():
+            raise ValueError(f"Classpath pack index omits {len(missing)} unique paths: {min(missing)}")
+        if seen != unique:
+            raise ValueError("Classpath pack index includes an ambiguous or inactive path")
+
+
 def load_reference(prepared):
     report = json.loads((prepared / "result.json").read_text())
     home = Path(report["javaHome"])
@@ -639,6 +684,9 @@ def prepare(prepared, client, mods, output, audited, trace_agent=False, renderer
     output_jar = output / "client.jar"
     merge_client(client, work / "overlay.jar", output_jar, transform["gameTransforms"],
                  transform.get("overriddenResources", []))
+    verify_resource_closure(output_jar, transform.get("resourceClosure", ()))
+    verify_pack_classpath(output_jar, transform["packClasspathEntries"],
+                          layered=transform["minecraftPackMode"] == "FABRIC_LAYERS")
     record["semanticCompatibility"] = semantic_compatibility(transform)
     record.update(status="FABRIC_AOT_INPUT_PREPARED", sandbox="file and network denial controls passed",
                   transform=transform, clientSHA256=sha256(client), outputJarSHA256=sha256(output_jar))

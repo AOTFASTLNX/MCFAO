@@ -32,7 +32,7 @@ from native_game_checks import verify_game_image
 from build_glfw_lite import exported_symbols, validate_input_exports
 from glfw_runtime_contract import validate_glfw_renderer
 from prepare_fabric_aot import TOOL as FABRIC_TOOL, mod_files
-from aot_compatibility import add_bytecode_results, issue, publish, transform_report
+from aot_compatibility import add_bytecode_results, issue, publish, record_build_pass, transform_report
 from mdaf import AGENT_FILES
 from stage_game_assets import verified_assets
 from mod_file_policy import content_paths, copy_ignore, is_metadata
@@ -784,6 +784,8 @@ def compile_client_image(pipeline, manifest, config, client, libraries, loader_r
         "--builder-gc", manifest["builderGC"], f'--optimization={manifest["optimizationLevel"]}',
         "--parallelism", str(manifest["parallelism"]), "--simulator-thread-dumps",
         "--output", "{product}"]
+    if manifest.get("exactReachabilityMetadata"):
+        aot_args.append("--exact-reachability-metadata")
     if loader_report:
         aot_args.extend(["--fabric-report", loader_report])
     for path in [*trace_paths, *([tracing_path] if tracing_path else [])]:
@@ -823,6 +825,8 @@ def build(args, config):
                          "builderGC": builder_gc, "quickBuild": quick_build,
                          "optimizationLevel": os.environ.get("MCFAO_OPT_LEVEL", "-O1")})
         manifest["loader"] = args.loader
+        if getattr(args, "exact_reachability_metadata", False):
+            manifest["exactReachabilityMetadata"] = True
         trace_paths = [path.resolve(strict=True) for path in getattr(args, "tracing_config", ())]
         for path in trace_paths:
             if not path.is_dir() or not any((path / name).is_file() for name in AGENT_FILES):
@@ -967,6 +971,8 @@ def build(args, config):
         facts = app_facts(app, args.device, output / "verify" / uuid4().hex, renderer, not manifest["unsigned"])
         ipa = output / ipa_filename(manifest["testVersion"])
         write_payload_ipa(app, ipa)
+        record_build_pass(compatibility)
+        publish(output / "compatibility.json", compatibility)
         write_json(output / "result.json", {
             "status": "UNSIGNED_DEVICE_APP" if manifest["unsigned"] else "SIGNED_DEVICE_APP", "target": TARGET, "buildKey": key,
             "renderer": renderer, "sourceCommit": manifest["sourceCommit"],
@@ -1026,6 +1032,8 @@ def main(argv=None):
                                  help="Collect GraalVM tracing metadata during the sandboxed audited Fabric rehearsal")
     compile_command.add_argument("--tracing-config", type=Path, action="append", default=[],
                                  help="Merge metadata from a local, audited tracing-agent rehearsal")
+    compile_command.add_argument("--exact-reachability-metadata", action="store_true",
+                                 help="Enable strict missing-registration semantics for diagnosis")
     exporter = commands.add_parser("export", help="Archive, export and verify a development IPA")
     exporter.add_argument("--build", type=Path, required=True)
     exporter.add_argument("--export-options", type=Path, required=True)

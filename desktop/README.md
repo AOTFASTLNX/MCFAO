@@ -16,7 +16,7 @@
 
 在 desktop 执行 npm run build:mac。脚本会先检查所选目录的剩余空间，再用 Xcode actool 把仓库根目录的 NCB.icon 编译为 Assets.car 与 NCB.icns，保留浅色、深色与透明图层；随后运行 Tauri 开发包构建，把这两个资源放入 Contents/Resources，并让 CFBundleIconFile 与 CFBundleIconName 指向 NCB。最终在所选产物根的 desktop/ncl-builder-<version>/ 生成经临时签名与严格验签的 NCL Builder.app 及同名 zip；已有同名交付时使用新的目录后缀。工作台附带受控源码树，分发应用默认使用包内源码，不包含游戏文件；首次准备与外部客户端输入见 docs/DESKTOP.md 和 docs/BUILDING.md。正式分发签名和公证尚未验收。
 
-当前版本 0.2.92，修复 GL41 补丁对硬件诊断类变更的校验，并在失败时显示 Java 原因与日志路径。界面、npm、Cargo 和 Tauri 版本号一致。交付写入所选产物根的 `desktop/ncl-builder-0.2.92/`；本地测试包的目录名另带 `-local-testing` 后缀。已有同名目录时追加时间戳。
+当前版本 0.2.93，更新 Fabric AOT 资源、反射及兼容性报告，展示规则应用和验证状态。界面、npm、Cargo 和 Tauri 版本号一致。交付写入所选产物根的 `desktop/ncl-builder-0.2.93/`；本地测试包的目录名另带 `-local-testing` 后缀。已有同名目录时追加时间戳。
 
 ## 使用
 

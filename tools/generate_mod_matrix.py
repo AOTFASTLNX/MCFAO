@@ -19,6 +19,8 @@ import re
 from collections import Counter
 from pathlib import Path
 
+from aot_compatibility import attribute_failure
+
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT = ROOT / "docs" / "MOD_COMPATIBILITY_MATRIX.md"
 EVIDENCE = ROOT / "docs" / "MOD_MATRIX_EVIDENCE.json"
@@ -176,24 +178,39 @@ def category_of(mod: str) -> str:
 def collect(build: Path) -> dict:
     result = read_json(build / "result.json") or {}
     fabric, fabric_path = stage_report(build, "fabric")
+    if not fabric and result.get("loaderReport"):
+        candidate = Path(result["loaderReport"]).resolve()
+        if candidate.is_relative_to(build.resolve()):
+            fabric, fabric_path = read_json(candidate), candidate
     if not fabric:
         raise SystemExit(f"No fabric stage report in {build}")
     transform = fabric.get("transform", {})
     resolved = {row["id"]: row.get("version", "") for row in transform.get("resolvedMods", [])}
-    metadata = {row.get("id"): row for row in fabric.get("mods", []) if isinstance(row, dict)}
+    metadata = {}
+    for row in fabric.get("mods", ()):
+        if not isinstance(row, dict):
+            continue
+        mod_id = row.get("id")
+        if mod_id not in metadata or row.get("version") == resolved.get(mod_id):
+            metadata[mod_id] = row
     excluded = fabric.get("excludedMods", {}) or {}
     jar_ids = fabric.get("jarIds", {}) or {}
-    roots = {path.name for path in CURATED.glob("*.jar")} if CURATED.is_dir() else set()
+    roots = {Path(path).name for path in fabric.get("modSHA256", {})}
+    if not roots and CURATED.is_dir():
+        roots = {path.name for path in CURATED.glob("*.jar")}
     owner = {}
     for jar, ids in jar_ids.items():
         for mod in ids:
             owner.setdefault(mod, []).append(Path(jar).name)
-    isolated_report = read_json(ISOLATED / "result.json") or {}
-    isolated = {row["modId"]: row for row in isolated_report.get("mods", [])}
-
-    build_ok = result.get("status") in {"SIGNED_DEVICE_APP", "SIMULATOR_WORLD_SMOKE_PASS"}
     pack = pack_number(build)
-    evidence_path = f"{relative(build)}/fabric/*/product/result.json"
+    isolated_report = (read_json(ISOLATED / "result.json") or {}) if pack >= 0 else {}
+    isolated = {row["modId"]: row for row in isolated_report.get("mods", [])
+                if row["modId"] not in resolved}
+
+    build_ok = result.get("status") in {"SIGNED_DEVICE_APP", "UNSIGNED_DEVICE_APP", "SIMULATOR_WORLD_SMOKE_PASS"}
+    evidence_path = relative(fabric_path)
+    report = read_json(build / "compatibility.json") or {}
+    current = {row["id"]: row for row in report.get("mods", ())}
     upgrades = {key: value for key, value in (read_json(EVIDENCE) or {}).items()
                 if not key.startswith("_")}
 
@@ -229,30 +246,52 @@ def collect(build: Path) -> dict:
             scope, test = ADAPTERS[mod]
             notes.append(f"定向适配：{scope}")
             tests = test
-        owners = sorted(set(owner.get(mod, [])))
-        root = next((name for name in owners if name in roots), None)
-        notes.append("根 jar: " + root if root else ("嵌套 jar: " + ", ".join(owners[:2]) if owners else "嵌套 jar"))
+        origin = (metadata.get(mod) or {}).get("path")
+        if origin:
+            notes.append("嵌套 JAR " + origin if "!" in origin else "根 JAR " + Path(origin).name)
+        else:
+            owners = sorted(set(owner.get(mod, [])))
+            root = next((name for name in owners if name in roots), None)
+            if root:
+                notes.append("根 JAR " + root)
+            elif owners:
+                notes.append("来源 " + ", ".join(owners[:2]))
         upgrade = upgrades.get(mod)
         # A BLOCKED Mod left the image; an observation entry cannot put it back. It has to be
         # re-admitted into a new pack and earn BUILD_PASS again before any upgrade is possible.
         admissible = status in {"BUILD_PASS", "LOAD_PASS", "FUNCTION_PASS"}
-        if admissible and isinstance(upgrade, dict) and RANK.get(upgrade.get("status"), -1) > RANK[status]:
+        observed_here = isinstance(upgrade, dict) and (
+            upgrade.get("buildKey") == result["buildKey"] if result.get("buildKey") else
+            pack >= 0 and re.search(rf"(?<![\w-])(?:fabric-)?pack-{pack}(?!\d)",
+                                    upgrade.get("evidence", "")) is not None)
+        if admissible and observed_here and RANK.get(upgrade.get("status"), -1) > RANK[status]:
             status = upgrade["status"]
             notes.append("证据表：" + upgrade.get("note", upgrade.get("status")))
             source = upgrade.get("evidence", source)
             tests = upgrade.get("tests", tests)
+        if (mechanisms := current.get(mod)):
+            if mechanisms.get("rules"):
+                notes.append("自动处理 " + ", ".join(mechanisms["rules"]))
+            if mechanisms.get("riskCount"):
+                notes.append(f"{mechanisms['riskCount']} 条风险")
+            if checks := mechanisms.get("relevantChecks"):
+                tests = "待执行 " + ", ".join(checks)
         rows.append({
             "id": mod, "name": (metadata.get(mod) or {}).get("name", mod),
             "version": version, "category": category_of(mod), "status": status,
-            "pack": pack if status not in {"NOT_TESTED"} else "—",
+            "pack": (f"pack-{pack}" if pack >= 0 else result.get("testVersion") or build.name)
+                    if status != "NOT_TESTED" else "—",
             "evidence": source, "tests": tests, "notes": "；".join(notes),
         })
 
     count = Counter(row["status"] for row in rows)
+    smoke = smoke_evidence(build)
+    if smoke["crash"]:
+        smoke["rootCause"] = attribute_failure([smoke["crash"]], transform.get("classModOwners"))
     return {
         "build": build, "pack": pack, "result": result, "fabric": fabric,
         "fabric_path": fabric_path, "transform": transform, "rows": rows,
-        "count": count, "smoke": smoke_evidence(build),
+        "count": count, "smoke": smoke,
         "classpath": read_json(build / "classpath-check.json"),
         "members": read_json(build / "classpath-members-check.json"),
         "isolated": isolated,
@@ -279,10 +318,10 @@ def render(data: dict) -> str:
         "| --- | --- | --- |",
         "| `NOT_TESTED` | 未进入验证包，或该包未产出镜像 | 无 |",
         "| `BLOCKED` | 已被证明无法进入闭世界，或平台级不可用 | 导出期排除报告 / 隔离清单 / 崩溃日志 |",
-        "| `BUILD_PASS` | 类进入 AOT 镜像，静态校验核心类 0 失败 | `SIGNED_DEVICE_APP` + `classpath-check.json` |",
+        "| `BUILD_PASS` | 类进入 AOT 镜像，静态校验核心类 0 失败 | `SIGNED_DEVICE_APP` 或 `UNSIGNED_DEVICE_APP` 与对应构建报告 |",
         "| `LOAD_PASS` | 运行期入口点派发完成、该 Mod 初始化未抛异常 | 模拟器 `game.log` 中该 Mod 的初始化标记 |",
         "| `FUNCTION_PASS` | 该 Mod 的实际功能在运行的游戏内被观察到 | 功能探针 / 截图 / 状态断言 + 日志 |",
-        "| `DEVICE_PASS` | 在真机上复验通过 | 真机证据（本项目当前**不做真机验证**） |",
+        "| `DEVICE_PASS` | 在真机上复验通过 | 真机证据（绑定同一构建指纹） |",
         "",
         "> `BUILD_PASS` 只说明「类在镜像里」，不说明「Mod 能跑」。"
         + ("整包已在模拟器进世界（F1 + F3 + `Dev joined the game` 齐现），但没有任何 Mod 单独通过"
@@ -292,12 +331,13 @@ def render(data: dict) -> str:
         "",
         "## 当前判据与 Gate",
         "",
-        f"- 最新验证包：`{relative(build)}`（pack-{pack}），`result.json.status = {data['result'].get('status', 'N/A')}`",
-        f"- 根 Mod jar：{len(list(CURATED.glob('*.jar'))) if CURATED.is_dir() else 0}；"
+        f"- 最新验证包：`{relative(build)}`，`result.json.status = {data['result'].get('status', 'N/A')}`",
+        f"- 根 Mod jar：{len(data['fabric'].get('modSHA256', {})) or (len(list(CURATED.glob('*.jar'))) if pack >= 0 and CURATED.is_dir() else 0)}；"
         f"解析出的 Mod id：{len(transform.get('resolvedMods', []))}；"
         f"导出期排除：{len(data['fabric'].get('excludedMods', {}) or {})}；"
         f"独立隔离：{len(data['isolated'])}",
-        f"- 资源命名空间表：`{len(transform.get('resourceNamespaces', []))}` 个（旧包该项为 0，即清单字段缺失）",
+        f"- Minecraft 资源模式 `{transform.get('minecraftPackMode', 'UNRECORDED')}`；"
+        f"Vanilla 命名空间索引 `{len(transform.get('resourceNamespaces', []))}` 项。",
     ]
     cp, members = data["classpath"], data["members"]
     if cp:
@@ -309,7 +349,7 @@ def render(data: dict) -> str:
         + " / ".join(f"{name}={'PASS' if ok else '未出现'}" for name, ok in markers.items()),
     ]
     if smoke["crash"]:
-        lines.append(f"- 首个崩溃：`{smoke['crash']}`")
+        lines.append(f"- 首个崩溃：`{smoke['crash']}`（{smoke['rootCause']['category']}）")
     elif passed:
         lines.append("- 未出现致命崩溃：日志无 `Unreported exception thrown` / 崩溃报告段落，"
                      "启动期的离线认证、Realms、`oshi` 探测异常不计入。")
@@ -336,7 +376,7 @@ def render(data: dict) -> str:
     ]
     for row in sorted(data["rows"], key=lambda item: (-RANK[item["status"]], item["id"])):
         cells = [row["id"], row["version"] or "—", row["category"], f"`{row['status']}`",
-                 f"pack-{row['pack']}" if row["pack"] != "—" else "—",
+                 row["pack"],
                  row["evidence"], row["tests"], row["notes"]]
         lines.append("| " + " | ".join(cell.replace("|", "\\|") for cell in map(str, cells)) + " |")
     lines += [
@@ -360,8 +400,7 @@ def render(data: dict) -> str:
             evidence = (row.get("evidence") or {}).get("simulatorLog", "—")
             lines.append(f"| `{mod}` | {row.get('version', '—')} | {row.get('level', 'pair-level')} | "
                          f"{reason} | `{evidence}` |")
-        lines += ["", "Iris 保持隔离：其 `FieldAccessor.makeSetter` 需要运行时生成类，"
-                  "与闭世界冲突；待其余 Mod 稳定后再单独开工作线。", ""]
+        lines.append("")
     lines += [
         "## 框架级适配与对应回归测试",
         "",
@@ -409,7 +448,8 @@ def main(argv=None) -> int:
     text = render(data)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(text)
-    print(f"pack-{pack_number(build)}: {len(data['rows'])} rows, "
+    label = data["result"].get("testVersion") or build.name
+    print(f"{label}: {len(data['rows'])} rows, "
           f"{dict(data['count'])} -> {relative(args.output)}")
     return 0
 

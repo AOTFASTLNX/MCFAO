@@ -64,6 +64,51 @@ def class_bytes(name, parent="java/lang/Object", interfaces=(), fields=(), metho
 
 
 class ConfigReflectionTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("javac"), "Requires javac")
+    def test_gson_type_token_fields_and_inlined_tokens_only_register_consumed_types(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            gson, token, holder = (root / name for name in ("Gson.java", "TypeToken.java", "Holder.java"))
+            gson.write_text("""package com.google.gson;
+                public class Gson { public <T> T fromJson(String json, java.lang.reflect.Type type) { return null; } }
+            """)
+            token.write_text("""package com.google.gson.reflect;
+                public class TypeToken<T> { public final java.lang.reflect.Type getType() { return null; } }
+            """)
+            holder.write_text("""package fixture;
+                import com.google.gson.Gson;
+                import com.google.gson.reflect.TypeToken;
+                import java.lang.reflect.Type;
+                import java.util.List;
+                import java.util.Map;
+                class Holder {
+                    private static final Type STORED = new TypeToken<List<Stored>>() {}.getType();
+                    private static final Type UNUSED = new TypeToken<List<Unused>>() {}.getType();
+                    private static Type MUTABLE = new TypeToken<List<Mutable>>() {}.getType();
+                    static List<Stored> read(Gson gson, String json) { return gson.fromJson(json, STORED); }
+                    static Object inline(Gson gson, String json) {
+                        return gson.fromJson(json, new TypeToken<Map<String, List<Inline>>>() {}.getType());
+                    }
+                    static Object mutable(Gson gson, String json) { return gson.fromJson(json, MUTABLE); }
+                    static class Stored { final String id; Stored(String id) { this.id = id; } }
+                    static class Inline {}
+                    static class Unused {}
+                    static class Mutable {}
+                }
+            """)
+            classes = root / "classes"
+            subprocess.run(["javac", "-proc:none", "-d", str(classes), *map(str, (gson, token, holder))],
+                           check=True, capture_output=True)
+            jar = root / "fixture.jar"
+            with zipfile.ZipFile(jar, "w") as archive:
+                for path in sorted(classes.rglob("*.class")):
+                    archive.write(path, path.relative_to(classes).as_posix())
+            entries = {row["name"]: row for row in reflection_from_jar(jar)}
+            self.assertEqual(set(entries), {"fixture.Holder$Stored", "fixture.Holder$Inline"})
+            self.assertTrue(entries["fixture.Holder$Stored"]["unsafeAllocated"])
+            self.assertTrue(entries["fixture.Holder$Stored"]["allDeclaredFields"])
+            self.assertNotIn("unsafeAllocated", entries["fixture.Holder$Inline"])
+
     def test_cross_package_enum_map_keys_register_without_traversing_game_types(self):
         data = class_bytes("mod/Config", fields=[(0, "Ljava/util/EnumMap;",
             "Ljava/util/EnumMap<Lnet/minecraft/Fog;Lmod/Value;>;")])

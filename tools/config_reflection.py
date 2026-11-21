@@ -54,6 +54,10 @@ OVERRIDE_QUERIES = {"canCollideWith", "canBeCollidedWith", "canHitEntity",
 # but the ``X::new`` method handle passed at the call site.
 T_CONFIG_HANDLER = "traben/tconfig/TConfigHandler"
 GSON_CLASS_ARGS = "(Lcom/google/gson/Gson;Ljava/lang/Class;)"
+GSON_TYPE_TOKEN = "com/google/gson/reflect/TypeToken"
+GSON_INPUTS = ("java/lang/String", "java/io/Reader", "com/google/gson/JsonElement",
+               "com/google/gson/stream/JsonReader")
+GSON_TYPE_ARGS = {f"(L{argument};Ljava/lang/reflect/Type;)Ljava/lang/Object;" for argument in GSON_INPUTS}
 ACC_ENUM = 0x4000
 
 
@@ -139,6 +143,56 @@ def symbolic_constant(entry, pool, bootstrap, active=()):
     arguments = tuple(symbolic_constant(pool[item], pool, bootstrap, (*active, index))
                       for item in bootstrap[index] if isinstance(pool[item], tuple))
     return (tag, descriptor, arguments)
+
+
+def direct_config_roots(code, pool):
+    previous = None
+    gson_descriptors = {
+        f"(L{argument};Ljava/lang/Class;)Ljava/lang/Object;"
+        for argument in GSON_INPUTS
+    }
+    for opcode, value in instructions(code, pool):
+        if opcode == 0xb6 and value and isinstance(previous, tuple) and previous[0] == 7:
+            _, owner, name, descriptor = value
+            if (owner == "com/google/gson/Gson" and name == "fromJson" and descriptor in gson_descriptors
+                    or owner == "blue/endless/jankson/Jankson" and name in ("fromJson", "fromJsonCarefully")
+                    and descriptor == "(Lblue/endless/jankson/JsonObject;Ljava/lang/Class;)Ljava/lang/Object;"):
+                yield previous[1]
+        previous = value if opcode in (0x12, 0x13) else None
+
+
+def gson_type_token_flow(owner, methods, code_bodies, pool, field_flags):
+    """Find inline anonymous TypeTokens and immutable Type fields consumed by Gson."""
+    constructed, assigned, decoded = set(), {}, set()
+    for method, code in zip(methods, code_bodies, strict=True):
+        previous = deque(maxlen=4)
+        for opcode, value in instructions(code, pool):
+            if not value or opcode not in (0xb3, 0xb6):
+                previous.append((opcode, value))
+                continue
+            _, callee, member, descriptor = value
+            token = None
+            if len(previous) == 4:
+                new, duplicate, constructor, get_type = previous
+                if (new[0] == 0xbb and duplicate[0] == 0x59 and constructor[0] == 0xb7
+                        and constructor[1][1:] == (new[1][1], "<init>", "()V") and get_type[0] == 0xb6
+                        and get_type[1][1] in (new[1][1], GSON_TYPE_TOKEN)
+                        and get_type[1][2:] == ("getType", "()Ljava/lang/reflect/Type;")):
+                    token = new[1][1]
+            if opcode == 0xb3 and callee == owner and descriptor == "Ljava/lang/reflect/Type;":
+                if method == "<clinit>()V" and field_flags.get((member, descriptor), 0) & 0x18 == 0x18:
+                    assigned.setdefault(value, set()).add(token)
+            if (opcode == 0xb6 and callee == "com/google/gson/Gson" and member == "fromJson"
+                    and descriptor in GSON_TYPE_ARGS):
+                if token:
+                    constructed.add(token)
+                if previous and previous[-1][0] == 0xb2:
+                    decoded.add(previous[-1][1])
+            previous.append((opcode, value))
+    for field in decoded & assigned.keys():
+        if len(assigned[field]) == 1:
+            constructed.update(assigned[field] - {None})
+    return sorted(constructed)
 
 
 def json_loader_sites(code, pool):
@@ -588,6 +642,22 @@ def class_shape(data, *, graph=False, declarations_only=False):
     if not this.startswith(PLATFORM_PREFIXES) and b"(Ljava/lang/Class;" in data and b"<init>" in data:
         for code in code_bodies:
             typed_sites.extend(json_loader_sites(code, pool))
+    direct_roots = set()
+    if b"fromJson" in data and any(api in data for api in (b"com/google/gson/Gson", b"blue/endless/jankson/Jankson")):
+        for code in code_bodies:
+            direct_roots.update(direct_config_roots(code, pool))
+    gson_tokens = []
+    if b"fromJson" in data and b"com/google/gson/Gson" in data and b"Ljava/lang/reflect/Type;" in data:
+        gson_tokens = gson_type_token_flow(this, code_methods, code_bodies, pool, field_flags)
+    token_types = []
+    if parent == GSON_TYPE_TOKEN:
+        for key, body in class_attributes:
+            if key == "Signature":
+                signature = pool[struct.unpack(">H", body)[0]]
+                prefix = f"L{GSON_TYPE_TOKEN}<"
+                if signature.startswith(prefix):
+                    arguments = signature.removeprefix(prefix).rsplit(">;", 1)[0]
+                    token_types = sorted(set(re.findall(r"L([^;<]+)", arguments)))
     gson_loader = False
     if (b"com/google/gson/Gson" in data and b"getConstructor" in data
             and "Ljava/lang/Class;" in declared_fields):
@@ -601,7 +671,8 @@ def class_shape(data, *, graph=False, declarations_only=False):
             "methods": methods, "methodSignatures": method_signatures,
             "constructors": sorted(constructors), "publicNoArgConstructor": public_no_arg,
             "jsonLoaderSites": typed_sites, "gsonConstructorLoader": gson_loader, "reflection": sites,
-            "gsonSerializer": serializer,
+            "gsonSerializer": serializer, "directConfigRoots": sorted(direct_roots),
+            "gsonTokens": gson_tokens, "gsonTokenTypes": token_types,
             "forName": forname, "factories": sorted(factories),
             "classLiterals": sorted(literals)}
     if graph:
@@ -857,11 +928,16 @@ def reflection_from_jar(path, *, class_visitor=None, diagnostics=None, include_e
                 diagnostics.append({"code": "CONFIG_NO_PUBLIC_NOARG", "severity": "warning",
                                     "location": shape["name"], "target": target})
     serializer_roots = gson_serializer_roots(shapes)
+    direct_roots = {target for shape in shapes.values() for target in shape["directConfigRoots"] if target in shapes}
+    token_roots = {target for shape in shapes.values() for token in shape["gsonTokens"]
+                   for target in shapes.get(token, {}).get("gsonTokenTypes", ())
+                   if target in shapes and not target.startswith(PLATFORM_PREFIXES)}
     if diagnostics is not None:
         diagnostics.extend({"code": "TYPED_GSON_CONFIG", "severity": "fix", "target": target}
-                           for target in sorted(typed_roots | serializer_roots))
+                           for target in sorted(typed_roots | serializer_roots | direct_roots | token_roots))
     return _merge(config_entries(shapes, sorted(yacl_config_roots(shapes)),
-                                 open_roots=[*roots, *sorted(json_config_roots(shapes) | typed_roots | serializer_roots)]),
+                                 open_roots=[*roots, *sorted(json_config_roots(shapes) | typed_roots
+                                                             | serializer_roots | direct_roots | token_roots)]),
                   [*member_entries(shapes, sites), *forname_entries(shapes, forname),
                    *override_entries(shapes),
                    *framework_config_entries(shapes, config_roots)])

@@ -229,7 +229,7 @@ const compatibilityStatus = {
 const compatibilitySeverity = {
   blocker: "阻塞",
   warning: "警告",
-  fix: "自动修复",
+  fix: "自动处理",
 };
 const compatibilityReasons: Record<string, string> = {
   FABRIC_DEPENDENCIES: "Fabric 依赖未满足",
@@ -271,13 +271,32 @@ const compatibilityReasons: Record<string, string> = {
   SERIALIZATION_CALL: "Java 序列化待验证",
 };
 
-function CompatibilitySummary({ report }: { report: AotCompatibility }) {
+const modBuildStatus = {
+  BUILD_PASS: "已构建",
+  TRANSFORMED: "已转换",
+  BLOCKED: "构建阻塞",
+  UNVERIFIED: "构建待验证",
+};
+
+const modDependencyStatus = {
+  RESOLVED: "依赖已解析",
+  UNSATISFIED: "依赖未满足",
+  UNVERIFIED: "依赖待验证",
+};
+
+function CompatibilitySummary({
+  report,
+  onRevealReport,
+}: {
+  report: AotCompatibility;
+  onRevealReport?: () => void;
+}) {
   return (
     <section className="compatibility-summary" aria-label="AOT 兼容性">
       <div role="status">
         <strong>AOT 兼容性</strong>
         <p>
-          {report.modCount} 个 Mod · {report.fixes} 项自动修复 ·{" "}
+          {report.modCount} 个 Mod · {report.fixes} 项自动处理 ·{" "}
           {report.warnings} 条警告 · {report.blockers} 个阻塞
         </p>
         <p>
@@ -289,6 +308,46 @@ function CompatibilitySummary({ report }: { report: AotCompatibility }) {
             .join(" · ")}
         </p>
       </div>
+      {report.rootCause?.evidence.line && (
+        <p>
+          {report.rootCause.confidence === "HIGH_CONFIDENCE" ? "疑似根因" : "根因待确认"}
+          {" · "}{report.rootCause.category}{" · "}{report.rootCause.evidence.line}
+        </p>
+      )}
+      {!!report.mods?.length && (
+        <details>
+          <summary>逐 Mod 验证状态</summary>
+          <ul>
+            {report.mods.map((mod) => (
+              <li key={mod.id}>
+                <details>
+                  <summary>
+                    {mod.name} {mod.version} · {modDependencyStatus[mod.dependencyStatus]}
+                    {" · "}{modBuildStatus[mod.buildStatus]} · 功能待验证
+                  </summary>
+                  {!!mod.rules.length && <p>应用规则 · {mod.rules.join("、")}</p>}
+                  {!!mod.degradation.length && <p>降级 · {mod.degradation.join("、")}</p>}
+                  {!!mod.risks.length && (
+                    <ul>
+                      {mod.risks.map((risk, index) => (
+                        <li key={risk.code + index}>
+                          {compatibilityReasons[risk.code] ?? risk.code} · {risk.target}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {!!mod.relevantChecks.length && (
+                    <p>待执行验证 · {mod.relevantChecks.join("、")}</p>
+                  )}
+                </details>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+      {onRevealReport && (
+        <button type="button" onClick={onRevealReport}>在 Finder 中定位兼容性报告</button>
+      )}
       {!!report.findings.length && (
         <details open={report.blockers ? true : undefined}>
           <summary>查看兼容性诊断</summary>
@@ -2687,7 +2746,12 @@ export default function App() {
                           </Pill>
                         </div>
                         {job.compatibility && (
-                          <CompatibilitySummary report={job.compatibility} />
+                          <CompatibilitySummary
+                            report={job.compatibility}
+                            onRevealReport={native ? () => void attempt("正在打开 Finder", async () => {
+                              await revealPath(`${job.build}/compatibility.json`);
+                            }) : undefined}
+                          />
                         )}
                         {job.request.forceCompile &&
                           !job.request.existingBuild && (

@@ -160,11 +160,14 @@ public final class ModNamespacesProbe implements Opcodes {
         require(conflicts.size() == 2
                         && conflicts.stream().allMatch(row -> row.get("status").equals("SKIPPED_RULE_CONFLICT")),
                 "Conflicting rules must be reported without application: " + conflicts);
+        var experimental = AdaptationRuleEngine.run(target, List.of(dummyRule("rule.experimental", "target")));
+        require(experimental.size() == 1 && experimental.get(0).get("status").equals("SKIPPED_RULE_MODE"),
+                "Experimental rules must require opt-in: " + experimental);
         try {
             AdaptationRuleEngine.run(target, List.of(dummyRule("rule.nonconverging", "target")));
             throw new AssertionError("A non-converging rule exceeded the pass limit");
         } catch (IllegalStateException expected) {
-            require(expected.getMessage().contains("did not converge after 2 passes"),
+            require(expected.getMessage().contains("idempotence check"),
                     expected.getMessage());
         }
     }
@@ -172,7 +175,14 @@ public final class ModNamespacesProbe implements Opcodes {
     private static AdaptationRuleEngine.Rule dummyRule(String id, String target) {
         return new AdaptationRuleEngine.Rule() {
             @Override public String id() { return id; }
+            @Override public int version() { return 1; }
+            @Override public AdaptationRuleEngine.Mode mode() {
+                return id.equals("rule.experimental") ? AdaptationRuleEngine.Mode.EXPERIMENTAL
+                        : AdaptationRuleEngine.Mode.VERIFIED;
+            }
             @Override public String mechanism() { return "probe guard"; }
+            @Override public String scope() { return "test fixture"; }
+            @Override public String evidence() { return "ModNamespacesProbe"; }
             @Override public String target(ClassNode node) { return target; }
             @Override public boolean matches(ClassNode node) { return true; }
             @Override public boolean alreadyApplied(ClassNode node) { return false; }

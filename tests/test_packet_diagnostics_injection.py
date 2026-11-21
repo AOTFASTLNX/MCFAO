@@ -7,12 +7,12 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
+PREPARED = Path(os.environ.get("MCFAO_TEST_PREPARED", ROOT / "artifacts/b0/prepared-04"))
 
 
 class PacketDiagnosticsInjectionTests(unittest.TestCase):
     def test_ios_hardware_diagnostics_keep_cpu_and_storage_without_initializing_oshi(self):
-        prepared_path = Path(os.environ.get("MCFAO_TEST_PREPARED", ROOT / "artifacts/b0/prepared-04"))
-        prepared_file = prepared_path / "result.json"
+        prepared_file = PREPARED / "result.json"
         if not prepared_file.is_file():
             self.skipTest("Requires pinned Java 25 / ASM")
         prepared = json.loads(prepared_file.read_text())
@@ -82,10 +82,10 @@ public final class HardwareCheck extends ClassLoader {
                             directory / "com/mojang/blaze3d/platform/GLX.class"],
                            check=True, capture_output=True, timeout=60)
 
-    @unittest.skipUnless((ROOT / "artifacts/b0/prepared-04/result.json").is_file(),
+    @unittest.skipUnless((PREPARED / "result.json").is_file(),
                          "Requires pinned Java 25 / ASM")
     def test_hooks_run_after_handoff_and_preserve_returns_and_errors(self):
-        prepared = json.loads((ROOT / "artifacts/b0/prepared-04/result.json").read_text())
+        prepared = json.loads((PREPARED / "result.json").read_text())
         home = Path(prepared["javaHome"])
         asm = [row["path"] for row in prepared["engineLibraries"]
                if Path(row["path"]).name.startswith(("asm-", "asm-tree-"))]

@@ -63,3 +63,7 @@ tools/mdaf.py 将人工反射配置、静态推断和 GraalVM tracing-agent 输�
 第一方夹具实跑证据：artifacts/mcfao/mdaf-fixture-audited-trace-01/result.json 显示 FABRIC_AOT_INPUT_PREPARED，文件/网络拒绝控制通过；该规则首轮改写 1 处，第二轮验证已应用且没有重复编辑。导出 classfile 与规则后置条件通过，但 jvmBehavioralRehearsal 为 NOT RUN。GraalVM 25 agent 收集到 635 条统一格式反射观察和 860 条资源观察，输出位于 artifacts/mcfao/mdaf-fixture-audited-trace-01/tracing-agent-attempt-1/reachability-metadata.json。合并报告 artifacts/mcfao/mdaf-fixture-aot-config-02/mdaf-report.json 检查 697 项：362 项在选定归档中解析，49 个类型未解析，1 项格式无效，285 个 JDK 类型未在归档中检查；合并冲突为 0。该报告中的完整 classpath 成员检查仍为 NOT RUN，对应 helper 目前只以独立小型 classpath 测试覆盖。
 
 该转换演练没有运行游戏目标方法。样本同时记录 mixinAccessorsRefused 一项，诊断内容为 mcfao_fixture!mcfao/fixture/mixin/WorldMixin.class (null)；不能据此声称 Mixin 或资源行为兼容。未知 Fabric API 未做穷尽扫描，stub/no-op、Mixin、动态反射与平台差异继续 Report-Only。Native Image 完整 AOT、IPA、模拟器和真机验证均为 NOT RUN。相关回归：test_mdaf 7、test_mcfao 36、test_runtime_lowering 11、test_verify_aot_classpath 4、test_config_reflection 29 项均通过；这些结果只证明各自自动化检查通过，不提升可玩 Gate。
+
+## 2026-11-21 分阶段实现
+
+当前工作从已锁定的通用适配系统继续扩展。Fabric 目录按 Loader 原顺序索引规范 ID 和别名，核心未支持路径带调用签名显式失败。新发现的 Fabric 物品 tooltip 与资源包核心路径使用真实字节码和原 Fabric 排序逻辑。Classpath 资源、反射和原生诊断进入原构建链；实际运行证据按层记录。见 [基线审计](compatibility/BASELINE_AUDIT.md)、[语义契约](compatibility/FABRIC_SEMANTIC_CONTRACT.md) 和 [测试矩阵](compatibility/TEST_MATRIX.md)。

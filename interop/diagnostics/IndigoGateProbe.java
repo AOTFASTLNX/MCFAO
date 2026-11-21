@@ -60,17 +60,26 @@ public final class IndigoGateProbe implements Opcodes {
             method.maxStack = 3;
             fallback.methods.add(method);
         }
+        var unsupported = new java.util.TreeSet<String>();
         RuntimeLowering.lowerQueries(fallback, java.util.Set.of(), java.util.Map.of(),
-                new ArrayList<>(), new java.util.TreeSet<>(), java.util.Set.of());
+                new ArrayList<>(), unsupported, java.util.Set.of());
+        if (unsupported.size() != 2 || unsupported.stream().noneMatch(
+                value -> value.contains("#list()Ljava/util/List;"))) {
+            throw new AssertionError("Unreported unsupported method: " + unsupported);
+        }
         var type = define(fallback);
-        if (!type.getMethod("list").invoke(null).equals(java.util.List.of())) {
-            throw new AssertionError("Empty interface factory failed");
+        try {
+            type.getMethod("list").invoke(null);
+            throw new AssertionError("Unsupported API returned normally");
+        } catch (java.lang.reflect.InvocationTargetException expected) {
+            if (!(expected.getCause() instanceof UnsupportedOperationException)
+                    || !expected.getCause().getMessage().contains("getObjectShare")) throw expected;
         }
         try {
             type.getConstructor().newInstance();
             throw new AssertionError("Unsupported constructor returned normally");
         } catch (java.lang.reflect.InvocationTargetException expected) {
-            if (!(expected.getCause() instanceof IllegalStateException)) throw expected;
+            if (!(expected.getCause() instanceof UnsupportedOperationException)) throw expected;
         }
     }
 

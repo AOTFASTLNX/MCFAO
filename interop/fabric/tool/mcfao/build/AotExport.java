@@ -41,7 +41,6 @@ import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.Type;
-import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.FieldInsnNode;
 import org.objectweb.asm.tree.FrameNode;
@@ -71,9 +70,13 @@ public final class AotExport implements Opcodes {
     private static final String HOST_METADATA = "META-INF/native-image/";
     private static final int RUNTIME_FEATURE = 25;
     private static final long MAX_LITERAL_RESOURCE_BYTES = 1024 * 1024;
+    private static final long MAX_CLASSPATH_RESOURCE_BYTES = 32 * 1024 * 1024;
+    private static final String PACK_CLASSPATH_INDEX = "mcfao/classpath-pack-resources.tsv";
+    private static final int MAX_PACK_CLASSPATH_INDEX_BYTES = 4 * 1024 * 1024;
+    private record ResourceSource(String modId, String origin, Path path, String originalPath) {}
     private static final Pattern LITERAL_RESOURCE_PATH = Pattern.compile(
             "(?:[A-Za-z0-9_$-][A-Za-z0-9_.$-]*/)*[A-Za-z0-9_$-][A-Za-z0-9_.$-]*"
-                    + "\\.(?:json|toml|properties|txt|xml|csv|png|jpg|jpeg|gif|webp|svg|ttf|otf|ogg|wav)",
+                    + "\\.[A-Za-z0-9]+",
             Pattern.CASE_INSENSITIVE);
     private static final String REGISTRY_CONTAINER_DESC =
             "Lcom/mrcrayfish/framework/api/registry/RegistryContainer;";
@@ -196,6 +199,10 @@ public final class AotExport implements Opcodes {
             loadedIds.addAll(mod.getMetadata().getProvides());
             versions.put(id, mod.getMetadata().getVersion().getFriendlyString());
             modNames.put(id, mod.getMetadata().getName());
+            for (String alias : mod.getMetadata().getProvides()) {
+                versions.put(alias, versions.get(id));
+                modNames.put(alias, modNames.get(id));
+            }
             modDependencies.put(id, mod.getMetadata().getDependencies().stream()
                     .filter(dependency -> dependency.getKind()
                             == net.fabricmc.loader.api.metadata.ModDependency.Kind.DEPENDS)
@@ -252,7 +259,7 @@ public final class AotExport implements Opcodes {
         var earlyInitializers = new TreeSet<String>();
         // Provider lists per ServiceLoader interface, merged across every mod because the
         // overlay is a single jar and two mods may register different providers for one type.
-        var services = new TreeMap<String, TreeSet<String>>();
+        var services = new TreeMap<String, java.util.LinkedHashSet<String>>();
         var serviceProviders = new TreeSet<String>();
         var droppedEntries = new TreeSet<String>();
         var mixinClasses = new TreeSet<String>();
@@ -305,8 +312,13 @@ public final class AotExport implements Opcodes {
         // contributions to vanilla tag and atlas files are merged while every other path keeps
         // the later-pack-wins rule the reference client applies.
         var pendingResources = new TreeMap<String, byte[]>();
-        var literalResources = new TreeMap<String, Path>();
-        var literalResourceOwners = new TreeMap<String, Integer>();
+        var resourceSources = new TreeMap<String, List<ResourceSource>>();
+        var resourceLookups = new TreeMap<String, Set<String>>();
+        var dynamicResourceLookups = new TreeSet<String>();
+        var resourceClosure = new ArrayList<Map<String, Object>>();
+        var packClasspathConflicts = new TreeSet<String>();
+        int packClasspathEntryCount;
+        var ruleOutcomes = new ArrayList<Map<String, Object>>();
         var ambiguousLiteralResources = new TreeSet<String>();
         var retainedLiteralResources = new TreeSet<String>();
         var classModOwners = new TreeMap<String, String>();
@@ -316,6 +328,8 @@ public final class AotExport implements Opcodes {
         // no resources cannot advertise a namespace and a filtered-out path cannot be exposed.
         var resourceEntryNames = new TreeSet<String>();
         var shippedNamespaces = new TreeSet<String>();
+        boolean fabricPackSourceHook = false;
+        boolean layeredModPacks;
         // A Mod file that replaces a vanilla file is declared here: one jar cannot express the
         // pack layering the reference client uses, so the merge step verifies this list instead.
         var overriddenResources = new TreeSet<String>();
@@ -355,8 +369,15 @@ public final class AotExport implements Opcodes {
                 if (Arrays.equals(before, after) && !report && !packBuilder && !pipelines
                         && !configHelper) continue;
                 ClassNode node = parse(after);
+                if (node.name.equals("net/minecraft/server/packs/repository/BuiltInPackSource")) {
+                    fabricPackSourceHook = node.methods.stream().anyMatch(method ->
+                            Arrays.stream(method.instructions.toArray()).anyMatch(instruction ->
+                                    instruction instanceof FieldInsnNode field
+                                    && field.owner.equals(RuntimeLowering.MOD_PACK_CREATOR)
+                                    && field.name.equals("CLIENT_RESOURCE_PACK_PROVIDER")));
+                }
                 if (packBuilder) {
-                    RuntimeLowering.lowerVanillaPackBuilder(node, hash(before), adaptations);
+                    RuntimeLowering.lowerVanillaPackBuilder(node, hash(before), adaptations, ruleOutcomes);
                 }
                 if (pipelines) {
                     RuntimeLowering.lowerRenderPipelineRegister(node, hash(before), adaptations);
@@ -375,15 +396,17 @@ public final class AotExport implements Opcodes {
                     RuntimeLowering.lowerGlitchCoreEvents(node, hash(before), adaptations);
                     RuntimeLowering.collectStageQueries(node, queriedStages);
                     RuntimeLowering.printBeforeReport(node, adaptations);
+                    lowerPackStreams(node, adaptations);
                 } catch (RuntimeException problem) {
                     failures.add("client/" + path + ": " + problem.getMessage());
                     continue;
                 }
+                String knotHash = hash(after);
                 after = classBytes(node);
                 verify(node, adaptations);
                 put(jar, names, path, after);
-                changes.put(path, Map.of("originalSHA256", hash(before), "transformedSHA256", hash(after),
-                        "loaderHookCalls", rewritten));
+                changes.put(path, Map.of("originalSHA256", hash(before), "knotSHA256", knotHash,
+                        "transformedSHA256", hash(after), "loaderHookCalls", rewritten));
             }
             if (hooks != 1) throw new IllegalStateException("Expected exactly one Fabric client hook, got " + hooks);
             // Framework finds @RegistryContainer classes by scanning the classpath with the
@@ -469,8 +492,18 @@ public final class AotExport implements Opcodes {
                         effective.put(name, highest.getValue());
                         multiReleasePromoted.add(id + "!" + name + "=version " + highest.getKey());
                     }
-                    for (String name : effective.keySet()) {
-                        if (eligibleLiteralResource(name)) literalResourceOwners.merge(name, 1, Integer::sum);
+                    var origin = mod.getOrigin();
+                    String originLabel = switch (origin.getKind()) {
+                        case PATH -> origin.getPaths().stream().map(p -> p.getFileName().toString())
+                                .collect(java.util.stream.Collectors.joining(","));
+                        case NESTED -> origin.getParentModId() + "!" + origin.getParentSubLocation();
+                        default -> origin.getKind().name();
+                    };
+                    for (var entry : effective.entrySet()) {
+                        if (!eligibleLiteralResource(entry.getKey())) continue;
+                        resourceSources.computeIfAbsent(entry.getKey(), key -> new ArrayList<>())
+                                .add(new ResourceSource(id, originLabel, entry.getValue(),
+                                        root.relativize(entry.getValue()).toString()));
                     }
                     for (var entry : effective.entrySet()) {
                         Path path = entry.getValue();
@@ -532,7 +565,7 @@ public final class AotExport implements Opcodes {
                                     throw new IllegalArgumentException("Invalid class path in " + id + ": " + name);
                                 }
                                 // An injected handler can carry a Mod's lookup into a game class.
-                                collectLiteralResources(raw, effective, literalResources);
+                                collectResourceLookups(raw, id, resourceLookups, dynamicResourceLookups);
                                 // Read the declared targets before the annotation is stripped: a
                                 // target outside the game jar is a library class, and Mixin would
                                 // have merged into it in the reference client.
@@ -559,6 +592,11 @@ public final class AotExport implements Opcodes {
                                     verify(raw);
                                     bytes = classBytes(raw);
                                 }
+                                var mixin = parse(bytes);
+                                if (lowerPackStreams(mixin, adaptations)) {
+                                    verify(mixin);
+                                    bytes = classBytes(mixin);
+                                }
                                 put(jar, names, name, bytes);
                                 classModOwners.put(raw.name, id);
                                 mixinClasses.add(raw.name);
@@ -571,12 +609,19 @@ public final class AotExport implements Opcodes {
                             try {
                                 byte[] data = transform(transform, delegate, name);
                                 ClassNode node = parse(data);
-                                collectLiteralResources(node, effective, literalResources);
                                 if (!name.equals(node.name + ".class")) {
                                     throw new IllegalArgumentException("Invalid class path in " + id + ": " + name);
                                 }
                                 String sourceHash = hash(Files.readAllBytes(path));
                                 TextureImageLowering.lower(node, adaptations);
+                                RuntimeLowering.lowerResourcePackEnumeration(node, sourceHash, adaptations);
+                                if (node.name.equals(RuntimeLowering.TOOLTIP_ORDER)) {
+                                    var provider = org.spongepowered.asm.service.MixinService.getService().getBytecodeProvider();
+                                    var itemStack = provider.getClassNode(RuntimeLowering.ITEM_STACK);
+                                    var components = provider.getClassNode("net/minecraft/core/component/DataComponents");
+                                    RuntimeLowering.freezeTooltipOrder(node, sourceHash,
+                                            RuntimeLowering.tooltipComponents(itemStack, components), adaptations);
+                                }
                                 RuntimeLowering.lowerJadeMetadata(node, sourceHash,
                                         jadeFlags, jadeDisabledTooltips, adaptations);
                                 RuntimeLowering.lowerModFile(node, sourceHash, adaptations);
@@ -599,6 +644,8 @@ public final class AotExport implements Opcodes {
                                 if (id.equals("fabric-api-base") && node.name.endsWith("/EventFactoryImpl")) {
                                     RuntimeLowering.removeUnusedEventProxy(id, hash(Files.readAllBytes(path)), node, adaptations);
                                 }
+                                collectResourceLookups(node, id, resourceLookups, dynamicResourceLookups);
+                                lowerPackStreams(node, adaptations);
                                 validateModCode(id, node);
                                 verify(node, adaptations);
                                 collectArgumentHolders(node, argumentHolders);
@@ -680,6 +727,7 @@ public final class AotExport implements Opcodes {
                 if (!mixinTarget.equals(node.name)) {
                     throw new IllegalArgumentException("Mixin target resolved elsewhere: " + entry);
                 }
+                if (lowerPackStreams(node, adaptations)) after = classBytes(node);
                 verify(node);
                 put(jar, names, entry, after);
                 libraryTransforms.add(mixinTarget);
@@ -761,15 +809,51 @@ public final class AotExport implements Opcodes {
                 throw new IllegalArgumentException(failures.size() + " class(es) cannot be lowered in "
                         + blocked.size() + " Mod(s):\n  " + String.join("\n  ", failures));
             }
-            for (var resource : literalResources.entrySet()) {
-                String name = resource.getKey();
-                if (literalResourceOwners.get(name) != 1 || base.getEntry(name) != null
-                        || pendingResources.containsKey(name)) {
+            // Keep each Fabric pack in the Mod's own resource root when Knot installed
+            // the real pack provider. Avoid including those same files twice in the pack stack.
+            layeredModPacks = fabricPackSourceHook
+                    && names.contains(RuntimeLowering.MOD_PACK_UTIL + ".class")
+                    && names.contains(RuntimeLowering.MOD_PACK_CREATOR + ".class");
+            if (layeredModPacks) {
+                pendingResources.keySet().removeIf(name -> name.startsWith("assets/") || name.startsWith("data/"));
+            }
+            long retainedBytes = 0;
+            for (var lookup : resourceLookups.entrySet()) {
+                String name = lookup.getKey();
+                var sources = resourceSources.getOrDefault(name, List.of());
+                var row = new TreeMap<String, Object>();
+                row.put("resourceId", name);
+                row.put("lookupSites", lookup.getValue());
+                row.put("aotReadable", "UNVERIFIED");
+                row.put("sources", sources.stream().map(source -> Map.of(
+                        "modId", source.modId(), "origin", source.origin(), "path", source.originalPath())).toList());
+                resourceClosure.add(row);
+                boolean existing = pendingResources.containsKey(name);
+                if (sources.size() > 1 || base.getEntry(name) != null && !sources.isEmpty()) {
                     ambiguousLiteralResources.add(name);
+                    row.put("status", "CONFLICT");
                     continue;
                 }
-                pendingResources.put(name, Files.readAllBytes(resource.getValue()));
+                if (sources.isEmpty()) {
+                    row.put("status", existing || base.getEntry(name) != null ? "EXISTING" : "MISSING");
+                    continue;
+                }
+                ResourceSource source = sources.getFirst();
+                long size = Files.size(source.path());
+                if (size > MAX_LITERAL_RESOURCE_BYTES || retainedBytes + size > MAX_CLASSPATH_RESOURCE_BYTES) {
+                    row.put("status", "SIZE_LIMIT");
+                    continue;
+                }
+                byte[] bytes = Files.readAllBytes(source.path());
+                if (!existing) {
+                    pendingResources.put(name, bytes);
+                    retainedBytes += bytes.length;
+                }
                 retainedLiteralResources.add(name);
+                row.put("status", "RETAINED");
+                row.put("finalPath", name);
+                row.put("sha256", hash(bytes));
+                row.put("bytes", bytes.length);
             }
             for (var resource : pendingResources.entrySet()) {
                 byte[] data = resource.getValue();
@@ -830,7 +914,8 @@ public final class AotExport implements Opcodes {
                 pinnedFabricApi.add(library.getKey());
             }
             // Immutable per-Mod files preserve resource-pack identity in the closed image.
-            var catalog = new TreeMap<String, Object>();
+            var catalog = new LinkedHashMap<String, Object>();
+            var packClasspath = new TreeMap<String, String>();
             for (var mod : loader.getAllMods()) {
                 var meta = mod.getMetadata();
                 String id = meta.getId();
@@ -844,11 +929,18 @@ public final class AotExport implements Opcodes {
                             String relative = root.relativize(file).toString().replace('\\', '/');
                             if (!(relative.startsWith("assets/") || relative.startsWith("data/")
                                     || relative.startsWith("resourcepacks/") || relative.equals("pack.mcmeta")
-                                    || relative.equals("fabric.mod.json") || iconPaths.contains(relative))) continue;
+                                    || relative.startsWith("programmer_art/") || relative.startsWith("high_contrast/")
+                                    || relative.equals("pack.png") || relative.equals("fabric.mod.json") || iconPaths.contains(relative))) continue;
                             if (!files.add(relative)) continue;
                             String resource = "mcfao/mod-files/" + id + "/" + relative;
                             put(jar, names, resource, Files.readAllBytes(file));
                             resources.add(resource);
+                            if (layeredModPacks && isPackTree(relative) && base.getEntry(relative) == null
+                                    && !packClasspathConflicts.contains(relative)
+                                    && packClasspath.putIfAbsent(relative, resource) != null) {
+                                packClasspath.remove(relative);
+                                packClasspathConflicts.add(relative);
+                            }
                         }
                     }
                 }
@@ -857,6 +949,15 @@ public final class AotExport implements Opcodes {
             String catalogPath = "mcfao/mod-catalog.json";
             put(jar, names, catalogPath, utf8(ModSnapshot.json(catalog)));
             resources.add(catalogPath);
+            var packIndex = new StringBuilder();
+            packClasspath.forEach((path, storage) -> packIndex.append(path).append('\t').append(storage).append('\n'));
+            byte[] packIndexBytes = utf8(packIndex.toString());
+            packClasspathEntryCount = packClasspath.size();
+            if (packIndexBytes.length > MAX_PACK_CLASSPATH_INDEX_BYTES) {
+                throw new IllegalArgumentException("Classpath pack index exceeds its byte budget: " + packIndexBytes.length);
+            }
+            put(jar, names, PACK_CLASSPATH_INDEX, packIndexBytes);
+            resources.add(PACK_CLASSPATH_INDEX);
             // The generated dispatch list hands out objects through the Loader's own container
             // interface, so that interface and the type it reports have to exist in the image.
             // Both are inert declarations: no Loader instance, no discovery, no class loading.
@@ -974,9 +1075,14 @@ public final class AotExport implements Opcodes {
         report.put("gameTransforms", changes);
         report.put("resources", resources);
         report.put("resourceNamespaces", shippedNamespaces);
+        report.put("minecraftPackMode", layeredModPacks ? "FABRIC_LAYERS" : "MERGED");
+        report.put("packClasspathEntries", packClasspathEntryCount);
+        report.put("packClasspathConflicts", packClasspathConflicts);
         report.put("runtimeInitializedClasses", modClasses);
         report.put("serializationRoots", serializationRoots);
         report.put("staticAdaptations", adaptations);
+        report.put("adaptationRules", ruleOutcomes);
+        report.put("resolvedModCount", selected.size());
         report.put("frameworkConfigs", frameworkConfigs.stream()
                 .map(entry -> entry[0] + "#" + entry[1]).toList());
         report.put("stubbedMethods", stubbed);
@@ -1007,6 +1113,8 @@ public final class AotExport implements Opcodes {
         report.put("mergedResources", mergedResources);
         report.put("overriddenResources", overriddenResources);
         report.put("retainedLiteralResources", retainedLiteralResources);
+        report.put("resourceClosure", resourceClosure);
+        report.put("dynamicResourceLookups", dynamicResourceLookups);
         report.put("ambiguousLiteralResources", ambiguousLiteralResources);
         Files.writeString(output.resolve("transform.json"), JSON.toJson(report));
         System.out.println("MCFAO_FABRIC_EXPORT_PASS");
@@ -1477,66 +1585,37 @@ public final class AotExport implements Opcodes {
         // Classpath resources (including JAR-root icons) are independent of Minecraft packs.
         // Keep discovery metadata, code and native libraries outside this rule. The allowed
         // alphabet is literal in a Native Image resource glob.
+        String lower = path.toLowerCase(java.util.Locale.ROOT);
         return !path.startsWith("META-INF/") && !path.startsWith("mcfao/mod-files/")
-                && !path.startsWith("assets/") && !path.startsWith("data/")
+                && !path.equals(PACK_CLASSPATH_INDEX)
+                && !isPackTree(path)
+                && !lower.matches(".*\\.(class|jar|zip|mrpack|dylib|so|dll|jnilib|a|o|exe)")
                 && !Set.of("fabric.mod.json", "quilt.mod.json").contains(path)
                 && !isMacMetadata(path)
                 && LITERAL_RESOURCE_PATH.matcher(path).matches();
     }
 
-    static void collectLiteralResources(ClassNode node, Map<String, Path> effective,
-            Map<String, Path> resources) throws IOException {
-        for (MethodNode method : node.methods) {
-            for (var insn = method.instructions.getFirst(); insn != null; insn = insn.getNext()) {
-                if (!(insn instanceof MethodInsnNode call)
-                        || !(previousCode(call) instanceof LdcInsnNode pathConstant)
-                        || !(pathConstant.cst instanceof String literal)) continue;
-                boolean classLookup = call.owner.equals("java/lang/Class") && call.getOpcode() == INVOKEVIRTUAL
-                        && resourceLookup(call, false);
-                boolean loaderLookup = call.owner.equals("java/lang/ClassLoader") && call.getOpcode() == INVOKEVIRTUAL
-                        && resourceLookup(call, false);
-                boolean systemLookup = call.owner.equals("java/lang/ClassLoader") && call.getOpcode() == INVOKESTATIC
-                        && resourceLookup(call, true);
-                if (!classLookup && !loaderLookup && !systemLookup) continue;
-                var receiver = previousCode(pathConstant);
-                if (loaderLookup) {
-                    if (!(receiver instanceof MethodInsnNode loader) || loader.getOpcode() != INVOKEVIRTUAL
-                            || !loader.owner.equals("java/lang/Class") || !loader.name.equals("getClassLoader")
-                            || !loader.desc.equals("()Ljava/lang/ClassLoader;")) continue;
-                    receiver = previousCode(loader);
-                }
-                String declaring = node.name;
-                if (!systemLookup) {
-                    if (!(receiver instanceof LdcInsnNode classConstant) || !(classConstant.cst instanceof Type type)
-                            || type.getSort() != Type.OBJECT) continue;
-                    declaring = type.getInternalName();
-                }
-                if (!effective.containsKey(declaring + ".class")) continue;
-                String path = !classLookup ? literal : literal.startsWith("/") ? literal.substring(1)
-                        : declaring.substring(0, declaring.lastIndexOf('/') + 1) + literal;
-                Path source = effective.get(path);
-                if (source != null && eligibleLiteralResource(path) && Files.size(source) <= MAX_LITERAL_RESOURCE_BYTES) {
-                    resources.putIfAbsent(path, source);
-                }
+    private static boolean isPackTree(String path) {
+        return path.startsWith("assets/") || path.startsWith("data/");
+    }
+
+    private static boolean lowerPackStreams(ClassNode node, List<String> adaptations) {
+        int changed = ResourceLookup.lowerPackStreams(node);
+        if (changed == 0) return false;
+        adaptations.add(node.name + " classpath.pack-stream.v1 (" + changed + " calls)");
+        return true;
+    }
+
+    static void collectResourceLookups(ClassNode node, String modId,
+            Map<String, Set<String>> paths, Set<String> dynamic) throws Exception {
+        for (var site : ResourceLookup.scan(node)) {
+            String location = modId + "!" + node.name + "#" + site.method() + " -> " + site.api();
+            if (site.path() == null) {
+                dynamic.add(location);
+            } else if (eligibleLiteralResource(site.path())) {
+                paths.computeIfAbsent(site.path(), key -> new TreeSet<>()).add(location);
             }
         }
-    }
-
-    private static boolean resourceLookup(MethodInsnNode call, boolean system) {
-        String prefix = system ? "getSystemResource" : "getResource";
-        return (call.name.equals(prefix) && call.desc.equals("(Ljava/lang/String;)Ljava/net/URL;"))
-                || (call.name.equals(prefix + "AsStream")
-                    && call.desc.equals("(Ljava/lang/String;)Ljava/io/InputStream;"));
-    }
-
-    private static AbstractInsnNode previousCode(AbstractInsnNode instruction) {
-        var previous = instruction.getPrevious();
-        while (previous != null && previous.getOpcode() < 0) {
-            // Do not infer a stack value across a potential branch target.
-            if (previous instanceof LabelNode || previous instanceof FrameNode) return null;
-            previous = previous.getPrevious();
-        }
-        return previous;
     }
 
     private static byte[] classBytes(ClassNode node) {
@@ -1628,9 +1707,14 @@ public final class AotExport implements Opcodes {
             }
             for (var instruction : method.instructions) {
                 if (!(instruction instanceof MethodInsnNode call)) continue;
-                boolean definesClasses = call.name.startsWith("defineClass") || call.name.startsWith("defineHiddenClass")
-                        || call.owner.equals("java/net/URLClassLoader")
-                        || call.owner.equals("java/lang/reflect/Proxy");
+                boolean definesClasses = (call.owner.equals("java/lang/invoke/MethodHandles$Lookup")
+                        && Set.of("defineClass", "defineHiddenClass", "defineHiddenClassWithClassData").contains(call.name))
+                        || (call.name.equals("defineClass")
+                        && call.desc.endsWith(")Ljava/lang/Class;")
+                        && (call.desc.contains("[B") || call.desc.contains("Ljava/nio/ByteBuffer;")))
+                        || (call.owner.equals("java/net/URLClassLoader") && call.name.equals("<init>"))
+                        || (call.owner.equals("java/lang/reflect/Proxy")
+                        && Set.of("newProxyInstance", "getProxyClass").contains(call.name));
                 boolean usesRuntimeLoader = (call.owner.startsWith("net/fabricmc/loader/")
                         && !RuntimeLowering.isValueCall(call))
                         || call.owner.startsWith("org/spongepowered/asm/mixin/transformer/");
@@ -2196,10 +2280,10 @@ public final class AotExport implements Opcodes {
      * deliberately not carried into the image; every other provider is kept and later
      * registered for reflective construction.
      */
-    private static void collectService(TreeMap<String, TreeSet<String>> services, TreeSet<String> providers,
+    private static void collectService(TreeMap<String, java.util.LinkedHashSet<String>> services, TreeSet<String> providers,
             String id, String service, List<String> lines) {
         if (service.equals("javax.annotation.processing.Processor")) return;
-        var target = services.computeIfAbsent(service, key -> new TreeSet<>());
+        var target = services.computeIfAbsent(service, key -> new java.util.LinkedHashSet<>());
         for (String line : lines) {
             String provider = line.strip();
             int comment = provider.indexOf('#');

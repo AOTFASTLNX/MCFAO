@@ -10,8 +10,9 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
-from aot_compatibility import (RENDER_PIPELINES, add_bytecode_results, bytecode_report,
-                               cached_bytecode_report, transform_report)
+from aot_compatibility import (RENDER_PIPELINES, add_bytecode_results, attribute_failure,
+                               bytecode_report, cached_bytecode_report, dynamic_risk,
+                               issue, record_build_pass, transform_report)
 from probe_client_graph import collect_mdaf_configuration
 from run_b0_reference import execute
 
@@ -126,6 +127,48 @@ class AotCompatibilityTests(unittest.TestCase):
             sources.append(path)
         subprocess.run(["javac", "-proc:none", "-d", cls.classes, *sources],
                        check=True, capture_output=True, timeout=30)
+
+    def test_attribution_requires_mechanism_evidence_and_keeps_owner(self):
+        unknown = attribute_failure(["java.lang.NullPointerException: failed"])
+        self.assertEqual(unknown["category"], "UNKNOWN")
+        known = attribute_failure([
+            "Caused by: org.graalvm.nativeimage.MissingResourceRegistrationError: sample.png",
+            "    at fixture.Example.load(Example.java:12)",
+        ], {"fixture/Example": "demo"})
+        self.assertEqual(known["category"], "AOT_RESOURCE")
+        self.assertEqual(known["modId"], "demo")
+        self.assertEqual(known["status"], "REQUIRES_VALIDATION")
+
+    def test_platform_and_dynamic_categories_do_not_conflate_apis(self):
+        for owner, method, expected in (
+            ("java/nio/file/Path", "toRealPath", "PLATFORM_REAL_PATH"),
+            ("java/awt/Font", "<init>", "DESKTOP_AWT_DRAWING"),
+            ("org/lwjgl/openal/EXTEfx", "alGenEffects", "OPENAL_EFX_UNVERIFIED"),
+            ("example/Loader", "defineClass", None),
+            ("java/lang/invoke/MethodHandles$Lookup", "defineHiddenClassWithClassData", "RUNTIME_CLASS_DEFINITION"),
+            ("org/objectweb/asm/ClassWriter", "toByteArray", "RUNTIME_BYTECODE_GENERATOR_UNVERIFIED"),
+            ("org/lwjgl/opengl/GL45C", "glBindTextureUnit", "OPENGL_AFTER_41"),
+        ):
+            with self.subTest(owner=owner, method=method):
+                self.assertEqual(dynamic_risk(owner, method, "gl41"), expected)
+
+    def test_mod_reports_keep_blocked_and_function_evidence_separate(self):
+        report = transform_report({
+            "status": "FABRIC_AOT_INPUT_PREPARED",
+            "mods": [{"id": "one", "name": "One", "version": "1.0"}],
+            "excludedMods": {"two": ["dependency"]},
+            "transform": {"resolvedMods": [{"id": "one", "version": "1.0"}]},
+        })
+        report = add_bytecode_results(report, [
+            issue("DYNAMIC_RESOURCE_UNRESOLVED", "warning", "sample", mod="one"),
+        ], {}, ())
+        record_build_pass(report)
+        first, second = report["mods"]
+        self.assertEqual(first["buildStatus"], "BUILD_PASS")
+        self.assertEqual(first["functionStatus"], "UNVERIFIED")
+        self.assertEqual(first["relevantChecks"], ["runtime-resource-read"])
+        self.assertEqual(first["riskCount"], 1)
+        self.assertEqual(second["buildStatus"], "BLOCKED")
 
     def jar(self, name, include, resources=None):
         jar = self.root / name

@@ -102,3 +102,9 @@ MCFAO_TEST_FABRIC_PREPARED="$PREPARED_DIR" \
 ./mcfao verify --target ios-arm64 --output "$NEW_BUILD_DIR"
 python3 -B -m unittest discover -s tests -p 'test_aot_compatibility.py'
 ```
+
+## 2026-11-21 通用机制回归
+
+新增别名与动态 Mod ID 的目录查询、可跟踪的类路径资源闭包、元数据来源、严格诊断模式和逐 Mod 状态。兼容性报告在 Builder 的构建记录中可逐项展开，并能定位到实际报告。启用严格缺失注册诊断的 CLI 参数为 `--exact-reachability-metadata`。见 [本轮实现与验证](compatibility/IMPLEMENTATION_REPORT.md)。
+
+COMPAT-r3 增加 pack 层的动态绝对 Classpath 流读取及最终 JAR 完整性校验。Gson 从内联或不可变字段的 TypeToken 读取泛型类型时，扫描器可注册具体 DTO。相关机制已运行 JVM 对照、严格 macOS Native Image 探针及整包 iOS ARM64 构建。见 [资源闭包](compatibility/RESOURCE_CLOSURE.md) 和 [反射验证](compatibility/AOT_METADATA.md)。

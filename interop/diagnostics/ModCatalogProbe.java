@@ -16,7 +16,32 @@ public final class ModCatalogProbe implements Opcodes {
         if (!Files.readString(mod.findPath("resourcepacks/dark/pack.mcmeta").orElseThrow()).equals("fixture")) throw new AssertionError("builtin file");
         if (mod.findPath("absent").isPresent()) throw new AssertionError("missing path");
         try { mod.getPath("../outside"); throw new AssertionError("traversal"); } catch (IllegalArgumentException expected) {}
-        if (ModCatalog.all().size()!=1 || ModCatalog.required("fixture")!=mod) throw new AssertionError("enumeration");
+        try { mod.getPath(mod.getRootPath().toString()); throw new AssertionError("absolute path"); }
+        catch (IllegalArgumentException expected) {}
+        if (ModCatalog.all().size()!=3 || ModCatalog.required("fixture")!=mod) throw new AssertionError("enumeration");
+        var nested = ModCatalog.required("nested");
+        if (!ModCatalog.isLoaded(null, new String("nested_alias"))
+                || ModCatalog.isLoaded(null, "missing")
+                || ModCatalog.lookup(null, "nested_alias").orElseThrow() != nested
+                || nested.getContainingMod().orElseThrow() != mod
+                || !List.copyOf(mod.getContainedMods()).equals(List.of(nested))
+                || !nested.getOrigin().getParentModId().equals("fixture")
+                || !nested.getOrigin().getParentSubLocation().equals("META-INF/jars/nested.jar")) {
+            throw new AssertionError("Nested catalog metadata");
+        }
+        var broken = ModCatalog.required("broken");
+        for (int attempt = 0; attempt < 2; attempt++) {
+            try { broken.getRootPaths(); throw new AssertionError("broken resource root"); }
+            catch (java.io.UncheckedIOException expected) {
+                if (!(expected.getCause() instanceof java.io.FileNotFoundException)) throw expected;
+            }
+            var temp = java.nio.file.Path.of(System.getProperty("java.io.tmpdir"));
+            try (var paths = Files.list(temp)) {
+                if (paths.anyMatch(path -> path.getFileName().toString().startsWith("mcfao-mod-broken-"))) {
+                    throw new AssertionError("partial resource root remained on disk");
+                }
+            }
+        }
         var meta=mod.getMetadata();
         if (!meta.getCustomValue("flag").getAsBoolean() || meta.getCustomValue("missing")!=null) throw new AssertionError("custom");
         var array=meta.getCustomValue("object").getAsObject().get("array").getAsArray();
@@ -25,7 +50,7 @@ public final class ModCatalogProbe implements Opcodes {
         if(!meta.getContact().get("homepage").orElseThrow().equals("https://example.org") || !meta.getAuthors().iterator().next().getName().equals("Author")) throw new AssertionError("people/contact");
         var dep=meta.getDependencies().iterator().next();
         if(!dep.matches(net.fabricmc.loader.api.Version.parse("26.1.2")) || dep.matches(net.fabricmc.loader.api.Version.parse("1.21.1")) || dep.getVersionIntervals().isEmpty()) throw new AssertionError("dependency semantics");
-        if(mod.getContainingMod().isPresent() || !mod.getContainedMods().isEmpty() || mod.getOrigin().getPaths().size()!=1) throw new AssertionError("origin");
+        if(mod.getContainingMod().isPresent() || mod.getOrigin().getPaths().size()!=1) throw new AssertionError("origin");
         var node = new ClassNode(); node.name = "example/Mod";
         var method = new MethodNode(ACC_PUBLIC | ACC_STATIC, "query", "()V", null, null);
         node.methods.add(method);

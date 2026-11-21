@@ -20,7 +20,7 @@ from client_graph_diagnostics import audit_metadata, parse_time_rss, read_analys
 from graphics_common import bridge_overlays
 from lwjgl_codegen import CALLBACKS
 from config_reflection import reflection_from_jar
-from aot_compatibility import (RENDER_PIPELINES, add_bytecode_results, cached_bytecode_report, issue,
+from aot_compatibility import (RENDER_PIPELINES, add_bytecode_results, attribute_failure, cached_bytecode_report, issue,
                                publish, transform_report)
 from mod_file_policy import content_paths, copy_content_file, copy_ignore, is_metadata
 from native_image_home import native_image_home
@@ -31,7 +31,7 @@ from renderer_profile import DEFAULT_RENDERER, RENDERERS
 
 NATIVE_FAILURE = re.compile(
     r"OutOfMemoryError|ran out of memory|NativeImage\$NativeImageError|"
-    r"UnsatisfiedLinkError|NoClassDefFoundError|Exception in thread|^Error:")
+    r"UnsatisfiedLinkError|NoClassDefFoundError|Missing\w+RegistrationError|Exception in thread|^Error:")
 NATIVE_COMPLETED_PHASE = re.compile(r"^\[([1-8])/8\].*\(\d+(?:\.\d+)?s @ [\d.]+GB\)\s*$")
 
 
@@ -129,7 +129,14 @@ def collect_mdaf_configuration(maintained, inferred, tracing_directories, classp
     observed_names = {entry.get("name") for entry in [*inferred, *unified_validation,
                                                       *agent_metadata.get("reflect-config.json", [])]
                       if isinstance(entry, dict)}
+    inferred_names = {entry["name"] for entry in inferred}
+    traced_names = {entry.get("name") for entry in [*unified_validation,
+                                                   *agent_metadata.get("reflect-config.json", [])]
+                    if isinstance(entry, dict)}
     for row in resolution["findings"]:
+        row["sources"] = [label for label, names in (("MAINTAINED", maintained_names),
+                           ("STATIC_INFERENCE", inferred_names), ("TRACING_AGENT", traced_names))
+                          if row["type"] in names]
         if row["status"] == "UNRESOLVED_TYPE" and row["type"] in maintained_names - observed_names:
             row["status"] = "SKIPPED_ABSENT_MAINTAINED_TYPE"
             resolution["unresolvedTypesOrMembers"] -= 1
@@ -220,6 +227,8 @@ def run(argv, resources):
     parser.add_argument("--fabric-report", type=Path, help="Verified Fabric transform report")
     parser.add_argument("--compatibility-report", type=Path, help="Publish a live compatibility summary")
     parser.add_argument("--include-game-resources",action="store_true",help="Embed owned vanilla assets/data and pack/version metadata for the actual Main entry")
+    parser.add_argument("--exact-reachability-metadata", action="store_true",
+                        help="Enable strict missing-registration semantics in this diagnostic image")
     parser.add_argument("--initialize-at-build-time",default="",
                         help="Comma separated classes initialized on the build host instead of at run time")
     parser.add_argument("--graphics-bridge",type=Path,help="Verified build_lwjgl_lite output; replace core/GLFW jars with explicit iOS JNI overlays")
@@ -504,16 +513,17 @@ def run(argv, resources):
                 required.add("mcfao/aot/Entrypoints")
                 required.update(row["definition"].split("::", 1)[0].replace(".", "/")
                                 for row in fabric_entries if row["stage"] in ("main", "client"))
+            owners = prepared_fabric.get("transform", {}).get("classModOwners", {})
             inferred, resources_config, findings, graph, scan = cached_bytecode_report(
                 args.preflight_cache, candidate, libraries, args.renderer, java_home=source_home,
-                required=required, entrypoint=entry_class.replace(".", "/"), fabric_entries=fabric_entries)
+                required=required, entrypoint=entry_class.replace(".", "/"), fabric_entries=fabric_entries,
+                class_mod_owners=owners)
             result["bytecodePreflight"] = scan
             graph.update(scan)
             print(f"Preflight {args.renderer}: {graph.get('classes', 0)} classes, "
                   f"{scan['seconds']:.2f}s, cache={'hit' if scan['cacheHit'] else 'miss'}", flush=True)
-            owners = prepared_fabric.get("transform", {}).get("classModOwners", {})
             for finding in findings:
-                caller = (finding.get("location") or "").split("#", 1)[0]
+                caller = (finding.get("location") or finding["target"]).split("#", 1)[0]
                 if caller in owners:
                     finding["mod"] = owners[caller]
             if resources_config["resources"]["includes"]:
@@ -598,6 +608,9 @@ def run(argv, resources):
              "-H:ConfigurationFileDirectories="+str(native_config_dir),
              "--enable-native-access=ALL-UNNAMED","-cp",":".join(map(str,libraries)),"-o",str(work/"client-graph"),
              entry_class]
+        if args.exact_reachability_metadata:
+            cmd.insert(cmd.index("-cp"), "--exact-reachability-metadata")
+            result["exactReachabilityMetadata"] = True
         if entry_class=='net.minecraft.client.main.Main':
             # Authlib constructs HTTPS URLs during normal initialization, before network access.
             cmd.insert(cmd.index('-cp'),'--enable-url-protocols=http,https')
@@ -699,6 +712,11 @@ def run(argv, resources):
             # Native Image prints the fatal line on stdout, then keeps writing
             # diagnostics, so the exit code alone never names the cause.
             result["analysisFailure"] = native_failure_reason(output / "analysis", built)
+            if compatibility is not None:
+                compatibility["stages"]["aot"] = "FAIL"
+                compatibility["rootCause"] = attribute_failure(result["analysisFailure"]["lines"], owners)
+                publish(output / "compatibility.json", compatibility)
+                publish(args.compatibility_report, compatibility)
         if args.full_build:
             # A full build may legitimately fail after analysis; record whatever it emitted.
             produced=[p for p in work.glob("client-graph*") if p.is_file()]

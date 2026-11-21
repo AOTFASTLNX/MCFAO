@@ -11,25 +11,42 @@ import net.fabricmc.loader.api.metadata.*;
 /** Build-time identity snapshot; no discovery, executable JARs, or runtime class loading. */
 public final class ModCatalog {
     private ModCatalog() {}
+    private record Index(List<ModContainer> mods, Map<String, ModContainer> byId) {}
+
     private static final class State {
-        static final Map<String, ModContainer> MODS = read();
+        static final Index INDEX = read();
     }
-    private static Map<String, ModContainer> read() {
+
+    private static Index read() {
         try (var in = ModCatalog.class.getResourceAsStream("/mcfao/mod-catalog.json")) {
             if (in == null) throw new IllegalStateException("Missing AOT Mod catalog");
             var json = JsonParser.parseReader(new InputStreamReader(in, StandardCharsets.UTF_8)).getAsJsonObject();
-            var result = new LinkedHashMap<String, ModContainer>();
-            for (var entry : json.entrySet()) result.put(entry.getKey(), new Container(entry.getValue().getAsJsonObject()));
-            return Collections.unmodifiableMap(result);
+            var mods = new ArrayList<ModContainer>();
+            var byId = new LinkedHashMap<String, ModContainer>();
+            for (var entry : json.entrySet()) {
+                var mod = new Container(entry.getValue().getAsJsonObject());
+                mods.add(mod);
+                // Loader indexes canonical IDs and provides in the same resolution order.
+                byId.put(entry.getKey(), mod);
+                for (String alias : mod.getMetadata().getProvides()) byId.put(alias, mod);
+            }
+            return new Index(List.copyOf(mods), Collections.unmodifiableMap(byId));
         } catch (IOException error) { throw new UncheckedIOException(error); }
     }
+
     public static Optional<ModContainer> lookup(Object ignored, String id) {
-        return Optional.ofNullable(State.MODS.get(Objects.requireNonNull(id)));
+        return Optional.ofNullable(State.INDEX.byId().get(id));
     }
+
+    public static boolean isLoaded(Object ignored, String id) {
+        return State.INDEX.byId().containsKey(id);
+    }
+
     public static ModContainer required(String id) {
         return lookup(null, id).orElseThrow(() -> new IllegalStateException("Missing AOT Mod provider: " + id));
     }
-    public static Collection<ModContainer> all() { return State.MODS.values(); }
+
+    public static Collection<ModContainer> all() { return State.INDEX.mods(); }
     private static List<String> strings(JsonObject json, String key) {
         var result = new ArrayList<String>();
         if (json.has(key)) for (var item : json.getAsJsonArray(key)) result.add(item.getAsString());
@@ -60,9 +77,7 @@ public final class ModCatalog {
                     directory = Files.createTempDirectory("mcfao-mod-" + metadata.getId() + "-");
                     for (var entry : json.getAsJsonArray("files")) {
                         String relative = entry.getAsString();
-                        Path file = directory.resolve(relative).normalize();
-                        if (!file.startsWith(directory) || relative.contains("\\") || Path.of(relative).isAbsolute())
-                            throw new IllegalArgumentException("Unsafe Mod resource: " + relative);
+                        Path file = resolveRelative(directory, relative);
                         try (var in = ModCatalog.class.getResourceAsStream("/mcfao/mod-files/" + metadata.getId() + "/" + relative)) {
                             if (in == null) throw new FileNotFoundException(relative);
                             Files.createDirectories(file.getParent());
@@ -70,17 +85,24 @@ public final class ModCatalog {
                         }
                     }
                     root = directory; // Publish only a complete tree.
-                } catch (IOException error) { throw new UncheckedIOException(error); }
+                } catch (IOException | RuntimeException error) {
+                    if (directory != null) {
+                        try (var tree = Files.walk(directory)) {
+                            for (Path path : tree.sorted(Comparator.reverseOrder()).toList()) Files.delete(path);
+                        } catch (IOException | RuntimeException cleanup) {
+                            error.addSuppressed(cleanup);
+                        }
+                    }
+                    if (error instanceof IOException io) throw new UncheckedIOException(io);
+                    throw (RuntimeException) error;
+                }
             }
             return List.of(root);
         }
         public Path getRootPath() { return getRootPaths().getFirst(); }
         public Path getRoot() { return getRootPath(); }
         public Path getPath(String name) {
-            Path base = getRootPath();
-            Path path = base.resolve(name).normalize();
-            if (!path.startsWith(base)) throw new IllegalArgumentException("Path outside Mod root: " + name);
-            return path;
+            return resolveRelative(getRootPath(), name);
         }
         public Optional<Path> findPath(String name) {
             Path path = getPath(name); return Files.exists(path) ? Optional.of(path) : Optional.empty();
@@ -110,6 +132,15 @@ public final class ModCatalog {
             return strings(json,"children").stream().map(ModCatalog::required).toList();
         }
     }
+    private static Path resolveRelative(Path base, String name) {
+        Path relative = Path.of(name);
+        Path resolved = base.resolve(relative).normalize();
+        if (relative.isAbsolute() || name.contains("\\") || !resolved.startsWith(base)) {
+            throw new IllegalArgumentException("Path outside Mod root: " + name);
+        }
+        return resolved;
+    }
+
     private static final class Metadata implements ModMetadata {
         private final JsonObject json;
         Metadata(JsonObject json) { this.json = json; }

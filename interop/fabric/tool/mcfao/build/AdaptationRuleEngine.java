@@ -7,8 +7,6 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
-import java.util.TreeMap;
 
 import org.objectweb.asm.tree.ClassNode;
 
@@ -16,9 +14,15 @@ import org.objectweb.asm.tree.ClassNode;
 final class AdaptationRuleEngine {
     static final int MAX_PASSES = 2;
 
+    enum Mode { VERIFIED, EXPERIMENTAL, UNSUPPORTED }
+
     interface Rule {
         String id();
+        int version();
+        Mode mode();
         String mechanism();
+        String scope();
+        String evidence();
         String target(ClassNode node);
         boolean matches(ClassNode node);
         boolean alreadyApplied(ClassNode node);
@@ -30,6 +34,11 @@ final class AdaptationRuleEngine {
     private AdaptationRuleEngine() {}
 
     static List<Map<String, Object>> run(ClassNode node, Collection<? extends Rule> rules) {
+        return run(node, rules, false);
+    }
+
+    static List<Map<String, Object>> run(ClassNode node, Collection<? extends Rule> rules,
+            boolean allowExperimental) {
         var ids = new HashSet<String>();
         for (Rule rule : rules) {
             if (!ids.add(rule.id())) {
@@ -46,14 +55,21 @@ final class AdaptationRuleEngine {
                 break;
             }
 
+            var enabled = new ArrayList<Rule>();
             var byTarget = new HashMap<String, List<Rule>>();
             for (Rule rule : matched) {
+                if (rule.mode() == Mode.UNSUPPORTED || rule.mode() == Mode.EXPERIMENTAL && !allowExperimental) {
+                    outcomes.add(outcome(rule, rule.target(node), pass, "SKIPPED_RULE_MODE", 0,
+                            "Rule is not enabled in this build"));
+                    continue;
+                }
+                enabled.add(rule);
                 byTarget.computeIfAbsent(rule.target(node), ignored -> new ArrayList<>()).add(rule);
             }
 
             passes = pass;
             int changes = 0;
-            for (Rule rule : matched) {
+            for (Rule rule : enabled) {
                 String target = rule.target(node);
                 List<Rule> conflicts = byTarget.get(target);
                 if (conflicts.size() > 1) {
@@ -80,20 +96,14 @@ final class AdaptationRuleEngine {
                 if (applied < 1) fail(rule, target, "apply", "rule reported no changes");
                 failure = rule.verificationFailure(node);
                 if (failure != null) fail(rule, target, "postcondition", failure);
+                if (!rule.alreadyApplied(node)) fail(rule, target, "idempotence check", "edit could repeat");
                 changes += applied;
                 outcomes.add(outcome(rule, target, pass, "APPLIED", applied,
                         "Bytecode postcondition verified"));
             }
 
             if (changes == 0) break;
-            if (pass == MAX_PASSES) {
-                var pending = rules.stream().filter(rule -> rule.matches(node))
-                        .filter(rule -> !rule.alreadyApplied(node)).map(Rule::id).sorted().toList();
-                if (!pending.isEmpty()) {
-                    throw new IllegalStateException("MDAF did not converge after " + MAX_PASSES
-                            + " passes; pending rules: " + pending);
-                }
-            }
+
         }
 
         for (var outcome : outcomes) outcome.put("passes", passes);
@@ -109,6 +119,10 @@ final class AdaptationRuleEngine {
             String status, int changes, String validation) {
         var result = new LinkedHashMap<String, Object>();
         result.put("id", rule.id());
+        result.put("version", rule.version());
+        result.put("mode", rule.mode().name());
+        result.put("scope", rule.scope());
+        result.put("evidence", rule.evidence());
         result.put("mechanism", rule.mechanism());
         result.put("target", target);
         result.put("pass", pass);

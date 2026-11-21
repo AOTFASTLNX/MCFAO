@@ -46,10 +46,124 @@ def type_names(value):
     return MEMBER_TYPES.findall(value) if value.startswith("[") else [value]
 
 
+DIAGNOSTIC_CATEGORIES = {
+    "FABRIC_DEPENDENCIES": "DEPENDENCY_MISSING",
+    "FABRIC_RUNTIME_RESIDUE": "FABRIC_SEMANTIC",
+    "FABRIC_TRANSFORMATION": "FABRIC_SEMANTIC",
+    "INVALID_FABRIC_ENTRYPOINT": "FABRIC_ENTRYPOINT",
+    "CLASS_INITIALIZATION_SIDE_EFFECT": "AOT_INITIALIZATION",
+    "SERIALIZATION_CALL": "AOT_SERIALIZATION",
+    "REFLECTIVE_ALLOCATION": "AOT_REFLECTION",
+    "METHOD_HANDLE_LOOKUP": "AOT_REFLECTION",
+    "TYPED_GSON_CONFIG": "AOT_REFLECTION",
+    "CONFIG_NO_PUBLIC_NOARG": "AOT_REFLECTION",
+    "DYNAMIC_RESOURCE_UNRESOLVED": "AOT_RESOURCE",
+    "SERVICE_PROVIDER_MISSING": "DEPENDENCY_MISSING",
+    "SERVICE_LOADER_CALL": "AOT_RESOURCE",
+    "PROXY_CALL": "AOT_DYNAMIC_CLASS",
+    "NATIVE_LIBRARY_LOAD": "PLATFORM_JNI",
+    "MOD_NATIVE_METHOD": "PLATFORM_JNI",
+    "NATIVE_LINK_UNSUPPORTED": "PLATFORM_JNI",
+    "OPENAL_EFX_UNVERIFIED": "PLATFORM_AUDIO",
+    "PLATFORM_REAL_PATH": "PLATFORM_FILESYSTEM",
+    "OPENGL_AFTER_41": "GRAPHICS_CAPABILITY",
+}
+
+CATEGORY_PREFIXES = (
+    ("MIXIN_", "FABRIC_MIXIN"), ("RESOURCE_", "AOT_RESOURCE"),
+    ("REFLECTION_", "AOT_REFLECTION"), ("DESKTOP_", "PLATFORM_AWT"),
+    ("RUNTIME_", "AOT_DYNAMIC_CLASS"), ("METAL_", "GRAPHICS_CAPABILITY"),
+)
+
+CATEGORY_CHECKS = {
+    "FABRIC_SEMANTIC": "fabric-loader-contract",
+    "FABRIC_MIXIN": "mixin-bytecode",
+    "FABRIC_ENTRYPOINT": "entrypoint-dispatch",
+    "AOT_RESOURCE": "runtime-resource-read",
+    "AOT_REFLECTION": "configuration-round-trip",
+    "AOT_SERIALIZATION": "serialization-round-trip",
+    "AOT_INITIALIZATION": "initialization-timing",
+    "AOT_DYNAMIC_CLASS": "dynamic-class-contract",
+    "PLATFORM_AWT": "image-pixel-contract",
+    "PLATFORM_FILESYSTEM": "ios-sandbox-filesystem",
+    "PLATFORM_JNI": "native-library-contract",
+    "PLATFORM_AUDIO": "openal-object-lifecycle",
+}
+
+
+def diagnostic_category(code):
+    return DIAGNOSTIC_CATEGORIES.get(code) or next(
+        (category for prefix, category in CATEGORY_PREFIXES if code.startswith(prefix)), "UNKNOWN")
+
+
+def attribute_failure(lines, owners=None):
+    """Use explicit evidence tokens; generic exceptions do not identify a root cause."""
+    markers = (
+        ("MissingReflectionRegistrationError", "AOT_REFLECTION"),
+        ("MissingResourceRegistrationError", "AOT_RESOURCE"),
+        ("MissingSerializationRegistrationError", "AOT_SERIALIZATION"),
+        ("MissingJNIRegistrationError", "PLATFORM_JNI"),
+        ("EntrypointException", "FABRIC_ENTRYPOINT"),
+        ("MixinApplyError", "FABRIC_MIXIN"),
+        ("InvalidMixinException", "FABRIC_MIXIN"),
+        ("JsonSyntaxException", "CONFIG_INVALID"),
+        ("AccessDeniedException", "PLATFORM_FILESYSTEM"),
+        ("Unsupported closed-world Fabric API:", "FABRIC_SEMANTIC"),
+        ("Unsupported runtime class/native loading", "AOT_DYNAMIC_CLASS"),
+        ("No OpenGL context", "GRAPHICS_CAPABILITY"),
+    )
+    cleaned = [redact_log(line.strip())[:1024] for line in lines if line.strip()]
+    for index, evidence in enumerate(cleaned):
+        for marker, category in markers:
+            if marker not in evidence:
+                continue
+            result = {"category": category, "confidence": "HIGH_CONFIDENCE",
+                      "status": "REQUIRES_VALIDATION", "evidence": {"line": evidence}}
+            if owners:
+                for frame in cleaned[index + 1:index + 21]:
+                    caller = re.search(r"^at (?:[^ /]+/)?([\w.$]+)\.[^.(]+\(", frame)
+                    if caller and (mod := owners.get(caller[1].replace(".", "/"))):
+                        result["modId"] = mod
+                        result["evidence"]["frame"] = frame
+                        break
+            return result
+    return {"category": "UNKNOWN", "confidence": "UNKNOWN", "status": "REQUIRES_VALIDATION",
+            "evidence": {"line": cleaned[0] if cleaned else ""}}
+
+
+def update_mod_reports(report, findings):
+    by_id = {row["id"]: row for row in report.get("mods", ())}
+    for finding in findings:
+        row = by_id.get(finding.get("mod"))
+        if row is None:
+            continue
+        severity = finding["severity"]
+        if severity == "blocker":
+            row["buildStatus"] = "BLOCKED"
+        if severity == "warning" and finding.get("code") == "FABRIC_RUNTIME_RESIDUE":
+            row["reachesUnsupportedApi"] = "UNVERIFIED"
+        category = finding.get("category") or diagnostic_category(finding["code"])
+        checks = set(row.get("relevantChecks", ()))
+        if category in CATEGORY_CHECKS:
+            checks.add(CATEGORY_CHECKS[category])
+        row["relevantChecks"] = sorted(checks)
+        if severity in ("warning", "blocker"):
+            row["riskCount"] += finding.get("count", 1)
+            if len(row["risks"]) < 8:
+                row["risks"].append(finding)
+    return report
+
+
+def record_build_pass(report):
+    for row in report.get("mods", ()):
+        if row["dependencyStatus"] == "RESOLVED" and row["buildStatus"] == "TRANSFORMED":
+            row["buildStatus"] = "BUILD_PASS"
+
+
 def issue(code, severity, target, location=None, count=1, **details):
     if code in REMEDIES:
         details.setdefault("suggestion", REMEDIES[code])
-    return dict(code=code, severity=severity, target=redact_log(target),
+    return dict(code=code, category=diagnostic_category(code), severity=severity, target=redact_log(target),
                 location=redact_log(location) if location else None, count=count, **details)
 
 
@@ -72,7 +186,7 @@ def add_bytecode_results(report, findings, counters, categories):
     current["stages"] = {**report["stages"], "static": "FAIL" if current["blockers"] else "PASS"}
     current["graph"] = counters
     current["metadataFiles"] = sorted(categories)
-    return current
+    return update_mod_reports(current, findings)
 
 
 def publish(path, report):
@@ -101,20 +215,63 @@ def transform_report(record):
             ("ambiguousLiteralResources", "RESOURCE_AMBIGUOUS"),
             ("stubbedMethods", "FABRIC_RUNTIME_RESIDUE")):
         findings.extend(issue(code, "warning", value) for value in transform.get(field, ()))
+    for value in transform.get("dynamicResourceLookups", ()):
+        location = value.split(" -> ", 1)[0]
+        findings.append(issue("DYNAMIC_RESOURCE_UNRESOLVED", "warning", value, location,
+                              mod=location.partition("!")[0]))
+    for row in transform.get("resourceClosure", ()):
+        if row["status"] in ("MISSING", "SIZE_LIMIT"):
+            site = row["lookupSites"][0]
+            findings.append(issue("RESOURCE_" + row["status"], "warning", row["resourceId"], site,
+                                  mod=site.partition("!")[0]))
     findings.extend(issue("BYTECODE_ADAPTATION", "fix", value)
                     for value in transform.get("staticAdaptations", ()))
     findings.extend(issue("RESOURCE_RETAINED", "fix", value)
                     for value in transform.get("retainedLiteralResources", ()))
     completed = record.get("status") == "FABRIC_AOT_INPUT_PREPARED"
     failed = bool(record.get("error")) or any(row["severity"] == "blocker" for row in findings)
-    mods = transform.get("resolvedMods", record.get("mods", ()))
-    mod_count = len({mod["id"] for mod in mods if mod.get("client", True)})
-    return summarise(dict(
-        schemaVersion=1, renderer=record.get("renderer"), modCount=mod_count,
+    selected = {mod["id"]: mod for mod in transform.get("resolvedMods", ())}
+    inventory = {mod["id"]: mod for mod in record.get("mods", ()) if mod.get("client", True)}
+    excluded = record.get("excludedMods", {})
+    by_id = {}
+    for mod_id in sorted(selected.keys() | inventory.keys() | excluded.keys()):
+        metadata = inventory.get(mod_id, {})
+        dependency = "RESOLVED" if mod_id in selected else (
+            "UNSATISFIED" if resolved.get("status") == "UNSATISFIED" else "UNVERIFIED")
+        by_id[mod_id] = dict(id=mod_id, name=metadata.get("name", mod_id),
+                             version=selected.get(mod_id, metadata).get("version", ""),
+                             dependencyStatus=dependency,
+                             buildStatus="BLOCKED" if mod_id in excluded else (
+                                 "TRANSFORMED" if mod_id in selected else "UNVERIFIED"),
+                             functionStatus="UNVERIFIED", deviceStatus="DEVICE_NOT_RUN",
+                             rules=[], risks=[], riskCount=0, degradation=[], relevantChecks=[])
+    owners = transform.get("classModOwners", {})
+    for value in transform.get("staticAdaptations", ()):
+        caller = value.split("#", 1)[0]
+        if row := by_id.get(owners.get(caller)):
+            if value.endswith(" ios.texture.png-native-image.v1"):
+                rule = "ios.texture.png-native-image.v1"
+                if rule not in row["rules"]:
+                    row["rules"].append(rule)
+            if "stubbed:" in value or " = ModFiles.modFile(" in value:
+                row["degradation"].append(redact_log(value))
+    for resource in transform.get("resourceClosure", ()):
+        if resource["status"] == "RETAINED":
+            for source in resource["sources"]:
+                if row := by_id.get(source["modId"]):
+                    if "classpath.resource.v1" not in row["rules"]:
+                        row["rules"].append("classpath.resource.v1")
+    for finding in findings:
+        location = finding["location"] or finding["target"]
+        if not finding.get("mod") and (mod := owners.get(location.split("#", 1)[0])):
+            finding["mod"] = mod
+    return update_mod_reports(summarise(dict(
+        schemaVersion=1, renderer=record.get("renderer"), modCount=len(selected or inventory),
+        mods=list(by_id.values()), adaptationRules=transform.get("adaptationRules", ()),
         stages=dict(static="FAIL" if failed else "UNVERIFIED",
                     transform="FAIL" if failed else "PASS" if completed else "SKIPPED",
                     aot="SKIPPED", startup="UNVERIFIED", device="UNVERIFIED"),
-    ), findings)
+    ), findings), findings)
 
 
 def scan_archive(archive):
@@ -266,13 +423,14 @@ def symbolic_operands(opcode, operand):
 
 
 def bytecode_report(client, libraries, renderer, *, java_home=None, required=(), entrypoint=None,
-                    fabric_entries=()):
+                    fabric_entries=(), class_mod_owners=None):
     """Collect symbolic references and check hard roots plus backend invariants.
 
     Symbols in optional branches can be absent legitimately. Their presence in a classfile
     provides a diagnostic, while the inheritance chain of a required root is mandatory.
     """
     findings = []
+    owners = class_mod_owners or {}
     grouped = {}
     counters = Counter()
     static_resources = set()
@@ -284,10 +442,11 @@ def bytecode_report(client, libraries, renderer, *, java_home=None, required=(),
                          for archive, _ in classpath.classes.values()}
 
         def add(code, severity, target, location, source=None):
-            key = (code, severity, target)
+            mod = owners.get(location.split("#", 1)[0])
+            key = (code, severity, target, mod)
             if key not in grouped:
                 grouped[key] = issue(code, severity, target, location, count=0,
-                                     stage="final-classpath", renderer=renderer,
+                                     stage="final-classpath", renderer=renderer, mod=mod,
                                      **({"archive": Path(source.filename).name} if source else {}))
             grouped[key]["count"] += 1
 
@@ -361,6 +520,9 @@ def bytecode_report(client, libraries, renderer, *, java_home=None, required=(),
                             counters["constructorEdges"] += 1
                         if method == "<clinit>()V" or split_initializer:
                             counters["classInitializerEdges"] += 1
+                            if mod_code and tag != 9 and initializer_effect(owner, name):
+                                add("CLASS_INITIALIZATION_SIDE_EFFECT", "warning",
+                                    owner + "." + name, location, source)
                         if owner == "java/lang/Class" and name in ("getResource", "getResourceAsStream"):
                             if (isinstance(receiver, tuple) and receiver[0] == 7
                                     and isinstance(previous, tuple) and previous[0] == 8):
@@ -376,7 +538,8 @@ def bytecode_report(client, libraries, renderer, *, java_home=None, required=(),
                             elif mod_code:
                                 add("DYNAMIC_RESOURCE", "warning", owner + "." + name, location)
                         if mod_code:
-                            category = dynamic_risk(owner, name, renderer)
+                            declaration = resolve_member(owner, name, descriptor, tag == 9) if name == "defineClass" else None
+                            category = dynamic_risk(declaration[0] if declaration else owner, name, renderer)
                             if category:
                                 add(category, "warning", owner + "." + name, location)
                     receiver, previous = previous, operand
@@ -450,12 +613,39 @@ def bytecode_report(client, libraries, renderer, *, java_home=None, required=(),
     return reflection, resources, findings, dict(counters)
 
 
+def initializer_effect(owner, member):
+    return (owner in ("java/nio/file/Files", "java/io/FileInputStream", "java/io/FileOutputStream",
+                      "java/net/Socket", "java/lang/ProcessBuilder", "java/util/ServiceLoader",
+                      "oshi/SystemInfo")
+            or owner.startswith("net/minecraft/core/registries/")
+            or (owner, member) in {
+                ("java/lang/Class", "getResource"), ("java/lang/Class", "getResourceAsStream"),
+                ("java/lang/System", "load"), ("java/lang/System", "loadLibrary"),
+                ("java/lang/Runtime", "load"), ("java/lang/Runtime", "loadLibrary"),
+            })
+
+
 def dynamic_risk(owner, member, renderer):
     if owner.startswith(("javax/imageio/", "java/awt/image/")) or owner in ("java/awt/Toolkit", "sun/awt/AppContext"):
         return "DESKTOP_IMAGE_IOS_UNSUPPORTED"
-    if (member == "defineClass" or member.startswith("defineHiddenClass")) and (
-            owner.endswith("ClassLoader") or owner == "java/lang/invoke/MethodHandles$Lookup"):
+    if owner in ("java/awt/Font", "java/awt/GraphicsEnvironment", "java/awt/Graphics2D") or owner.startswith("java/awt/font/"):
+        return "DESKTOP_AWT_DRAWING"
+    if owner in ("java/awt/Desktop", "java/awt/FileDialog", "javax/swing/JFileChooser"):
+        return "DESKTOP_UI_IOS_UNSUPPORTED"
+    if owner.startswith("java/awt/datatransfer/"):
+        return "DESKTOP_CLIPBOARD_IOS_UNSUPPORTED"
+    if owner == "java/nio/file/Path" and member == "toRealPath":
+        return "PLATFORM_REAL_PATH"
+    if owner == "org/lwjgl/openal/EXTEfx" and member.startswith("al"):
+        return "OPENAL_EFX_UNVERIFIED"
+    if ((owner == "java/lang/invoke/MethodHandles$Lookup"
+         and member in ("defineClass", "defineHiddenClass", "defineHiddenClassWithClassData"))
+            or (owner in ("java/lang/ClassLoader", "java/security/SecureClassLoader") and member == "defineClass")):
         return "RUNTIME_CLASS_DEFINITION"
+    if ((owner.endswith("/asm/ClassWriter") and member == "toByteArray")
+            or (owner.startswith("javassist/") and member == "toClass")
+            or (owner.startswith("net/bytebuddy/dynamic/") and member in ("make", "load"))):
+        return "RUNTIME_BYTECODE_GENERATOR_UNVERIFIED"
     if (owner, member) in {("java/lang/System", "load"), ("java/lang/System", "loadLibrary"),
                            ("java/lang/Runtime", "load"), ("java/lang/Runtime", "loadLibrary")}:
         return "NATIVE_LIBRARY_LOAD"
@@ -463,6 +653,10 @@ def dynamic_risk(owner, member, renderer):
             "forName", "getField", "getDeclaredField", "getMethod", "getDeclaredMethod",
             "getConstructor", "getDeclaredConstructor", "getDeclaredFields", "getDeclaredConstructors"):
         return "REFLECTION_CALL"
+    if owner in ("sun/misc/Unsafe", "jdk/internal/misc/Unsafe") and member == "allocateInstance":
+        return "REFLECTIVE_ALLOCATION"
+    if owner == "java/lang/invoke/MethodHandles$Lookup" and member.startswith(("find", "unreflect")):
+        return "METHOD_HANDLE_LOOKUP"
     if owner == "java/lang/reflect/Proxy" and member in ("newProxyInstance", "getProxyClass"):
         return "PROXY_CALL"
     if owner in ("java/io/ObjectInputStream", "java/io/ObjectOutputStream") and member in (
@@ -478,7 +672,7 @@ def dynamic_risk(owner, member, renderer):
 
 
 def cached_bytecode_report(cache, client, libraries, renderer, *, java_home, required, entrypoint,
-                           fabric_entries=()):
+                           fabric_entries=(), class_mod_owners=None):
     """Key results by the ordered bytes Native Image reads and the scanner implementation."""
     started = time.monotonic()
     required = sorted(set(required))
@@ -490,7 +684,7 @@ def cached_bytecode_report(cache, client, libraries, renderer, *, java_home, req
         digests = list(executor.map(sha256, paths))
     client_index = next(index for index, path in enumerate(libraries) if path.resolve() == client.resolve())
     inputs = dict(renderer=renderer, entrypoint=entrypoint, required=required, clientIndex=client_index,
-                  fabricEntries=list(fabric_entries),
+                  fabricEntries=list(fabric_entries), classModOwners=class_mod_owners or {},
                   orderedArchiveSHA256=list(zip((path.name for path in paths), digests)))
     key = hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()
     path = cache / f"{key}.json" if cache else None
@@ -505,7 +699,8 @@ def cached_bytecode_report(cache, client, libraries, renderer, *, java_home, req
         except (OSError, ValueError, KeyError, TypeError):
             pass
     result = bytecode_report(client, libraries, renderer, java_home=java_home, required=required,
-                             entrypoint=entrypoint, fabric_entries=fabric_entries)
+                             entrypoint=entrypoint, fabric_entries=fabric_entries,
+                             class_mod_owners=class_mod_owners)
     if path:
         digest = hashlib.sha256(json.dumps(result, sort_keys=True).encode()).hexdigest()
         try:

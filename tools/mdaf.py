@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import struct
 import zipfile
+from contextlib import ExitStack
 from pathlib import Path
 
 from mod_file_policy import is_metadata
@@ -20,9 +21,12 @@ def canonical(value) -> str:
 
 
 def _list_identity(value):
-    if isinstance(value, dict) and "name" in value:
-        return (str(value["name"]), tuple(value.get("parameterTypes", ())),
-                canonical(value.get("condition")))
+    if isinstance(value, dict):
+        if isinstance(value.get("name"), str):
+            return ("name", value["name"], canonical(value.get("parameterTypes")),
+                    canonical(value.get("condition")))
+        if isinstance(value.get("type"), str):
+            return ("type", value["type"], canonical(value.get("condition")))
     return canonical(value)
 
 
@@ -142,27 +146,28 @@ def build_native_image_config(maintained_reflection, inferred_reflection, agent_
     return {name: documents[name] for name in sorted(documents)}, conflicts
 
 
-def _entry_bytes(classpath, internal_name, name_cache):
-    archive_name = internal_name + ".class"
-    for root in classpath:
-        root = Path(root)
-        if root.is_dir():
-            path = root / archive_name
-            if path.is_file():
-                return path.read_bytes()
-        elif root.is_file() and root.suffix.lower() in (".jar", ".zip"):
-            key = str(root)
-            try:
-                if key not in name_cache:
-                    with zipfile.ZipFile(root) as archive:
-                        name_cache[key] = set(archive.namelist())
-                names = name_cache[key]
-            except (OSError, zipfile.BadZipFile):
-                continue
-            if archive_name in names:
-                with zipfile.ZipFile(root) as archive:
-                    return archive.read(archive_name)
-    return None
+def _entry_lookup(stack, classpath):
+    from aot_compatibility import scan_archive
+
+    roots = []
+    for value in classpath:
+        path = Path(value)
+        if path.is_dir():
+            roots.append((path, None))
+        elif path.is_file() and path.suffix.lower() in (".jar", ".zip"):
+            archive = stack.enter_context(zipfile.ZipFile(path))
+            roots.append((archive, scan_archive(archive)[0]))
+
+    def read(internal_name):
+        for root, classes in roots:
+            if classes is None:
+                path = root / (internal_name + ".class")
+                if path.is_file():
+                    return path.read_bytes()
+            elif internal_name in classes:
+                return root.read(classes[internal_name][1])
+        return None
+    return read
 
 
 def _parameter_descriptor(name):
@@ -181,9 +186,13 @@ def validate_reflection_entries(entries, classpath):
     This is static and report-only. JDK types are recorded as outside the application archive
     check; the existing Java --verify-members probe remains the runtime class-resolution check.
     """
+    with ExitStack() as stack:
+        return _validate_reflection_entries(entries, _entry_lookup(stack, classpath))
+
+
+def _validate_reflection_entries(entries, read_entry):
     from config_reflection import class_shape
 
-    name_cache = {}
     findings = []
     for entry in entries:
         if not isinstance(entry, dict) or not isinstance(entry.get("name"), str):
@@ -193,7 +202,7 @@ def validate_reflection_entries(entries, classpath):
             continue
         binary_name = entry["name"]
         internal_name = binary_name.replace(".", "/")
-        data = _entry_bytes(classpath, internal_name, name_cache)
+        data = read_entry(internal_name)
         if data is None:
             platform = binary_name.startswith(PLATFORM_PREFIXES)
             findings.append({"type": binary_name,
@@ -222,9 +231,14 @@ def validate_reflection_entries(entries, classpath):
                     missing.append({"kind": key[:-1], "name": name})
                     continue
                 if key == "methods" and "parameterTypes" in member:
-                    descriptor = name + "(" + "".join(
-                        _parameter_descriptor(parameter) for parameter in member["parameterTypes"]
-                    ) + ")"
+                    parameters = member["parameterTypes"]
+                    if not isinstance(parameters, list) or not all(
+                            isinstance(parameter, str) and parameter and parameter != "void"
+                            for parameter in parameters):
+                        missing.append({"kind": "method", "name": name,
+                                        "reason": "invalid parameterTypes"})
+                        continue
+                    descriptor = name + "(" + "".join(map(_parameter_descriptor, parameters)) + ")"
                     if not any(signature.startswith(descriptor) for signature in method_signatures):
                         missing.append({"kind": "method", "name": name,
                                         "parameterTypes": member["parameterTypes"]})
