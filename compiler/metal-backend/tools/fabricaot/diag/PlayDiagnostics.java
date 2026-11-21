@@ -299,6 +299,7 @@ public final class PlayDiagnostics implements Runnable {
 
     @Override
     public void run() {
+        long lastMemoryReport = 0;
         while (true) {
             try {
                 Thread.sleep(HEARTBEAT_MILLIS);
@@ -306,6 +307,15 @@ public final class PlayDiagnostics implements Runnable {
                 return;
             }
             long current = now();
+            if ("1".equals(System.getenv("FAOT_GL41_DIAGNOSTICS"))
+                    && (lastMemoryReport == 0 || current - lastMemoryReport >= 5_000_000_000L)) {
+                Runtime runtime = Runtime.getRuntime();
+                long committed = runtime.totalMemory();
+                long free = runtime.freeMemory();
+                System.err.println("[GL41-DIAG] javaHeapUsed=" + (committed - free)
+                        + " javaHeapCommitted=" + committed + " javaHeapMax=" + runtime.maxMemory());
+                lastMemoryReport = current;
+            }
             log("heartbeat", "ticks=" + TICKS.get() + " tickAgeMs=" + since(LAST_TICK_NANOS)
                     + " chunkPackets=" + CHUNK_PACKETS.get()
                     + " chunkDecoded=" + CHUNKS_DECODED.get()

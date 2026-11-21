@@ -1,0 +1,72 @@
+/* SPDX-License-Identifier: MIT. Production Mesa functions are inserted by the runner. */
+#include <assert.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+enum pipe_format { PIPE_FORMAT_NONE, COLOR };
+enum st_attachment_type { ST_ATTACHMENT_FRONT_LEFT, ST_ATTACHMENT_DEPTH_STENCIL, ST_ATTACHMENT_ACCUM };
+enum { PIPE_MAP_READ, PIPE_TEXTURE_RECT, PIPE_USAGE_DEFAULT, PIPE_BIND_RENDER_TARGET, PIPE_BIND_DEPTH_STENCIL };
+struct pipe_box { int unused; };
+struct pipe_resource { unsigned width0,height0,target,last_level,depth0,array_size,usage,bind,flags; enum pipe_format format; };
+struct pipe_transfer { unsigned stride; };
+struct pipe_context { void *(*texture_map)(struct pipe_context *, struct pipe_resource *, unsigned,unsigned,struct pipe_box *,struct pipe_transfer **); void (*texture_unmap)(struct pipe_context *,struct pipe_transfer *); };
+struct st_context { struct pipe_context *pipe; void *frontend_context; };
+typedef struct { struct st_context *st; unsigned readback_error; } *OSMesaContext;
+struct pipe_frontend_drawable { unsigned unused; };
+struct osmesa_buffer { struct pipe_frontend_drawable base; unsigned width,height; struct { enum pipe_format color_format,depth_stencil_format,accum_format; } visual; struct pipe_resource *textures[3]; };
+struct pipe_screen { struct pipe_resource *(*resource_create)(struct pipe_screen *,struct pipe_resource *); };
+static struct { struct pipe_screen *screen; } manager;
+#define get_st_manager() (&manager)
+#define drawable_to_osbuffer(d) ((struct osmesa_buffer *)(d))
+#define debug_warning(s) ((void)(s))
+static unsigned released,created,fail_create;
+static void pipe_resource_reference(struct pipe_resource **p,void *unused) { (void)unused; if(*p){released++;free(*p);} *p=NULL; }
+static struct pipe_resource *create(struct pipe_screen *s,struct pipe_resource *t) { (void)s; if(++created==fail_create)return NULL; struct pipe_resource *r=malloc(sizeof *r); *r=*t; return r; }
+static void u_box_2d(int x,int y,int w,int h,struct pipe_box *b) {(void)x;(void)y;(void)w;(void)h;(void)b;}
+static unsigned util_format_get_blocksize(enum pipe_format f) {(void)f;return 4;}
+static unsigned mode,unmaps;
+static unsigned char source[32];
+static struct pipe_transfer transfer={16};
+static void *map(struct pipe_context *p,struct pipe_resource *r,unsigned a,unsigned b,struct pipe_box *box,struct pipe_transfer **t) {
+ (void)p;(void)r;(void)a;(void)b;(void)box; *t=mode==1||mode==3?NULL:&transfer; return mode==1||mode==2?NULL:source;
+}
+static void unmap(struct pipe_context *p,struct pipe_transfer *t) {(void)p;assert(t==&transfer);unmaps++;}
+@READBACK@
+@VALIDATE@
+int main(void) {
+ struct pipe_context pipe={map,unmap}; struct st_context st={&pipe,NULL};
+ struct { struct st_context *st; unsigned readback_error; } ctx={&st,0};
+ st.frontend_context=&ctx;
+ struct pipe_resource res={.width0=2,.height0=2,.format=COLOR};
+ unsigned char dest[24];
+ for(unsigned i=0;i<sizeof source;i++)source[i]=(unsigned char)(i+1);
+ memset(dest,0,sizeof dest);
+ assert(osmesa_read_buffer((OSMesaContext)&ctx,&res,dest,12,false));
+ assert(!memcmp(dest,source,8)&&!memcmp(dest+12,source+16,8)&&dest[8]==0);
+ assert(osmesa_read_buffer((OSMesaContext)&ctx,&res,dest,12,true));
+ assert(!memcmp(dest+12,source,8)&&!memcmp(dest,source+16,8));
+ for(mode=1;mode<=3;mode++){
+  unsigned before=unmaps;ctx.readback_error=0;memset(dest,0xa5,sizeof dest);
+  assert(!osmesa_read_buffer((OSMesaContext)&ctx,&res,dest,12,false));
+  assert(ctx.readback_error&&unmaps==before+(mode==2));
+  for(unsigned i=0;i<sizeof dest;i++)assert(dest[i]==0xa5);
+ }
+ assert(!osmesa_read_buffer((OSMesaContext)&ctx,NULL,dest,12,false));
+ assert(!osmesa_read_buffer((OSMesaContext)&ctx,&res,NULL,12,false));
+ struct pipe_screen screen={create};manager.screen=&screen;
+ struct osmesa_buffer fb={.width=2,.height=2,.visual={COLOR,COLOR,COLOR}};
+ enum st_attachment_type attachments[]={ST_ATTACHMENT_FRONT_LEFT,ST_ATTACHMENT_DEPTH_STENCIL,ST_ATTACHMENT_ACCUM};
+ for(unsigned failure=1;failure<=3;failure++){
+  struct pipe_resource *out[3]={0};created=released=0;fail_create=failure;ctx.readback_error=0;
+  assert(!osmesa_st_framebuffer_validate(&st,&fb.base,attachments,3,out,NULL));
+  assert(ctx.readback_error&&released==failure-1);
+  for(unsigned i=0;i<3;i++)assert(!out[i]&&!fb.textures[i]);
+ }
+ struct pipe_resource *out[3]={0};created=released=0;fail_create=0;ctx.readback_error=0;
+ assert(osmesa_st_framebuffer_validate(&st,&fb.base,attachments,3,out,NULL));
+ for(unsigned i=0;i<3;i++)pipe_resource_reference(&out[i],NULL);
+ assert(released==3&&!ctx.readback_error);
+ puts("OSMESA_FAILURE_PATHS_PASS");return 0;
+}

@@ -364,11 +364,11 @@ static NSArray<NSDictionary *> *FAOTBuiltinControlModels(void) {
 }
 @end
 
+@class FAOTPresentStats;
 @interface FAOTPresentSlot : NSObject
 @property(nonatomic,strong) id<MTLTexture> texture;
 @property(nonatomic,strong) dispatch_semaphore_t freeSlot;
-@end
-@implementation FAOTPresentSlot
+@property(nonatomic,strong) FAOTPresentStats *stats;
 @end
 
 /* CADisplayLink keeps a strong reference to its target. This stateless target requests the
@@ -386,9 +386,13 @@ static NSArray<NSDictionary *> *FAOTBuiltinControlModels(void) {
     double _last, _start;
     unsigned _intervals, _longFrames, _drops;
     unsigned _buckets[101];
+    unsigned _reserved, _drawables, _texturesCreated, _texturesDestroyed;
+    unsigned long long _textureBytes;
 }
 - (void)dropped;
 - (void)presented:(double)time;
+- (void)reserved:(int)delta drawable:(int)drawableDelta;
+- (void)textureBytes:(NSUInteger)bytes created:(BOOL)created;
 @end
 
 @implementation FAOTPresentStats
@@ -401,10 +405,23 @@ static NSArray<NSDictionary *> *FAOTBuiltinControlModels(void) {
     _drops++;
     os_unfair_lock_unlock(&_lock);
 }
+- (void)reserved:(int)delta drawable:(int)drawableDelta {
+    os_unfair_lock_lock(&_lock);
+    _reserved+=delta; _drawables+=drawableDelta;
+    os_unfair_lock_unlock(&_lock);
+}
+- (void)textureBytes:(NSUInteger)bytes created:(BOOL)created {
+    os_unfair_lock_lock(&_lock);
+    if(created){_texturesCreated++;_textureBytes+=bytes;}
+    else {_texturesDestroyed++;_textureBytes-=bytes;}
+    os_unfair_lock_unlock(&_lock);
+}
 - (void)presented:(double)time {
     if(time<=0){[self dropped];return;}
     double fps=0;
     unsigned p95=0,longFrames=0,drops=0;
+    unsigned reserved=0,drawables=0,created=0,destroyed=0;
+    unsigned long long textureBytes=0;
     os_unfair_lock_lock(&_lock);
     if(!_last || time-_last>1.0){
         _start=_last=time;
@@ -426,6 +443,7 @@ static NSArray<NSDictionary *> *FAOTBuiltinControlModels(void) {
             }
             longFrames=_longFrames;
             drops=_drops;
+            reserved=_reserved;drawables=_drawables;created=_texturesCreated;destroyed=_texturesDestroyed;textureBytes=_textureBytes;
             _start=time;
             _intervals=_longFrames=_drops=0;
             memset(_buckets,0,sizeof _buckets);
@@ -434,6 +452,16 @@ static NSArray<NSDictionary *> *FAOTBuiltinControlModels(void) {
     os_unfair_lock_unlock(&_lock);
     if(fps>0)fprintf(stderr,"[GL41] display fps=%.1f p95=%ums long34=%u drops=%u\n",
                      fps,p95,longFrames,drops);
+    const char *diagnostics=getenv("FAOT_GL41_DIAGNOSTICS");
+    if(fps>0&&diagnostics&&!strcmp(diagnostics,"1"))
+        fprintf(stderr,"[GL41-DIAG] Metal reserved=%u drawableInFlight=%u textures(created/destroyed)=%u/%u textureBytes=%llu\n",
+                reserved,drawables,created,destroyed,textureBytes);
+}
+@end
+
+@implementation FAOTPresentSlot
+- (void)dealloc {
+    if(_texture)[_stats textureBytes:_texture.allocatedSize created:NO];
 }
 @end
 
@@ -453,6 +481,7 @@ static NSArray<NSDictionary *> *FAOTBuiltinControlModels(void) {
 @property(nonatomic,strong) FAOTPresentStats *presentStats;
 @property(nonatomic,strong) CADisplayLink *refreshLink;
 @property(atomic,assign) BOOL canPresent;
+@property(atomic,assign) BOOL presentFailed;
 @property(nonatomic,assign) NSUInteger presentSlot;
 @property(nonatomic,assign) int presentWidth, presentHeight;
 @property(nonatomic,strong) id<MTLRenderPipelineState> presentPipeline;
@@ -664,11 +693,11 @@ static BOOL FAOTSubmitPresent(FAOTSurface *surface,CAMetalLayer *layer,FAOTPrese
     id<CAMetalDrawable> drawable=[layer nextDrawable];
     if(!drawable||!surface.canPresent)return NO;
     id<MTLCommandBuffer> command=[surface.presentQueue commandBuffer];
-    if(!command)return NO;
+    if(!command){surface.presentFailed=YES;fprintf(stderr,"[GL41] Metal command buffer creation failed\n");return NO;}
     id<MTLTexture> texture=slot.texture;
     if(texture.width==drawable.texture.width&&texture.height==drawable.texture.height){
         id<MTLBlitCommandEncoder> blit=[command blitCommandEncoder];
-        if(!blit)return NO;
+        if(!blit){surface.presentFailed=YES;return NO;}
         [blit copyFromTexture:texture sourceSlice:0 sourceLevel:0
             sourceOrigin:MTLOriginMake(0,0,0) sourceSize:MTLSizeMake(texture.width,texture.height,1)
             toTexture:drawable.texture destinationSlice:0 destinationLevel:0 destinationOrigin:MTLOriginMake(0,0,0)];
@@ -679,41 +708,57 @@ static BOOL FAOTSubmitPresent(FAOTSurface *surface,CAMetalLayer *layer,FAOTPrese
         pass.colorAttachments[0].loadAction=MTLLoadActionDontCare;
         pass.colorAttachments[0].storeAction=MTLStoreActionStore;
         id<MTLRenderCommandEncoder> encoder=[command renderCommandEncoderWithDescriptor:pass];
-        if(!encoder)return NO;
+        if(!encoder){surface.presentFailed=YES;return NO;}
         [encoder setViewport:(MTLViewport){0,0,drawable.texture.width,drawable.texture.height,0,1}];
         [encoder setRenderPipelineState:surface.presentPipeline];
         [encoder setFragmentTexture:texture atIndex:0];
         [encoder setFragmentSamplerState:surface.presentSampler atIndex:0];
         [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
         [encoder endEncoding];
-    }else return NO;
+    }else {surface.presentFailed=YES;return NO;}
     FAOTPresentStats *stats=surface.presentStats;
     [drawable addPresentedHandler:^(id<MTLDrawable> displayed){[stats presented:displayed.presentedTime];}];
     [command presentDrawable:drawable];
+    [stats reserved:0 drawable:1];
     [command addCompletedHandler:^(id<MTLCommandBuffer> completed){
-        (void)completed;
+        if(completed.status==MTLCommandBufferStatusError){
+            surface.presentFailed=YES;
+            fprintf(stderr,"[GL41] Metal submission failed: %s\n",completed.error.description.UTF8String);
+        }
+        [stats reserved:-1 drawable:-1];
         dispatch_semaphore_signal(slot.freeSlot);
     }];
     [command commit];
     return YES;
 }
 
-void faot_surface_present_bgra(void *raw,const void *pixels,int width,int height) {
-    if(!raw||!pixels||width<=0||height<=0)return;
+int faot_surface_present_bgra(void *raw,const void *pixels,int width,int height) {
+    if(!raw||!pixels||width<=0||height<=0)return 0;
     @autoreleasepool {
         FAOTSurface *surface=(__bridge FAOTSurface *)raw;
-        if(!surface.canPresent)return;
+        if(surface.presentFailed)return 0;
+        if(!surface.canPresent)return 1;
         CAMetalLayer *layer=(CAMetalLayer *)surface.view.layer;
         id<MTLDevice> device=layer.device;
-        if(!device)return;
+        if(!device)return 0;
         if(!surface.presentWorker){
             surface.presentQueue=[device newCommandQueue];
-            if(!surface.presentQueue)return;
+            if(!surface.presentQueue){surface.presentFailed=YES;return 0;}
             surface.presentStats=[FAOTPresentStats new];
             surface.presentWorker=dispatch_queue_create("org.fabricaot.gl41.present",
                 dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL,QOS_CLASS_USER_INTERACTIVE,0));
         }
         if(!surface.presentSlots||surface.presentWidth!=width||surface.presentHeight!=height){
+            /* Retire a generation only after every queued/GPU user has released it.
+               Nonblocking checks avoid waiting on UIKit's main thread or nextDrawable. */
+            NSArray<FAOTPresentSlot *> *oldSlots=surface.presentSlots;
+            NSUInteger acquired=0;
+            for(FAOTPresentSlot *old in oldSlots){
+                if(dispatch_semaphore_wait(old.freeSlot,DISPATCH_TIME_NOW)!=0)break;
+                acquired++;
+            }
+            for(NSUInteger i=0;i<acquired;i++)dispatch_semaphore_signal(oldSlots[i].freeSlot);
+            if(acquired!=oldSlots.count){[surface.presentStats dropped];return 1;}
             MTLTextureDescriptor *descriptor=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
                 width:(NSUInteger)width height:(NSUInteger)height mipmapped:NO];
             descriptor.usage=MTLTextureUsageShaderRead;
@@ -722,7 +767,13 @@ void faot_surface_present_bgra(void *raw,const void *pixels,int width,int height
             for(int i=0;i<3;i++){
                 FAOTPresentSlot *slot=[FAOTPresentSlot new];
                 slot.texture=[device newTextureWithDescriptor:descriptor];
-                if(!slot.texture)return;
+                if(!slot.texture){
+                    surface.presentFailed=YES;
+                    fprintf(stderr,"[GL41] Metal present texture allocation failed %dx%d slot=%d\n",width,height,i);
+                    return 0;
+                }
+                slot.stats=surface.presentStats;
+                [slot.stats textureBytes:slot.texture.allocatedSize created:YES];
                 slot.freeSlot=dispatch_semaphore_create(1);
                 [slots addObject:slot];
             }
@@ -741,7 +792,8 @@ void faot_surface_present_bgra(void *raw,const void *pixels,int width,int height
                 break;
             }
         }
-        if(!slot){[surface.presentStats dropped];return;}
+        if(!slot){[surface.presentStats dropped];return 1;}
+        [surface.presentStats reserved:1 drawable:0];
         // OSMesa will overwrite its frame on the next swap. Copy before returning to it.
         [slot.texture replaceRegion:MTLRegionMake2D(0,0,(NSUInteger)width,(NSUInteger)height)
             mipmapLevel:0 withBytes:pixels bytesPerRow:(NSUInteger)width*4];
@@ -749,10 +801,12 @@ void faot_surface_present_bgra(void *raw,const void *pixels,int width,int height
             @autoreleasepool {
                 if(!FAOTSubmitPresent(surface,layer,slot)){
                     [surface.presentStats dropped];
+                    [surface.presentStats reserved:-1 drawable:0];
                     dispatch_semaphore_signal(slot.freeSlot);
                 }
             }
         });
+        return 1;
     }
 }
 void faot_surface_title(void *raw,const char *title) {

@@ -34,6 +34,7 @@ def download_specs(root=ROOT):
         rows.append((Path('graphics/stb-lwjgl-3.4.1') / name, dict(url=spec['url'], size=spec['bytes'], sha256=spec['sha256'])))
     from fetch_gl41_runtime import FILES, BASE, APACHE
     for spec in FILES:
+        if spec["name"] == "libOSMesa.8.dylib": continue
         rows.append((Path('graphics/gl41-runtime') / spec['name'], dict(url=BASE + spec['name'], size=spec['bytes'], sha256=spec['sha256'])))
     rows.append((Path('graphics/gl41-runtime/LICENSE-Apache-2.0.txt'), dict(url=APACHE[0], size=11358, sha256=APACHE[1])))
     return rows

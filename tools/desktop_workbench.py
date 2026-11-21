@@ -28,6 +28,7 @@ from bootstrap_toolchain import sha256
 from capture import redact_log
 from mod_download_cache import ModDownloadCache, is_mod_jar
 from mod_file_policy import is_metadata, content_paths, mod_candidates, copy_ignore, clean_staged_metadata
+from artifact_copy import copy_artifact
 from external_storage import ExternalStorageUnavailable, require_mount
 import cleanup_storage
 import storage_change
@@ -483,12 +484,12 @@ def stage_source(source, destination, progress=lambda _: None, cancelled=lambda:
                     if p.is_file():
                         if not keep(str(p.relative_to(base)), 'local'): continue
                         budget(p.stat().st_size)
-                        shutil.copyfile(p, target_for(str(p.relative_to(base)), 0))
+                        copy_artifact(p, target_for(str(p.relative_to(base)), 0))
         options = base / 'options.txt'
         if selection is not None and options.is_file() and keep('options.txt', 'local'):
             if options.is_symlink(): raise ValueError('拒绝复制链接文件')
             budget(options.stat().st_size)
-            shutil.copyfile(options, target_for('options.txt', 0))
+            copy_artifact(options, target_for('options.txt', 0))
     else:
         with zipfile.ZipFile(source) as archive:
             if not validate_zip_members(archive, [], str(source)): raise ValueError('归档路径检查失败')

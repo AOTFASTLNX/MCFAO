@@ -1,3 +1,4 @@
+import os
 import subprocess
 import sys
 import tempfile
@@ -70,13 +71,13 @@ class PlayDiagnosticsTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         try:
-            cls.home = java_home()
+            cls.home = Path(os.environ["FAOT_TEST_JAVA_HOME"]) if os.environ.get("FAOT_TEST_JAVA_HOME") else java_home()
         except (SystemExit, OSError, ValueError):
             raise unittest.SkipTest("verified Java 25 home is not available")
         if not DIAGNOSTICS.is_file():
             raise unittest.SkipTest("PlayDiagnostics source is not present")
 
-    def compile_and_run(self, directory: Path, enabled: bool, stalled=False) -> str:
+    def compile_and_run(self, directory: Path, enabled: bool, stalled=False, graphics=False) -> str:
         source = directory / "DiagFixture.java"
         source.write_text(FIXTURE)
         subprocess.run([str(self.home / "bin/javac"), "--release", "25", "-proc:none",
@@ -87,9 +88,19 @@ class PlayDiagnosticsTests(unittest.TestCase):
             "-Dmcfao.diag.tickStallSeconds=1" if stalled else "-Dmcfao.diag.tickStallSeconds=5",
             "-Dmcfao.diag.heartbeatMillis=100" if stalled else "-Dmcfao.diag.heartbeatMillis=2000",
             "-cp", str(directory / "classes"), "fixture.DiagFixture", *(["stall"] if stalled else [])],
-            capture_output=True, text=True, timeout=60)
+            capture_output=True, text=True, timeout=60,
+            env={**os.environ, "FAOT_GL41_DIAGNOSTICS": "1" if graphics else "0"})
         self.assertEqual(result.returncode, 0, result.stderr)
-        return result.stdout
+        return result.stdout + result.stderr
+
+    def test_graphics_memory_diagnostics_are_opt_in_and_rate_limited(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output = self.compile_and_run(Path(temp), True, stalled=True, graphics=True)
+            self.assertEqual(output.count("[GL41-DIAG] javaHeapUsed="), 1)
+            self.assertRegex(output, r"javaHeapCommitted=\d+ javaHeapMax=\d+")
+        with tempfile.TemporaryDirectory() as temp:
+            output = self.compile_and_run(Path(temp), True)
+            self.assertNotIn("[GL41-DIAG]", output)
 
     def test_play_hooks_are_structured_and_switchable(self):
         with tempfile.TemporaryDirectory() as temp:

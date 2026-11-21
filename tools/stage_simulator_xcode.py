@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
 import sys
 from pathlib import Path
 
 from build_c0_harness import sha256, validate_dylib, validate_shader_bundle
+from artifact_copy import copy_artifact
 from capture import ROOT
 from graphics_common import register_tree
 
@@ -49,7 +49,7 @@ def main(argv=None):
     for name, (source, fingerprint) in source_files.items():
         destination = out / name
         destination.parent.mkdir(exist_ok=True)
-        shutil.copyfile(source, destination)
+        copy_artifact(source, destination)
         if sha256(destination) != fingerprint:
             raise ValueError(f"Copy failed fingerprint verification: {name}")
     result = {"status": "WORLD_SIMULATOR_XCODE_INPUT_STAGED", "harnessSHA256": sha256(manifest),

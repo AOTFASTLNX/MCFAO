@@ -5,6 +5,7 @@ import os
 import shutil
 import sys
 import tempfile
+from artifact_copy import copy_artifact
 
 
 def _walk_error(error):
@@ -43,7 +44,7 @@ def copy_ignore(directory, names):
 
 def copy_content_file(source, destination):
     """Copy bytes and mode only, without Finder metadata or resource forks."""
-    shutil.copyfile(source, destination)
+    copy_artifact(source, destination)
     shutil.copymode(source, destination)
     return destination
 

@@ -128,17 +128,38 @@ jobs:
           xcrun simctl list devices | grep -i ncl || true
           guard 120 xcrun simctl install "$UDID" "$PWD/build/NCL Builder.app"
 
+          # simctl launch can sit on a cold start until the guard kills it even
+          # though the scene already rendered. Fire it in the background, then
+          # decide from the screenshot whether the launcher actually came up.
           echo "== launcher =="
-          guard 60 xcrun simctl launch "$UDID" dev.fabricaot.launcher.smoke
-          sleep 8
+          (guard 90 xcrun simctl launch "$UDID" dev.fabricaot.launcher.smoke >/tmp/launch.log 2>&1 || true) &
+          guard 30 xcrun simctl spawn "$UDID" launchctl list | grep -q fabricaot || true
+          sleep 12
+          cat /tmp/launch.log || true
           guard 60 xcrun simctl io "$UDID" screenshot launcher.png || true
           xcrun simctl terminate "$UDID" dev.fabricaot.launcher.smoke || true
 
           echo "== editor =="
-          SIMCTL_CHILD_FAOT_SMOKE_MODE=editor guard 60 xcrun simctl launch "$UDID" dev.fabricaot.launcher.smoke || true
-          sleep 8
+          (SIMCTL_CHILD_FAOT_SMOKE_MODE=editor guard 90 xcrun simctl launch "$UDID" dev.fabricaot.launcher.smoke >/tmp/launch-editor.log 2>&1 || true) &
+          sleep 12
+          cat /tmp/launch-editor.log || true
           guard 60 xcrun simctl io "$UDID" screenshot editor.png || true
           ls -la *.png
+          test -s launcher.png
+          test -s editor.png
+          python3 - <<'PY'
+          from pathlib import Path
+          import struct
+          for name in ("launcher.png", "editor.png"):
+              data = Path(name).read_bytes()
+              assert data[:8] == b"\x89PNG\r\n\x1a\n", name
+              width, height = struct.unpack(">II", data[16:24])
+              # A black simulator screen compresses to a tiny file; the launcher
+              # renders a sidebar and cards, so require a realistic frame.
+              assert width > 300 and height > 300, (name, width, height)
+              assert len(data) > 20000, (name, len(data))
+          print("screenshots look rendered")
+          PY
 
       - name: Upload screenshots
         if: always()

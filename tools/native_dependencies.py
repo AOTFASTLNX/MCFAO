@@ -45,7 +45,7 @@ REQUIRED = ('glfw', 'lwjgl', 'gl41', 'lwjglOpengl', 'openal')
 SOURCE_GROUPS = {
     'glfw': ('ios/glfw-lite', 'tools/glfw_runtime_contract.py', 'tools/inventory_client_native_calls.py'),
     'lwjgl': ('compiler/lwjgl-lite', 'ios/lwjgl-lite', 'compiler/stb.lock.json', 'tools/lwjgl_codegen.py', 'tools/fetch_stb.py', 'interop/graphics/LwjglProbe.java'),
-    'gl41': ('tools/verified_download.py',),
+    'gl41': ('tools/verified_download.py', 'tools/build_gl41_mesa.py', 'compiler/gl41/patches'),
     'lwjglOpengl': (),
     'metal': ('compiler/metal-backend', 'ios/metal-bridge', 'interop/graphics/MetalProbe.java',
               'interop/graphics/MetalResourceProbe.java', 'interop/graphics/NativeImageProbe.java',
@@ -85,8 +85,9 @@ def artifacts(directory, key, report):
     """Require every shipped artifact's recorded hash, including overlays and shaders."""
     hashes = {}
     if key == 'gl41':
-        from fetch_gl41_runtime import FILES, APACHE
-        pinned = {r['name']: r['sha256'] for r in FILES}
+        from fetch_gl41_runtime import FILES, APACHE, validate_runtime
+        validate_runtime(directory, report)
+        pinned = {r['name']: r['sha256'] for r in FILES if r['name'] != "libOSMesa.8.dylib"}
         pinned['LICENSE-Apache-2.0.txt'] = APACHE[1]
         hashes.update(report.get('filesSHA256', {}))
         if any(hashes.get(name) != digest for name, digest in pinned.items()):

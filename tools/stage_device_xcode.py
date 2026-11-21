@@ -5,11 +5,11 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import shutil
 import sys
 from pathlib import Path
 
 from build_c0_harness import sha256, validate_dylib, validate_shader_bundle
+from artifact_copy import copy_artifact
 from capture import ROOT
 from graphics_common import register_tree
 from glfw_runtime_contract import validate_glfw_renderer
@@ -95,7 +95,7 @@ def main(argv=None):
     for name, (source, fingerprint) in files.items():
         destination = out / name
         destination.parent.mkdir(exist_ok=True)
-        shutil.copyfile(source, destination)
+        copy_artifact(source, destination)
         if sha256(destination) != fingerprint:
             raise ValueError(f"Staged copy fingerprint changed: {name}")
     result = {"status": "WORLD_DEVICE_XCODE_INPUT_STAGED", "renderer": args.renderer, "reportsSHA256": reports,

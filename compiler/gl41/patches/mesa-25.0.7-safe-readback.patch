@@ -1,0 +1,340 @@
+--- a/src/gallium/frontends/osmesa/osmesa.c
++++ b/src/gallium/frontends/osmesa/osmesa.c
+@@ -106,6 +106,8 @@
+ {
+    struct st_context *st;
+ 
++   unsigned readback_error; /* Sticky until context destruction. */
++
+    bool ever_used;     /*< Has this context ever been current? */
+ 
+    struct osmesa_buffer *current_buffer;
+@@ -182,11 +184,12 @@
+ /* Reads the color or depth buffer from the backing context to either the user storage
+  * (color buffer) or our temporary (z/s)
+  */
+-static void
++static bool
+ osmesa_read_buffer(OSMesaContext osmesa, struct pipe_resource *res, void *dst,
+                    int dst_stride, bool y_up)
+ {
+    struct pipe_context *pipe = osmesa->st->pipe;
++   if (!res || !dst) { osmesa->readback_error = 1; return false; }
+ 
+    struct pipe_box box;
+    u_box_2d(0, 0, res->width0, res->height0, &box);
+@@ -194,6 +197,14 @@
+    struct pipe_transfer *transfer = NULL;
+    uint8_t *src = pipe->texture_map(pipe, res, 0, PIPE_MAP_READ, &box,
+                                    &transfer);
++
++   if (!src || !transfer) {
++      if (transfer) pipe->texture_unmap(pipe, transfer);
++      osmesa->readback_error = 1;
++      fprintf(stderr, "[OSMesa] readback map failed %ux%u format=%u; frame rejected%c",
++              res->width0, res->height0, res->format, 10);
++      return false;
++   }
+ 
+    /*
+     * Copy the color buffer from the resource to the user's buffer.
+@@ -214,6 +225,13 @@
+    }
+ 
+    pipe->texture_unmap(pipe, transfer);
++   return true;
++}
++
++GLAPI unsigned GLAPIENTRY
++OSMesaGetLastReadbackError(OSMesaContext ctx)
++{
++   return ctx ? ctx->readback_error : 1;
+ }
+ 
+ 
+@@ -358,8 +376,11 @@
+    unsigned bpp;
+    int dst_stride;
+ 
+-   if (statt != ST_ATTACHMENT_FRONT_LEFT)
++   if (statt != ST_ATTACHMENT_FRONT_LEFT || osmesa->readback_error)
+       return false;
++
++   extern void ncl_diag_frame(void);
++   ncl_diag_frame();
+ 
+    if (osmesa->pp) {
+       struct pipe_resource *zsbuf = NULL;
+@@ -390,12 +411,14 @@
+    else
+       dst_stride = bpp * osbuffer->width;
+ 
+-   osmesa_read_buffer(osmesa, res, osbuffer->map, dst_stride, osmesa->y_up);
++   if (!osmesa_read_buffer(osmesa, res, osbuffer->map, dst_stride, osmesa->y_up))
++      return false;
+ 
+    /* If the user has requested the Z/S buffer, then snapshot that one too. */
+    if (osmesa->zs) {
+-      osmesa_read_buffer(osmesa, osbuffer->textures[ST_ATTACHMENT_DEPTH_STENCIL],
+-                         osmesa->zs, osmesa->zs_stride, true);
++      if (!osmesa_read_buffer(osmesa, osbuffer->textures[ST_ATTACHMENT_DEPTH_STENCIL],
++                              osmesa->zs, osmesa->zs_stride, true))
++         return false;
+    }
+ 
+    return true;
+@@ -415,7 +438,7 @@
+                                struct pipe_resource **resolve)
+ {
+    struct pipe_screen *screen = get_st_manager()->screen;
+-   enum st_attachment_type i;
++   unsigned i;
+    struct osmesa_buffer *osbuffer = drawable_to_osbuffer(drawable);
+    struct pipe_resource templat;
+ 
+@@ -462,6 +485,16 @@
+       pipe_resource_reference(&out[i], NULL);
+       out[i] = osbuffer->textures[statts[i]] =
+          screen->resource_create(screen, &templat);
++      if (!out[i]) {
++         ((OSMesaContext)st->frontend_context)->readback_error = 1;
++         for (unsigned j = 0; j <= i; j++) {
++            pipe_resource_reference(&out[j], NULL);
++            osbuffer->textures[statts[j]] = NULL;
++         }
++         fprintf(stderr, "[OSMesa] framebuffer attachment allocation failed %ux%u format=%u%c",
++                 templat.width0, templat.height0, templat.format, 10);
++         return false;
++      }
+    }
+ 
+    return true;
+@@ -706,6 +739,7 @@
+    if (osmesa) {
+       pp_free(osmesa->pp);
+       st_destroy_context(osmesa->st);
++      if (osmesa->current_buffer) osmesa_destroy_buffer(osmesa->current_buffer);
+       free(osmesa->zs);
+       FREE(osmesa);
+    }
+@@ -773,6 +807,7 @@
+    }
+ 
+    struct osmesa_buffer *osbuffer = osmesa->current_buffer;
++   if (!osbuffer) { osmesa->readback_error = 1; return GL_FALSE; }
+ 
+    osbuffer->width = width;
+    osbuffer->height = height;
+@@ -780,7 +815,10 @@
+ 
+    osmesa->type = type;
+ 
+-   st_api_make_current(osmesa->st, &osbuffer->base, &osbuffer->base);
++   if (!st_api_make_current(osmesa->st, &osbuffer->base, &osbuffer->base) || osmesa->readback_error) {
++      osmesa->readback_error = 1;
++      return GL_FALSE;
++   }
+ 
+    /* XXX: We should probably load the current color value into the buffer here
+     * to match classic swrast behavior (context's fb starts with the contents of
+@@ -919,7 +957,10 @@
+       if (!c->zs)
+          return GL_FALSE;
+ 
+-      osmesa_read_buffer(c, res, c->zs, c->zs_stride, true);
++      if (!osmesa_read_buffer(c, res, c->zs, c->zs_stride, true)) {
++         free(c->zs); c->zs = NULL; *buffer = NULL;
++         return GL_FALSE;
++      }
+    }
+ 
+    *buffer = c->zs;
+@@ -974,6 +1015,7 @@
+    { "OSMesaGetCurrentContext", (OSMESAproc) OSMesaGetCurrentContext },
+    { "OSMesaPixelStore", (OSMESAproc) OSMesaPixelStore },
+    { "OSMesaGetIntegerv", (OSMESAproc) OSMesaGetIntegerv },
++   { "OSMesaGetLastReadbackError", (OSMESAproc) OSMesaGetLastReadbackError },
+    { "OSMesaGetDepthBuffer", (OSMESAproc) OSMesaGetDepthBuffer },
+    { "OSMesaGetColorBuffer", (OSMESAproc) OSMesaGetColorBuffer },
+    { "OSMesaGetProcAddress", (OSMESAproc) OSMesaGetProcAddress },
+--- a/include/GL/osmesa.h
++++ b/include/GL/osmesa.h
+@@ -218,6 +218,9 @@
+ GLAPI OSMesaContext APIENTRY
+ OSMesaGetCurrentContext( void );
+ 
++GLAPI unsigned GLAPIENTRY
++OSMesaGetLastReadbackError(OSMesaContext ctx);
++
+ 
+ 
+ /*
+--- a/src/gallium/drivers/zink/zink_bo.c
++++ b/src/gallium/drivers/zink/zink_bo.c
+@@ -33,6 +33,7 @@
+ #include "zink_bo.h"
+ #include "zink_resource.h"
+ #include "zink_screen.h"
++#include "ncl_diag.h"
+ #include "util/u_hash_table.h"
+ 
+ #ifdef HAVE_LIBDRM
+@@ -145,7 +146,7 @@
+       zink_bo_unmap(screen, bo);
+    }
+ 
+-   VKSCR(FreeMemory)(screen->dev, bo->mem, NULL);
++   ncl_FreeMemory(screen, bo->mem, NULL);
+ 
+    simple_mtx_destroy(&bo->lock);
+    FREE(bo);
+@@ -297,7 +298,7 @@
+       return NULL;
+    }
+ 
+-   VkResult ret = VKSCR(AllocateMemory)(screen->dev, &mai, NULL, &bo->mem);
++   VkResult ret = ncl_AllocateMemory(screen, &mai, NULL, &bo->mem);
+    if (!zink_screen_handle_vkresult(screen, ret)) {
+       mesa_loge("zink: couldn't allocate memory: heap=%u size=%" PRIu64, heap, size);
+       if (zink_debug & ZINK_DEBUG_MEM) {
+@@ -710,7 +711,7 @@
+        * be atomic thanks to the lock. */
+       cpu = real->u.real.cpu_ptr;
+       if (!cpu) {
+-         VkResult result = VKSCR(MapMemory)(screen->dev, real->mem, 0, real->base.base.size, 0, &cpu);
++         VkResult result = ncl_MapMemory(screen, real->mem, 0, real->base.base.size, 0, &cpu);
+          if (result != VK_SUCCESS) {
+             mesa_loge("ZINK: vkMapMemory failed (%s)", vk_Result_to_str(result));
+             simple_mtx_unlock(&real->lock);
+@@ -1381,3 +1382,5 @@
+    }
+    pb_cache_deinit(&screen->pb.bo_cache);
+ }
++
++#include "ncl_diag_impl.h"
+--- a/src/gallium/drivers/zink/zink_resource.c
++++ b/src/gallium/drivers/zink/zink_resource.c
+@@ -2268,6 +2268,10 @@
+ static void
+ destroy_transfer(struct zink_context *ctx, struct zink_transfer *trans)
+ {
++   /* Both successful unmaps and failed maps own these references. */
++   pipe_resource_reference(&trans->staging_res, NULL);
++   pipe_resource_reference(&trans->base.b.resource, NULL);
++
+    if (trans->base.b.usage & PIPE_MAP_THREAD_SAFE) {
+       free(trans);
+    } else {
+@@ -2362,6 +2366,8 @@
+          u_upload_alloc(mgr, 0, box->width,
+                      screen->info.props.limits.minMemoryMapAlignment, &offset,
+                      (struct pipe_resource **)&trans->staging_res, (void **)&ptr);
++         if (!trans->staging_res || !ptr)
++            goto fail;
+          res = zink_resource(trans->staging_res);
+          trans->offset = offset;
+          usage |= PIPE_MAP_UNSYNCHRONIZED;
+@@ -2375,9 +2381,9 @@
+    } else if (usage & PIPE_MAP_DONTBLOCK) {
+       /* sparse/device-local will always need to wait since it has to copy */
+       if (!res->obj->host_visible)
+-         goto success;
++         goto fail;
+       if (!zink_resource_usage_check_completion(screen, res, ZINK_RESOURCE_ACCESS_WRITE))
+-         goto success;
++         goto fail;
+       usage |= PIPE_MAP_UNSYNCHRONIZED;
+    } else if (((usage & PIPE_MAP_READ) && !(usage & PIPE_MAP_PERSISTENT) &&
+                ((screen->info.mem_props.memoryTypes[res->obj->bo->base.base.placement].propertyFlags & VK_STAGING_RAM) != VK_STAGING_RAM)) ||
+@@ -2464,7 +2470,6 @@
+          util_range_add(&orig_res->base.b, orig_res->real_buffer_range, box->x, box->x + box->width);
+    }
+ 
+-success:
+    /* ensure the copy context gets unlocked */
+    if (ctx == screen->copy_context)
+       zink_screen_unlock_context(screen);
+@@ -3001,10 +3006,6 @@
+       zink_transfer_flush_region(pctx, ptrans, &box);
+    }
+ 
+-   if (trans->staging_res)
+-      pipe_resource_reference(&trans->staging_res, NULL);
+-   pipe_resource_reference(&trans->base.b.resource, NULL);
+-
+    destroy_transfer(ctx, trans);
+ }
+ 
+--- a/src/gallium/targets/osmesa/meson.build
++++ b/src/gallium/targets/osmesa/meson.build
+@@ -38,7 +38,7 @@
+     libmesa, libgallium, libws_null, osmesa_link_with,
+   ],
+   dependencies : [
+-    dep_ws2_32, dep_thread, dep_clock, dep_unwind, driver_swrast, idep_mesautil,
++    dep_ws2_32, dep_thread, dep_clock, dep_unwind, driver_swrast, driver_zink, idep_xmlconfig, idep_mesautil,
+   ],
+   name_prefix : host_machine.system() == 'windows' ? '' : [],  # otherwise mingw will create libosmesa.dll
+   soversion : host_machine.system() == 'windows' ? '' : '8',
+--- a/src/gallium/targets/osmesa/osmesa_target.c
++++ b/src/gallium/targets/osmesa/osmesa_target.c
+@@ -21,6 +21,8 @@
+  */
+ 
+ 
++#include <stdint.h>
++#include "zink/zink_public.h"
+ #include "target-helpers/inline_sw_helper.h"
+ #include "target-helpers/inline_debug_helper.h"
+ 
+--- a/src/gallium/drivers/zink/zink_screen.c
++++ b/src/gallium/drivers/zink/zink_screen.c
+@@ -72,7 +72,7 @@
+ #else
+ #include <unistd.h>
+ #if DETECT_OS_APPLE
+-#define VK_LIBNAME "libvulkan.1.dylib"
++#define VK_LIBNAME "@rpath/libMoltenVK.dylib"
+ #elif DETECT_OS_ANDROID
+ #define VK_LIBNAME "libvulkan.so"
+ #else
+--- a/src/gallium/drivers/zink/zink_framebuffer.c
++++ b/src/gallium/drivers/zink/zink_framebuffer.c
+@@ -26,6 +26,7 @@
+ 
+ #include "zink_render_pass.h"
+ #include "zink_screen.h"
++#include "ncl_diag.h"
+ #include "zink_surface.h"
+ 
+ #include "util/u_framebuffer.h"
+@@ -38,10 +39,10 @@
+ {
+    hash_table_foreach(&fb->objects, he) {
+ #if VK_USE_64_BIT_PTR_DEFINES
+-      VKSCR(DestroyFramebuffer)(screen->dev, he->data, NULL);
++      ncl_DestroyFramebuffer(screen, he->data, NULL);
+ #else
+       VkFramebuffer *ptr = he->data;
+-      VKSCR(DestroyFramebuffer)(screen->dev, *ptr, NULL);
++      ncl_DestroyFramebuffer(screen, *ptr, NULL);
+ #endif
+    }
+ 
+@@ -88,14 +89,14 @@
+    attachments.pAttachmentImageInfos = fb->infos;
+    fci.pNext = &attachments;
+ 
+-   if (VKSCR(CreateFramebuffer)(screen->dev, &fci, NULL, &ret) != VK_SUCCESS)
++   if (ncl_CreateFramebuffer(screen, &fci, NULL, &ret) != VK_SUCCESS)
+       return;
+ #if VK_USE_64_BIT_PTR_DEFINES
+    _mesa_hash_table_insert_pre_hashed(&fb->objects, hash, rp, ret);
+ #else
+    VkFramebuffer *ptr = ralloc(fb, VkFramebuffer);
+    if (!ptr) {
+-      VKSCR(DestroyFramebuffer)(screen->dev, ret, NULL);
++      ncl_DestroyFramebuffer(screen, ret, NULL);
+       return;
+    }
+    *ptr = ret;

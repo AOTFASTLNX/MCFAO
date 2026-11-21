@@ -5,13 +5,13 @@ import argparse
 import hashlib
 import json
 import re
-import shutil
 import sys
 import ssl
 import urllib.request
 from pathlib import Path
 from bootstrap_toolchain import sha256
 from graphics_common import register_tree
+from artifact_copy import copy_artifact
 
 def fetch_verified(url:str,target:Path,size:int,digest:str):
     from verified_download import fetch, GAME_HOSTS
@@ -58,7 +58,7 @@ def main(argv=None):
     index_id,index,files=verified_assets(source,json.loads(metadata.read_text()),out/'downloaded' if args.fetch_missing else None)
     all_files={Path('indexes')/index.name:index,**files}
     for relative,path in all_files.items():
-        target=assets/relative;target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(path,target)
+        target=assets/relative;target.parent.mkdir(parents=True,exist_ok=True);copy_artifact(path,target,preserve_metadata=True)
     result={'status':'OWNED_ASSETS_VERIFIED_STAGED','assetIndex':index_id,'source':str(source),
             'metadataSHA256':sha256(metadata),'indexSHA256':sha256(index),'objects':len(files),
             'bytes':sum(p.stat().st_size for p in files.values()),'sourcesSHA256':{str(Path(__file__).resolve()):sha256(Path(__file__))},

@@ -300,6 +300,8 @@ python3 -B tools/dedup_artifacts.py --suffix .jar                  # mod/客户�
 
 `--min-age` 默认 900 秒，构建正在写的文件不会被替换；已处理的路径记进 `artifacts/.dedup-state.json`，重跑不会重复计数。测量有两个坑：`du` 看不见 clone 共享块（3 份 100 MB 克隆仍报 300 MB），只有 `df` 反映真实回收；并发 AOT 构建时 `df` 波动可达 1.8 GB/分钟，验证必须在构建停下后做。副本来源不同结果也不同：`ditto` 本来就是克隆（0 成本），`cp` 与 `shutil.copy2` 是真复制（每份 222 MB 真占盘）。
 
+构建写入路径统一走 `tools/artifact_copy.py`：AOT 缓存恢复、设备/模拟器 staging、Mod jar 与资源 staging 在 APFS 上直接 `clonefile(2)`，跨卷（外接 exFAT）或不支持 clone 的文件系统才回退普通复制。`link/` 与 `stage/` 仍是两个路径、两个 inode，签名时互不影响，但新构建不再各占 522 MB 物理块。`dedup_artifacts.py` 用于收敛此前已经产生的副本；清理类工具按逻辑大小统计，仍会把两份 clone 显示成两个重复项，实际占盘要看 `df`。
+
 ### 归档旧构建到另一块盘
 
 `mcfao build` 每跑一次就新建 `artifacts/mcfao/fabric-pack-NN`（2.6–2.9 GB）与可选的 `fabric-pack-NN-simulator`（约 0.95 GB），编号单调递增且没有自动轮转。一天几十次构建就能把本地盘吃满（2026-11-11：25.8 GB → 99.9 GB，磁盘 99%）。

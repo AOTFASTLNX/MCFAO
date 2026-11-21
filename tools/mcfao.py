@@ -216,15 +216,11 @@ def inputs(config: dict, renderer: str = DEFAULT_RENDERER) -> tuple[dict, Path, 
         validate_shader_bundle(config["shaders"] / "bundle", simulator=False)
     else:
         verify_gl41_bridge(config["lwjgl"])
-        from fetch_gl41_runtime import FILES, macho_platform
+        from fetch_gl41_runtime import validate_runtime
         runtime_report = read_json(config["gl41"] / "result.json")
         if runtime_report.get("status") != "GL41_RUNTIME_FETCHED":
             raise ValueError("GL41 runtime report is not verified")
-        for row in FILES:
-            binary = config["gl41"] / row["name"]
-            macho_platform(binary)
-            if sha256(binary) != row["sha256"]:
-                raise ValueError("GL41 runtime fingerprint changed: " + str(binary))
+        validate_runtime(config["gl41"], runtime_report)
     for key, filename, status in (
         ("glfw", "libglfw.dylib", "NATIVE_SUBSET_BUILT"),
         ("lwjgl", "liblwjgl.dylib", "STATIC_JNI_BRIDGE_BUILT"),

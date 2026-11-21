@@ -8,6 +8,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <pthread/qos.h>
+#include <pthread.h>
 #include <time.h>
 
 /* Constants from Mesa's MIT-licensed include/GL/osmesa.h (25.x). */
@@ -33,6 +34,7 @@ typedef unsigned char (*MakeCurrent)(OSMesaContext, void *, int, int, int);
 typedef void (*PixelStore)(int, int);
 typedef unsigned char *(*GetString)(int);
 typedef void (*Finish)(void);
+typedef unsigned (*ReadbackError)(OSMesaContext);
 
 typedef struct {
     void *library;
@@ -42,17 +44,22 @@ typedef struct {
     PixelStore pixel_store;
     GetString get_string;
     Finish finish;
+    ReadbackError readback_error;
 } OSMesaAPI;
 
 static OSMesaAPI api;
 static int attempted;
+static int api_ready;
 static OSMesaContext context;
 static void *frame;
+static void *failed_frame;
 static size_t frame_bytes;
 static int frame_width, frame_height;
 static void *present_surface;
 static int current_width, current_height, logged, made_current, bgra_format = 1;
 static int qos_set, perf_frames;
+static pthread_t owner;
+static int owner_set, render_failed;
 static double perf_last, perf_finish_ms, perf_present_ms;
 /* One-millisecond buckets, with 100 representing 100 ms or longer. */
 enum { PERF_LAST_BUCKET = 100 };
@@ -84,7 +91,7 @@ static void perf_reset_window(void) {
     memset(perf_outside_hist, 0, sizeof perf_outside_hist);
 }
 
-extern void faot_surface_present_bgra(void *surface, const void *pixels, int width, int height);
+extern int faot_surface_present_bgra(void *surface, const void *pixels, int width, int height);
 
 static double now_ms(void) {
     struct timespec value;
@@ -97,7 +104,7 @@ static void set_default(const char *name, const char *value) {
 }
 
 static int load_api(void) {
-    if (attempted) return api.library != NULL;
+    if (attempted) return api_ready;
     attempted = 1;
     set_default("GALLIUM_DRIVER", "zink");
     set_default("MESA_GL_VERSION_OVERRIDE", "4.1");
@@ -141,38 +148,57 @@ static int load_api(void) {
     api.pixel_store = (PixelStore)dlsym(api.library, "OSMesaPixelStore");
     api.get_string = (GetString)dlsym(api.library, "glGetString");
     api.finish = (Finish)dlsym(api.library, "glFinish");
+    api.readback_error = (ReadbackError)dlsym(api.library, "OSMesaGetLastReadbackError");
     if (!api.create || !api.destroy || !api.make_current || !api.pixel_store || !api.finish) {
         fprintf(stderr, "[GL41] libOSMesa is missing required entry points\n");
         return 0;
     }
-    return 1;
+    api_ready = api.readback_error != NULL;
+    if (!api_ready) fprintf(stderr, "[GL41] runtime missing safe readback ABI; rebuild patched Mesa\n");
+    return api_ready;
 }
 
-static int resize(int width, int height) {
+static int bind_frame(int width, int height) {
     if (width <= 0 || height <= 0) return 0;
+    if ((size_t)width > SIZE_MAX / 4u / (size_t)height) return 0;
     size_t needed = (size_t)width * (size_t)height * 4u;
     if (needed > (size_t)64u * 1024u * 1024u) {
         fprintf(stderr, "[GL41] refused oversized OSMesa frame %dx%d\n", width, height);
         return 0;
     }
-    if (frame_bytes < needed) {
-        void *grown = realloc(frame, needed);
-        if (!grown) return 0;
-        frame = grown;
-        frame_bytes = needed;
+    /* MakeCurrent may flush the old binding. Keep its storage alive until the new
+     * binding succeeds, and preserve it if Mesa rejects the replacement. */
+    void *replacement = frame_bytes < needed ? calloc(1, needed) : frame;
+    if (!replacement) return 0;
+    if (!api.make_current(context, replacement, GL_UNSIGNED_BYTE_VALUE, width, height)) {
+        render_failed = 1;
+        if (replacement != frame) failed_frame = replacement;
+        fprintf(stderr, "[GL41] OSMesaMakeCurrent failed; previous frame retained\n");
+        return 0;
     }
+    if (api.readback_error(context)) {
+        render_failed = 1;
+        /* MakeCurrent accepted this pointer: retain it until context destruction. */
+        if (replacement != frame) { free(frame); frame = replacement; frame_bytes = needed; }
+        return 0;
+    }
+    if (replacement != frame) { free(frame); frame = replacement; frame_bytes = needed; }
     frame_width = width;
     frame_height = height;
     return 1;
 }
 
 int faot_gl41_make_current(void *surface, int width, int height) {
+    if (render_failed) return 0;
+    if (owner_set && !pthread_equal(owner, pthread_self())) {
+        fprintf(stderr, "[GL41] context access from non-owner thread refused\n");
+        return 0;
+    }
     if (!load_api()) return 0;
     if (!qos_set) {
         (void)pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
         qos_set = 1;
     }
-    present_surface = surface;
     if (!context) {
         /* A compatibility profile is the requested 4.1 feature set; Minecraft only relies on
          * core facilities that remain valid in this profile. */
@@ -208,14 +234,15 @@ int faot_gl41_make_current(void *surface, int width, int height) {
         fprintf(stderr, "[GL41] OSMesa context created; zink over MoltenVK\n");
         fprintf(stderr, "[GL41] first render size %dx%d\n", width, height);
     }
-    if (!resize(width, height)) return 0;
     if (made_current && width == current_width && height == current_height) {
+        present_surface = surface;
         return 1;
     }
-    if (!api.make_current(context, frame, GL_UNSIGNED_BYTE_VALUE, width, height)) {
-        fprintf(stderr, "[GL41] OSMesaMakeCurrent failed\n");
-        return 0;
-    }
+    /* A failed MakeCurrent can still retain a binding. Its teardown must stay
+     * on the calling thread even when this was the first bind after detach. */
+    owner = pthread_self(); owner_set = 1;
+    if (!bind_frame(width, height)) return 0;
+    present_surface = surface;
     api.pixel_store(OSMESA_ROW_LENGTH, width);
     api.pixel_store(OSMESA_Y_UP, 0);
     current_width = width;
@@ -231,10 +258,23 @@ int faot_gl41_make_current(void *surface, int width, int height) {
     return 1;
 }
 
-void faot_gl41_swap(void *surface) {
-    if (!context || !frame) return;
+int faot_gl41_detach(void) {
+    if (!context || !owner_set) return 1;
+    if (!pthread_equal(owner, pthread_self())) return 0;
+    if (!api.make_current(NULL, NULL, GL_UNSIGNED_BYTE_VALUE, 0, 0)) return 0;
+    made_current = owner_set = 0;
+    return 1;
+}
+
+int faot_gl41_swap(void *surface) {
+    if (render_failed || !context || !frame || !owner_set || !pthread_equal(owner, pthread_self())) return 0;
     double start = now_ms();
     if (api.finish) api.finish();
+    if (api.readback_error(context)) {
+        render_failed = 1;
+        fprintf(stderr, "[GL41] FATAL_READBACK: GPU map/readback failed; rendering stopped before presentation\n");
+        return 0;
+    }
     double finished = now_ms();
     if (!bgra_format) {
         uint32_t *pixels = (uint32_t *)frame;
@@ -244,7 +284,11 @@ void faot_gl41_swap(void *surface) {
             pixels[i] = (value & 0xff00ff00u) | ((value & 0x00ff0000u) >> 16) | ((value & 0x000000ffu) << 16);
         }
     }
-    faot_surface_present_bgra(surface ? surface : present_surface, frame, frame_width, frame_height);
+    if (!faot_surface_present_bgra(surface ? surface : present_surface, frame, frame_width, frame_height)) {
+        render_failed = 1;
+        fprintf(stderr, "[GL41] FATAL_PRESENT: Metal presentation failed; rendering stopped\n");
+        return 0;
+    }
     double presented = now_ms();
     perf_finish_ms += finished - start;
     perf_present_ms += presented - finished;
@@ -265,17 +309,28 @@ void faot_gl41_swap(void *surface) {
         perf_last = presented;
         perf_reset_window();
     }
+    return 1;
 }
 
-void faot_gl41_release(void) {
+int faot_gl41_release(void) {
+    if (owner_set && !pthread_equal(owner, pthread_self())) {
+        fprintf(stderr, "[GL41] context destruction from non-owner thread refused\n");
+        return 0;
+    }
     if (api.destroy && context) api.destroy(context);
     context = NULL;
     free(frame);
+    free(failed_frame);
+    failed_frame = NULL;
     frame = NULL;
     frame_bytes = 0;
     frame_width = frame_height = 0;
+    current_width = current_height = 0;
+    present_surface = NULL;
+    owner_set = render_failed = 0;
     made_current = logged = 0;
     bgra_format = 1;
     perf_last = perf_previous_present = 0;
     perf_reset_window();
+    return 1;
 }
