@@ -207,8 +207,8 @@ class DependencyTests(unittest.TestCase):
             self.rebuild(['glfw'], execute)
         self.assertEqual(self.config.read_bytes(), self.original)
 
-    def test_runtime_report_cannot_override_pinned_osmesa_hash(self):
-        with self.assertRaisesRegex(ValueError, '固定版本哈希'):
+    def test_runtime_report_cannot_replace_mesa_source_provenance(self):
+        with self.assertRaisesRegex(ValueError, 'patched Mesa source provenance'):
             d.artifacts(self.root, 'gl41', {'filesSHA256': {'libOSMesa.8.dylib': 'tampered'}})
 
     def test_external_config_edit_is_preserved(self):

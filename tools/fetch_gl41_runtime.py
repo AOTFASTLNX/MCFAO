@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Fetch the pinned iOS OpenGL 4.1 runtime used by the experimental renderer.
+"""Build patched Mesa and fetch pinned MoltenVK for the experimental iOS GL41 renderer.
 
-The two binaries come from the public Amethyst-iOS repository at an immutable commit. They are
-not committed to this repository. Mesa is MIT-licensed and MoltenVK is Apache-2.0 licensed;
-provenance, hashes and license links are recorded next to the downloaded files.
+Mesa is built from hash-pinned upstream source with repository patches. MoltenVK comes
+from an immutable Amethyst-iOS commit. Provenance, hashes and licenses accompany both.
 """
 from __future__ import annotations
 
@@ -18,6 +17,7 @@ from capture import ROOT
 from graphics_common import register_tree
 from storage_config import cache_path
 from verified_download import fetch
+from build_gl41_mesa import build as build_mesa, patch_identity, digest, MESA, MVK_HEADERS
 
 COMMIT = "54d20f9a7b22c8cadc026cbad8eb1a386a1e6efe"
 BASE = f"https://raw.githubusercontent.com/Taylen27/Amethyst-iOS/{COMMIT}/Natives/resources/Frameworks/"
@@ -64,6 +64,22 @@ def macho_platform(path: Path) -> tuple[int, int, int]:
     return platform, minimum, sdk
 
 
+def validate_runtime(directory: Path, report: dict) -> None:
+    """Reject historical unpatched runtimes and verify source-built Mesa provenance."""
+    mesa = report.get("mesa", {})
+    if mesa.get("patchIdentity") != patch_identity() or mesa.get("source") != MESA or mesa.get("headers") != MVK_HEADERS:
+        raise ValueError("GL41 patched Mesa source provenance changed; rebuild runtime")
+    hashes = report.get("filesSHA256", {})
+    if hashes.get("libOSMesa.8.dylib") != mesa.get("sha256"):
+        raise ValueError("GL41 Mesa binary differs from source build record")
+    for entry in FILES:
+        name = entry["name"]
+        expected = mesa.get("sha256") if name == "libOSMesa.8.dylib" else entry["sha256"]
+        if not expected or digest(directory / name) != expected:
+            raise ValueError("GL41 runtime fingerprint changed: " + name)
+        macho_platform(directory / name)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
@@ -72,29 +88,40 @@ def main(argv=None):
     out.mkdir(parents=True, exist_ok=False)
     records = {}
     builds = {}
+    mesa_dir = cache_path("graphics/gl41-mesa/" + patch_identity()).resolve()
+    mesa_binary = build_mesa(mesa_dir)
+    mesa_record = json.loads((mesa_dir / "result.json").read_text())
+    shutil.copy2(mesa_dir / "LICENSE-Mesa.rst", out / "LICENSE-Mesa.rst")
     for entry in FILES:
         destination = out / entry["name"]
-        digest = download(BASE + entry["name"], destination, entry["bytes"], entry["sha256"])
+        if entry["name"] == "libOSMesa.8.dylib":
+            shutil.copy2(mesa_binary, destination)
+            file_digest = mesa_record["sha256"]
+        else:
+            file_digest = download(BASE + entry["name"], destination, entry["bytes"], entry["sha256"])
         platform, minimum, sdk = macho_platform(destination)
         builds[entry["name"]] = {"platform": platform, "minimum": f"{minimum >> 16}.{(minimum >> 8) & 0xff}", "sdk": f"{sdk >> 16}.{(sdk >> 8) & 0xff}"}
-        records[entry["name"]] = digest
+        records[entry["name"]] = file_digest
     license_bytes = download(APACHE[0], out / "LICENSE-Apache-2.0.txt", 11358, APACHE[1])
     notice = (
         "Native Craft Launcher experimental OpenGL 4.1 runtime\n\n"
-        f"Source repository: https://github.com/Taylen27/Amethyst-iOS\nCommit: {COMMIT}\n"
+        f"MoltenVK binary source: https://github.com/Taylen27/Amethyst-iOS\nCommit: {COMMIT}\n"
         f"Path: Natives/resources/Frameworks/\n\n"
         "libOSMesa.8.dylib: Mesa 3D Graphics Library, MIT License.\n"
+        f"  Source: {MESA['url']}\n  SHA-256: {MESA['sha256']}\n"
         "  https://docs.mesa3d.org/license.html\n"
         "libMoltenVK.dylib: MoltenVK, Apache License 2.0.\n"
         "  https://github.com/KhronosGroup/MoltenVK/blob/main/LICENSE\n"
         "  Full Apache-2.0 text: LICENSE-Apache-2.0.txt\n\n"
-        "These are prebuilt, hash-pinned runtime libraries; no source or game content is redistributed.\n"
+        "Mesa is source-built with NCL checked readback and diagnostics patches. MoltenVK is hash-pinned.\n"
     )
     (out / "NOTICE.txt").write_text(notice)
     result = {"status": "GL41_RUNTIME_FETCHED",
-              "scope": "hash-pinned iOS OSMesa/MoltenVK binaries; no game execution or device acceptance",
+              "scope": "source-built patched Mesa / pinned MoltenVK; device acceptance separate",
+              "mesa": mesa_record,
               "provenance": {"repository": "https://github.com/Taylen27/Amethyst-iOS", "commit": COMMIT,
-                             "files": FILES},
+                             "files": [entry for entry in FILES if entry["name"] != "libOSMesa.8.dylib"],
+                             "mesaSource": MESA},
               "filesSHA256": {**records, "LICENSE-Apache-2.0.txt": license_bytes},
               "machO": builds,
               "licenses": {"Mesa": "MIT", "MoltenVK": "Apache-2.0"}}

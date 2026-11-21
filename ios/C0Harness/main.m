@@ -28,6 +28,7 @@
 #import <unistd.h>
 #include "log_file.h"
 #include "renderer_preflight.h"
+#include "gl41_diagnostics.h"
 #import "FAOTLauncherViewController.h"
 #import "FAOTAccountStore.h"
 
@@ -306,6 +307,7 @@ static void FAOTInstallCrashHandlers(int fd) {
     FAOTInstallCrashHandlers(fd);
     if (testVersion.length) fprintf(stdout, "[FAOT] testBuild=%s log=%s\n", testVersion.UTF8String, name.UTF8String);
     else fprintf(stdout, "[FAOT] log=%s\n", name.UTF8String);
+    FAOTLoadGL41Diagnostics(FAOTDocuments(), NSBundle.mainBundle.resourcePath);
 
     self.status.text = [NSString stringWithFormat:@"启动中 · 预留 %llu GiB · 日志 %@",
                         reserved >> 30, name];

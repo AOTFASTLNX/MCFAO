@@ -147,7 +147,13 @@ GLFWwindow *glfwCreateWindow(int width, int height, const char *title, GLFWmonit
 }
 void glfwDestroyWindow(GLFWwindow *w) {
     if (!valid(w)) return;
-    if (w->glContext) { faot_gl41_release(); w->glContext=0; }
+    if (w->glContext) {
+        if (!faot_gl41_release()) {
+            fail(GLFW_PLATFORM_ERROR,"GL41 context must be detached before destroying its window on another thread");
+            return;
+        }
+        w->glContext=0;
+    }
     pthread_mutex_lock(&mutex); live=NULL; readIndex=writeIndex=0; pthread_mutex_unlock(&mutex);
     faot_surface_destroy(w->surface);
     if (current==w) current=NULL;
@@ -243,11 +249,13 @@ void glfwSetWindowMonitor(GLFWwindow *w,GLFWmonitor *m,int x,int y,int width,int
 }
 GLFWmonitorfun glfwSetMonitorCallback(GLFWmonitorfun f) { GLFWmonitorfun old=monitorCallback;monitorCallback=f;return old; }
 void glfwMakeContextCurrent(GLFWwindow *w) {
-    if(!w){current=NULL;return;}
+    if(!w){
+        if(!faot_gl41_detach()){fail(GLFW_PLATFORM_ERROR,"GL41 context detach failed");return;}
+        current=NULL;return;
+    }
     if(!valid(w))return;
     current=w;
     if(!w->wantsGL)return;
-    if(w->glContext)return;
     int scale_w=(int)(w->pixelWidth*gl41_scale_value()+0.5), scale_h=(int)(w->pixelHeight*gl41_scale_value()+0.5);
     if(w->surface && faot_gl41_make_current(w->surface,scale_w,scale_h))w->glContext=1;
     else fail(GLFW_API_UNAVAILABLE,"OpenGL 4.1 context unavailable");
@@ -259,9 +267,13 @@ void glfwSwapBuffers(GLFWwindow *w) {
     if(!w->glContext){fail(GLFW_API_UNAVAILABLE,"OpenGL context was not created");return;}
     if(w->pixelWidth!=0 && w->pixelHeight!=0){
         int scale_w=(int)(w->pixelWidth*gl41_scale_value()+0.5), scale_h=(int)(w->pixelHeight*gl41_scale_value()+0.5);
-        faot_gl41_make_current(w->surface,scale_w,scale_h);
+        if(!faot_gl41_make_current(w->surface,scale_w,scale_h)){
+            w->close=1;fail(GLFW_PLATFORM_ERROR,"GL41 frame binding failed; rendering stopped");return;
+        }
     }
-    faot_gl41_swap(w->surface);
+    if(!faot_gl41_swap(w->surface)){
+        w->close=1;fail(GLFW_PLATFORM_ERROR,"GL41 readback failed; rendering stopped");
+    }
 }
 void glfwSwapInterval(int interval) { if(live)live->swapInterval=interval; }
 double glfwGetTime(void) { return ready()?monotonic()-epoch:0; }

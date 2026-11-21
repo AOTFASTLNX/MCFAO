@@ -1,0 +1,40 @@
+/* SPDX-License-Identifier: MIT. Actual Mesa transfer ownership functions are inserted. */
+#include <assert.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+enum { PIPE_MAP_THREAD_SAFE=1, TC_TRANSFER_MAP_THREADED_UNSYNC=2 };
+struct pipe_resource { unsigned references; };
+struct pipe_box { int x,y,z,width,height,depth; };
+struct zink_transfer {
+ struct { struct { struct pipe_resource *resource; unsigned usage; struct pipe_box box; } b; } base;
+ struct pipe_resource *staging_res;
+};
+struct zink_context { unsigned transfer_pool,transfer_pool_unsync; };
+static unsigned released,pool_frees;
+static void pipe_resource_reference(struct pipe_resource **dst,struct pipe_resource *src) {
+ if(src)src->references++;
+ if(*dst){assert((*dst)->references);(*dst)->references--;released++;}
+ *dst=src;
+}
+static void *slab_zalloc(unsigned *pool) {(void)pool;return calloc(1,sizeof(struct zink_transfer));}
+static void slab_free(unsigned *pool,void *p) {(void)pool;pool_frees++;free(p);}
+@CREATE@
+@DESTROY@
+int main(void) {
+ struct zink_context ctx={0};struct pipe_box box={.width=2222,.height=1552,.depth=1};
+ struct pipe_resource image={.references=1},staging={.references=1};
+ for(unsigned mode=0;mode<3;mode++) {
+  unsigned usage=mode==0?0:mode==1?PIPE_MAP_THREAD_SAFE:TC_TRANSFER_MAP_THREADED_UNSYNC;
+  for(unsigned i=0;i<1000;i++) {
+   struct zink_transfer *t=create_transfer(&ctx,&image,usage,&box);
+   assert(t&&image.references==2);
+   /* Creation failure before staging exists, or mapping failure after it exists. */
+   if(i&1)pipe_resource_reference(&t->staging_res,&staging);
+   destroy_transfer(&ctx,t);
+   assert(image.references==1&&staging.references==1);
+  }
+ }
+ assert(released==4500&&pool_frees==2000);
+ puts("ZINK_TRANSFER_FAILURE_OWNERSHIP_PASS");return 0;
+}
