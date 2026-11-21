@@ -948,6 +948,17 @@ def build(args, config):
                     shutil.copytree(instance / directory, seed / directory, dirs_exist_ok=True, ignore=copy_ignore)
             if (instance / "options.txt").is_file():
                 shutil.copy2(instance / "options.txt", seed / "options.txt")
+        # The launcher cannot infer build-time Mods from a game directory: AOT converts them into
+        # the native image. Keep a small, non-executable index beside the instance seed so the
+        # Resources page can list what this build actually contains.
+        mod_entries = [{"name": Path(path).name,
+                        "bytes": Path(path).stat().st_size if Path(path).is_file() else 0}
+                       for path in manifest.get("modsSHA256", {})]
+        if mod_entries:
+            if seed is None:
+                seed = output / "instance-seed"
+                seed.mkdir(exist_ok=True)
+            write_json(seed / "FAOTContentManifest.json", {"schema": 1, "mods": mod_entries})
         pipeline_icon = None
         if icon:
             icon_build = pipeline.step("icon", script(

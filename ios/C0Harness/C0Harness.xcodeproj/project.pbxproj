@@ -11,6 +11,14 @@
 		A2000000000000000000090D /* FAOTControlEditorViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000090C /* FAOTControlEditorViewController.m */; };
 		A2000000000000000000090B /* FAOTLauncherViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000909 /* FAOTLauncherViewController.m */; };
 		A2000000000000000000090A /* FAOTLauncherViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000909 /* FAOTLauncherViewController.m */; };
+		A20000000000000000000C21 /* FAOTAccountStore.m in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000C11 /* FAOTAccountStore.m */; };
+		A20000000000000000000C22 /* FAOTAccountStore.m in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000C11 /* FAOTAccountStore.m */; };
+		A20000000000000000000C23 /* FAOTAuthService.m in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000C13 /* FAOTAuthService.m */; };
+		A20000000000000000000C24 /* FAOTAuthService.m in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000C13 /* FAOTAuthService.m */; };
+		A20000000000000000000C25 /* FAOTSkinView.m in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000C15 /* FAOTSkinView.m */; };
+		A20000000000000000000C26 /* FAOTSkinView.m in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000C15 /* FAOTSkinView.m */; };
+		A20000000000000000000C27 /* FAOTLauncherPages.m in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000C17 /* FAOTLauncherPages.m */; };
+		A20000000000000000000C28 /* FAOTLauncherPages.m in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000C17 /* FAOTLauncherPages.m */; };
 		A20000000000000000000907 /* FAOTControlsOverlay.m in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000905 /* FAOTControlsOverlay.m */; };
 		A20000000000000000000906 /* FAOTControlsOverlay.m in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000905 /* FAOTControlsOverlay.m */; };
 		A20000000000000000000903 /* FAOTControlLayout.m in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000901 /* FAOTControlLayout.m */; };
@@ -59,6 +67,15 @@
 
 /* Begin PBXFileReference section */
 		A2000000000000000000090C /* FAOTControlEditorViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FAOTControlEditorViewController.m; sourceTree = "<group>"; };
+		A20000000000000000000C11 /* FAOTAccountStore.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FAOTAccountStore.m; sourceTree = "<group>"; };
+		A20000000000000000000C12 /* FAOTAccountStore.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FAOTAccountStore.h; sourceTree = "<group>"; };
+		A20000000000000000000C13 /* FAOTAuthService.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FAOTAuthService.m; sourceTree = "<group>"; };
+		A20000000000000000000C14 /* FAOTAuthService.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FAOTAuthService.h; sourceTree = "<group>"; };
+		A20000000000000000000C15 /* FAOTSkinView.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FAOTSkinView.m; sourceTree = "<group>"; };
+		A20000000000000000000C16 /* FAOTSkinView.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FAOTSkinView.h; sourceTree = "<group>"; };
+		A20000000000000000000C17 /* FAOTLauncherPages.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FAOTLauncherPages.m; sourceTree = "<group>"; };
+		A20000000000000000000C18 /* FAOTLauncherPages.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FAOTLauncherPages.h; sourceTree = "<group>"; };
+		A20000000000000000000C19 /* FAOTLauncherTheme.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FAOTLauncherTheme.h; sourceTree = "<group>"; };
 		A20000000000000000000909 /* FAOTLauncherViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FAOTLauncherViewController.m; sourceTree = "<group>"; };
 		A20000000000000000000908 /* FAOTLauncherViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FAOTLauncherViewController.h; sourceTree = "<group>"; };
 		A20000000000000000000905 /* FAOTControlsOverlay.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FAOTControlsOverlay.m; sourceTree = "<group>"; };
@@ -99,6 +116,15 @@
 				A20000000000000000000905 /* FAOTControlsOverlay.m */,
 				A20000000000000000000908 /* FAOTLauncherViewController.h */,
 				A20000000000000000000909 /* FAOTLauncherViewController.m */,
+				A20000000000000000000C12 /* FAOTAccountStore.h */,
+				A20000000000000000000C11 /* FAOTAccountStore.m */,
+				A20000000000000000000C14 /* FAOTAuthService.h */,
+				A20000000000000000000C13 /* FAOTAuthService.m */,
+				A20000000000000000000C16 /* FAOTSkinView.h */,
+				A20000000000000000000C15 /* FAOTSkinView.m */,
+				A20000000000000000000C18 /* FAOTLauncherPages.h */,
+				A20000000000000000000C17 /* FAOTLauncherPages.m */,
+				A20000000000000000000C19 /* FAOTLauncherTheme.h */,
 				A2000000000000000000090C /* FAOTControlEditorViewController.m */,
 				A20000000000000000000082 /* WorldUITests.m */,
 				A20000000000000000000090 /* WorldSimulator.xcconfig */,
@@ -283,6 +309,10 @@
 				A20000000000000000000906 /* FAOTControlsOverlay.m in Sources */,
 				A2000000000000000000090A /* FAOTLauncherViewController.m in Sources */,
 				A2000000000000000000090D /* FAOTControlEditorViewController.m in Sources */,
+				A20000000000000000000C21 /* FAOTAccountStore.m in Sources */,
+				A20000000000000000000C23 /* FAOTAuthService.m in Sources */,
+				A20000000000000000000C25 /* FAOTSkinView.m in Sources */,
+				A20000000000000000000C27 /* FAOTLauncherPages.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -303,6 +333,10 @@
 				A20000000000000000000907 /* FAOTControlsOverlay.m in Sources */,
 				A2000000000000000000090B /* FAOTLauncherViewController.m in Sources */,
 				A2000000000000000000090E /* FAOTControlEditorViewController.m in Sources */,
+				A20000000000000000000C22 /* FAOTAccountStore.m in Sources */,
+				A20000000000000000000C24 /* FAOTAuthService.m in Sources */,
+				A20000000000000000000C26 /* FAOTSkinView.m in Sources */,
+				A20000000000000000000C28 /* FAOTLauncherPages.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -458,6 +492,8 @@
 					CoreGraphics,
 					"-framework",
 					QuartzCore,
+					"-framework",
+					Security,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = org.fabricaot.research.c0.kexin;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -489,6 +525,8 @@
 					CoreGraphics,
 					"-framework",
 					QuartzCore,
+					"-framework",
+					Security,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = org.fabricaot.research.c0.kexin;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -530,6 +568,8 @@
 					CoreGraphics,
 					"-framework",
 					QuartzCore,
+					"-framework",
+					Security,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = org.fabricaot.research.c0.kexin;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -581,6 +621,8 @@
 					CoreGraphics,
 					"-framework",
 					QuartzCore,
+					"-framework",
+					Security,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = org.fabricaot.research.c0.kexin;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -621,6 +663,8 @@
 					CoreGraphics,
 					"-framework",
 					QuartzCore,
+					"-framework",
+					Security,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = org.fabricaot.research.c0.kexin;
 				PRODUCT_NAME = "$(TARGET_NAME)";
