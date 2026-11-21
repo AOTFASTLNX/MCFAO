@@ -11,6 +11,7 @@ import time
 from capture import ROOT, capture
 from mcfao import read_json, script, tree_files, write_json
 from build_c0_harness import validate_dylib
+from artifact_copy import copy_artifact
 
 FABRIC_MARKERS = (
     "MCFAO_F1_CLIENT_ENTRYPOINT_RESOURCE_PASS",
@@ -70,10 +71,10 @@ def run(args):
     staged.mkdir()
     for name in ("libglfw.dylib", "liblwjgl.dylib", "libfaot_metal.dylib", "libopenal.dylib"):
         validate_dylib(graphics / name, simulator=True)
-        shutil.copy2(graphics / name, staged / name)
-    shutil.copy2(graphics / "fabricaot-present.metallib", staged)
+        copy_artifact(graphics / name, staged / name, preserve_metadata=True)
+    copy_artifact(graphics / "fabricaot-present.metallib", staged / "fabricaot-present.metallib", preserve_metadata=True)
     shutil.copytree(graphics / "fabricaot-shaders", staged / "fabricaot-shaders")
-    shutil.copy2(link / "client-graph.dylib", staged)
+    copy_artifact(link / "client-graph.dylib", staged / "client-graph.dylib", preserve_metadata=True)
     derived = output / "DerivedData"
     step("xcodebuild", [
         "/usr/bin/xcodebuild", "-project", ROOT / "ios/C0Harness/C0Harness.xcodeproj",

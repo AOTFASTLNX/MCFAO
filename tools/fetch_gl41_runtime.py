@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
 import struct
 import sys
 from pathlib import Path
@@ -17,6 +16,7 @@ from capture import ROOT
 from graphics_common import register_tree
 from storage_config import cache_path
 from verified_download import fetch
+from artifact_copy import copy_artifact
 from build_gl41_mesa import build as build_mesa, patch_identity, digest, MESA, MVK_HEADERS
 
 COMMIT = "54d20f9a7b22c8cadc026cbad8eb1a386a1e6efe"
@@ -37,7 +37,7 @@ def download(url: str, destination: Path, expected_bytes: int, expected_sha: str
     cached = cache_path('graphics/gl41-runtime').resolve() / destination.name
     fetch({'url': url, 'size': expected_bytes, 'sha256': expected_sha}, cached)
     if cached != destination.resolve():
-        shutil.copyfile(cached, destination)
+        copy_artifact(cached, destination)
     return expected_sha
 
 
@@ -91,11 +91,11 @@ def main(argv=None):
     mesa_dir = cache_path("graphics/gl41-mesa/" + patch_identity()).resolve()
     mesa_binary = build_mesa(mesa_dir)
     mesa_record = json.loads((mesa_dir / "result.json").read_text())
-    shutil.copy2(mesa_dir / "LICENSE-Mesa.rst", out / "LICENSE-Mesa.rst")
+    copy_artifact(mesa_dir / "LICENSE-Mesa.rst", out / "LICENSE-Mesa.rst")
     for entry in FILES:
         destination = out / entry["name"]
         if entry["name"] == "libOSMesa.8.dylib":
-            shutil.copy2(mesa_binary, destination)
+            copy_artifact(mesa_binary, destination)
             file_digest = mesa_record["sha256"]
         else:
             file_digest = download(BASE + entry["name"], destination, entry["bytes"], entry["sha256"])

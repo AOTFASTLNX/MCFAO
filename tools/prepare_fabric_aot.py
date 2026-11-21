@@ -21,6 +21,7 @@ from mod_file_policy import content_paths, is_metadata, mod_candidates
 from prepare_b0 import jar_bytes, select_libraries
 from run_b0_reference import execute, require_run, sandbox_policy
 from renderer_profile import DEFAULT_RENDERER, RENDERERS
+from artifact_copy import copy_artifact
 
 TOOL = ROOT / "interop/fabric/tool"
 FIXTURE = ROOT / "interop/fabric/fixture"
@@ -478,7 +479,7 @@ def prepare(prepared, client, mods, output, audited, trace_agent=False, renderer
         if source.stat().st_size > MAX_ARCHIVE:
             raise ValueError(f"Oversized mod: {source}")
         destination = work / "game/mods" / source.name
-        shutil.copyfile(source, destination)
+        copy_artifact(source, destination)
         hashes[str(source)] = sha256(source)
         if hashes[str(source)] != sha256(destination):
             raise ValueError(f"Mod changed while copying: {source}")

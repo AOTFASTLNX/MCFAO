@@ -4,11 +4,11 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
-import shutil
 from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 from bootstrap_toolchain import sha256
+from artifact_copy import copy_artifact
 
 
 PACKAGING_FIELDS = {"unsigned", "bundleID", "appIcon", "requestedDevice", "instanceSHA256", "testVersion"}
@@ -69,7 +69,7 @@ def restore(cache, key, output, inputs):
                     return None
                 destination = pending / name
                 destination.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(source, destination)
+                copy_artifact(source, destination)
                 if sha256(destination) != entry["sha256"]:
                     return None
             if inputs["loader"] == "fabric":

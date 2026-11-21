@@ -25,6 +25,7 @@ import subprocess
 import sys
 from pathlib import Path
 from mod_file_policy import is_metadata
+from artifact_copy import copy_artifact
 
 ROOT = Path(__file__).resolve().parent.parent
 PROJECT = ROOT / "ios/C0Harness/C0Harness.xcodeproj"
@@ -279,8 +280,8 @@ def main(argv=None) -> int:
         identity=hashlib.sha256(''.join(sorted(fingerprints)).encode()).hexdigest()[:12]
         native_dir=HARNESS_DIR/(("native-simulator-" if args.simulator else "native-device-")+identity)
         native_dir.mkdir(exist_ok=True)
-        for path in args.native_library:shutil.copy2(path,native_dir/path.name)
-        if metal_library:shutil.copy2(metal_library,native_dir/metal_library.name)
+        for path in args.native_library:copy_artifact(path,native_dir/path.name,preserve_metadata=True)
+        if metal_library:copy_artifact(metal_library,native_dir/metal_library.name,preserve_metadata=True)
         if args.shader_bundle:shutil.copytree(args.shader_bundle,native_dir/'fabricaot-shaders',dirs_exist_ok=True)
     elif args.metal_library or args.shader_bundle:parser.error("Shader libraries require explicit graphics native libraries")
 
